@@ -2,27 +2,33 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from assessor import kickoff
+from certificates.make_certificate import compute_certificate
 
 
-def test_run_episode_long_trace(tmp_path, monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "")
-    trace_dir = tmp_path / "demo_traces"
-    result = kickoff.run_episode(
-        {"prompt": "Solve Fibonacci", "tests": [], "trace_dir": trace_dir},
-        max_steps=12,
-    )
+def test_run_episode_produces_long_trace():
+    result = kickoff.run_episode({"prompt": "demo long trace", "tests": []}, max_steps=12)
+    trace = result["trace"]
 
-    assert len(result["trace"]) >= 12
-    for entry in result["trace"]:
-        assert "timestamp" in entry
-        assert "role" in entry
-        assert "type" in entry
+    assert len(trace) >= 12
+    for entry in trace:
+        for key in ["step", "role", "type", "text", "timestamp", "context"]:
+            assert key in entry
 
-    trace_path = Path(result["trace_path"])
+    trace_path = Path("demo_traces") / f"{result['episode_id']}.json"
     assert trace_path.exists()
     with trace_path.open("r", encoding="utf-8") as f:
         saved = json.load(f)
-    assert saved.get("episode_id") == result["episode_id"]
+    assert isinstance(saved, list)
+
+
+def test_chain_of_thought_certificate_runs():
+    result = kickoff.run_episode({"prompt": "certificate check", "tests": []}, max_steps=12)
+    embeddings = kickoff.embed_trace_steps(result["trace"])
+    cert = compute_certificate(embeddings)
+
+    assert "theoretical_bound" in cert
