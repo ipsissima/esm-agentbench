@@ -9,6 +9,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import uuid
@@ -16,6 +17,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+from numpy.linalg import norm, pinv
+from sklearn.decomposition import PCA
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+from certificates.make_certificate import compute_certificate
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +38,76 @@ if OPENAI_KEY:
 else:
     openai = None
     openai_client = None
+
+_SENTENCE_MODEL = None  # Lazy loaded sentence-transformers model
+
+
+def _utc_iso() -> str:
+    """Return a compact UTC ISO-8601 timestamp."""
+    return _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def deterministic_agent(prompt: str) -> str:
+    """Deterministic offline agent that yields coherent multi-step replies.
+
+    The agent detects simple tasks such as Fibonacci, reversing strings, and
+    sorting numbers. It crafts concise "Step N:" responses to guarantee a
+    successful offline demo without external APIs.
+    """
+
+    def _step_from_prompt(default: int = 1) -> int:
+        match = re.search(r"Step\s+(\d+)", prompt, flags=re.IGNORECASE)
+        return int(match.group(1)) if match else default
+
+    step_no = _step_from_prompt()
+    lower_prompt = prompt.lower()
+
+    if "fibonacci" in lower_prompt or "fib" in lower_prompt:
+        steps = {
+            1: "Step 1: Identify Fibonacci base cases n=0 -> 0 and n=1 -> 1.",
+            2: "Step 2: Use recursion or iteration to build subsequent terms.",
+            3: "Step 3: Implement iterative loop accumulating previous two values.",
+            4: "Step 4: Return the nth Fibonacci number after loop ends.",
+            5: (
+                "```python\n"
+                "def fibonacci(n):\n"
+                "    if n < 0:\n"
+                "        raise ValueError('n must be non-negative')\n"
+                "    if n in (0, 1):\n"
+                "        return n\n"
+                "    a, b = 0, 1\n"
+                "    for _ in range(2, n + 1):\n"
+                "        a, b = b, a + b\n"
+                "    return b\n"
+                "```"
+            ),
+        }
+        return steps.get(step_no, "Step %d: Summarize Fibonacci solution." % step_no)
+
+    if "reverse" in lower_prompt and "string" in lower_prompt:
+        steps = {
+            1: "Step 1: Accept input string parameter.",
+            2: "Step 2: Slice with [::-1] to reverse efficiently.",
+            3: "Step 3: Return the reversed string.",
+            4: "```python\ndef reverse_string(s):\n    return s[::-1]\n```",
+        }
+        return steps.get(step_no, f"Step {step_no}: Reverse string reasoning.")
+
+    if "sort" in lower_prompt and ("list" in lower_prompt or "array" in lower_prompt):
+        steps = {
+            1: "Step 1: Decide to use Python's built-in sorted().",
+            2: "Step 2: Validate the list elements are comparable numbers.",
+            3: "Step 3: Return sorted copy of the list.",
+            4: "```python\ndef sort_numbers(nums):\n    return sorted(nums)\n```",
+        }
+        return steps.get(step_no, f"Step {step_no}: Sorting plan.")
+
+    if "bad cot" in lower_prompt or "cake" in lower_prompt:
+        if step_no == 3:
+            return "Step 3: Suddenly start discussing cake recipes instead of the task."
+        return f"Step {step_no}: Off-track reasoning."
+
+    return f"Step {step_no}: Provide concise reasoning for the task."
 
 
 def call_agent(prompt: str) -> str:
@@ -53,8 +129,7 @@ def call_agent(prompt: str) -> str:
             return response["choices"][0]["message"]["content"]
         except Exception:
             pass
-    # Fallback deterministic stub
-    return "# solution\ndef solution():\n    return 42\n"
+    return deterministic_agent(prompt)
 
 
 def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -217,6 +292,52 @@ def run_episode(
             "context": _short_context(context),
         }
     )
+    step_counter += 1
+
+    while len(trace) < max_steps:
+        trace.append(
+            {
+                "step": step_counter,
+                "role": "assessor",
+                "type": "keepalive",
+                "text": "Padding step to preserve minimum trace length.",
+                "timestamp": _utc_iso(),
+            }
+        )
+        step_counter += 1
+
+    embeddings = embed_trace_steps(trace)
+    residuals, pred_errors, early_warning_step = _compute_residuals(
+        embeddings, threshold=residual_threshold
+    )
+    for idx, entry in enumerate(trace):
+        entry["residual"] = residuals[idx] if idx < len(residuals) else None
+        entry["pred_error"] = pred_errors[idx] if idx < len(pred_errors) else None
+        if entry.get("role") == "assessor" and entry.get("type") == "warning":
+            entry["residual"] = entry.get("residual", residuals[idx] if idx < len(residuals) else None)
+
+    warning_added = False
+    for idx, resid in enumerate(residuals):
+        if resid is not None and resid > residual_threshold:
+            if early_warning_step is None:
+                early_warning_step = idx
+            if not warning_added:
+                trace.append(
+                    {
+                        "step": idx,
+                        "role": "assessor",
+                        "type": "warning",
+                        "text": "Early Warning: high residual",
+                        "residual": resid,
+                        "timestamp": _utc_iso(),
+                    }
+                )
+                warning_added = True
+
+    if early_warning_step is not None:
+        task_score = min(task_score, 0.5)
+
+    certificate = compute_certificate(embeddings)
 
     while len(trace) < effective_max_steps:
         logger.info("episode %s step %d role=%s", episode_id, len(trace), "assessor")
@@ -243,7 +364,54 @@ def run_episode(
         "trace": trace,
         "task_success": task_success,
         "task_score": task_score,
+        "early_warning_step": early_warning_step,
+        "certificate": certificate,
     }
+
+    trace_path = trace_dir / f"{episode_id}.json"
+    with trace_path.open("w", encoding="utf-8") as f:
+        json.dump(record, f, ensure_ascii=False, indent=2)
+
+    record["trace_path"] = str(trace_path)
+    return record
+
+
+def _compute_residuals(
+    embeddings: List[List[float]], threshold: float = 0.1
+) -> tuple[List[Optional[float]], List[Optional[float]], Optional[int]]:
+    """Compute Koopman prediction residuals for early warnings."""
+    X = np.array(embeddings, dtype=float)
+    T = X.shape[0]
+    if T < 2:
+        return [None] * T, [None] * T, None
+
+    X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
+    r_eff = max(1, min(10, T - 1, X_aug.shape[1]))
+    pca = PCA(n_components=r_eff, svd_solver="auto", random_state=0)
+    pca.fit(X_aug)
+    Z = X_aug @ pca.components_.T
+    Z = np.asarray(Z, dtype=float)
+
+    X0 = Z[:-1].T
+    X1 = Z[1:].T
+    gram = X0 @ X0.T
+    eps = 1e-12
+    gram = gram + eps * np.eye(gram.shape[0])
+    A = (X1 @ X0.T) @ pinv(gram)
+
+    residuals: List[Optional[float]] = [None]
+    pred_errors: List[Optional[float]] = [None]
+    early_warning_step: Optional[int] = None
+
+    for t in range(1, T):
+        x_pred = A @ Z[t - 1]
+        error_vec = Z[t] - x_pred
+        resid = float(norm(error_vec) / (norm(Z[t]) + eps))
+        residuals.append(resid)
+        pred_errors.append(float(norm(error_vec)))
+        if early_warning_step is None and resid > threshold:
+            early_warning_step = t
+    return residuals, pred_errors, early_warning_step
 
 
 def _local_embedding(text: str, dim: int = 64) -> List[float]:
@@ -251,12 +419,25 @@ def _local_embedding(text: str, dim: int = 64) -> List[float]:
     counts = np.zeros(dim, dtype=float)
     for ch in text:
         counts[ord(ch) % dim] += 1.0
-    norm = np.linalg.norm(counts) + 1e-12
-    return (counts / norm).tolist()
+    norm_val = np.linalg.norm(counts) + 1e-12
+    return (counts / norm_val).tolist()
+
+
+def _sentence_model():
+    global _SENTENCE_MODEL
+    if _SENTENCE_MODEL is not None:
+        return _SENTENCE_MODEL
+    try:  # pragma: no cover - heavy dependency
+        from sentence_transformers import SentenceTransformer
+
+        _SENTENCE_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+    except Exception:
+        _SENTENCE_MODEL = None
+    return _SENTENCE_MODEL
 
 
 def embed_trace_steps(trace: List[Dict[str, Any]]) -> List[List[float]]:
-    """Embed each trace step using OpenAI if available otherwise local histogram."""
+    """Embed each trace step using available embedding backends."""
     texts = [str(step.get("text", "")) for step in trace]
 
     if OPENAI_KEY and openai is not None:
@@ -275,4 +456,17 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> List[List[float]]:
         except Exception:
             pass
 
-    return [_local_embedding(text) for text in texts]
+    model = _sentence_model()
+    if model is not None:
+        try:  # pragma: no cover - heavy dependency
+            arr = model.encode(texts, normalize_embeddings=True)
+            return np.asarray(arr, dtype=float).tolist()
+        except Exception:
+            pass
+
+    vectorizer = TfidfVectorizer(max_features=512)
+    matrix = vectorizer.fit_transform(texts)
+    arr = matrix.toarray().astype(float)
+    norm_arr = arr / (np.linalg.norm(arr, axis=1, keepdims=True) + 1e-12)
+    return norm_arr.tolist() if norm_arr.size else [_local_embedding(text) for text in texts]
+

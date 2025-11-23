@@ -36,3 +36,7 @@ python "$ROOT_DIR/tools/run_demo_swe.py"
 REPORT_PATH="$ROOT_DIR/demo_swe/report.json"
 echo "Demo report: $REPORT_PATH"
 echo "Episode traces: $ROOT_DIR/demo_traces"
+
+echo "Generating coherence hallucination demo..."
+python "$ROOT_DIR/tools/generate_hallucination_demo.py"
+echo "See figure at $ROOT_DIR/demo_swe/fig_hallucination.png"

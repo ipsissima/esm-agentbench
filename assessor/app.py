@@ -62,21 +62,26 @@ def run_episode() -> Any:
         result = kickoff.run_episode(task_spec)
         episode_id = result["episode_id"]
         trace = result["trace"]
+        trace_path = Path(result.get("trace_path", TRACE_DIR / f"{episode_id}.json"))
 
-        trace_path = TRACE_DIR / f"{episode_id}.json"
-        with trace_path.open("w", encoding="utf-8") as f:
-            json.dump(trace, f, ensure_ascii=False, indent=2)
+        if not trace_path.exists():
+            trace_path = TRACE_DIR / f"{episode_id}.json"
+            with trace_path.open("w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
 
-        embeddings = kickoff.embed_trace_steps(trace)
-        spectral = compute_certificate(embeddings)
-        spectral["confidence"] = max(0.0, 1.0 - spectral.get("residual", 1.0))
+        certificate = result.get("certificate")
+        if not certificate:
+            embeddings = kickoff.embed_trace_steps(trace)
+            certificate = compute_certificate(embeddings)
+        certificate["confidence"] = max(0.0, 1.0 - certificate.get("residual", 1.0))
 
         response = {
             "episode_id": episode_id,
             "task_success": bool(result.get("task_success", False)),
             "task_score": float(result.get("task_score", 0.0)),
-            "spectral_metrics": spectral,
+            "spectral_metrics": certificate,
             "trace_path": str(trace_path.relative_to(REPO_ROOT)),
+            "early_warning_step": result.get("early_warning_step"),
         }
         return jsonify(response), 200
     except Exception as exc:  # pragma: no cover - safety net
