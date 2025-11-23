@@ -24,6 +24,15 @@ Competition info deck: [AgentBeats Info Session](file:///mnt/data/agentbeats-com
    ```
    The app listens on port `8080` by default.
 
+## Deployment helper: Cloud Run
+If you have gcloud access, you can deploy and auto-update the agent card entrypoint with:
+
+```bash
+scripts/update_entrypoint_cloudrun.sh --project <gcp-project> [--region <region>] [--service <name>]
+```
+
+The script deploys to Cloud Run from source, retrieves the public HTTPS URL, updates `agent_card.toml` to point at `/.well-known/agent-card.json`, and commits the change. Use `--force` if you need to run with a dirty working tree.
+
 ## API
 ### `GET /.well-known/agent-card.json`
 Returns the contents of `agent_card.toml` as JSON. If the file is missing, a 404 JSON error is returned.
