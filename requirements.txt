@@ -1,9 +1,6 @@
 flask
 numpy
 scikit-learn
-openai
-gunicorn
+joblib
 pytest
-
-javascript
-Copia el codi
+tomli

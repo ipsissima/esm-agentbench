@@ -1,49 +1,68 @@
-ESM-AgentBench
-ESM-AgentBench — Spectral / Eigenspace Certificates for Agent Evaluation
+# ESM-AgentBench Green Assessor
 
-This repo contains the minimal green-assessor and tooling for Phase-1 of the AgentX–AgentBeats competition:
+This repository contains a minimal, judge-friendly "green assessor" for the ESM-AgentBench competition. It exposes a small Flask service that can serve the agent card, run a demonstration episode, save traces, and compute spectral certificates that summarize stability and dynamical properties of agent traces. The project emphasizes deterministic local behavior with optional OpenAI integrations when an `OPENAI_API_KEY` is available.
 
-Port of a SWE-bench Lite subset into AgentBeats as a green assessor (assessor/).
+Competition info deck: [AgentBeats Info Session](file:///mnt/data/agentbeats-competition-info-session-deck.pdf)
 
-A certificate pipeline that computes a finite-rank Koopman proxy over agent interaction traces and emits certified spectral metrics:
+## Quickstart
+1. Create and activate a virtual environment (Python 3.9+):
+   ```bash
+   python3 -m venv .venv && source .venv/bin/activate
+   ```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Run the service:
+   ```bash
+   python assessor/app.py
+   ```
+   The app listens on port `8080` by default.
 
-max_eig (maximum eigenvalue magnitude),
+## API
+### `GET /.well-known/agent-card.json`
+Returns the contents of `agent_card.toml` as JSON. If the file is missing, a 404 JSON error is returned.
 
-spectral_gap (separation between leading eigenvalues),
+### `POST /run_episode`
+Request body:
+```json
+{
+  "prompt": "...", 
+  "tests": [
+    {"name": "t1", "script": "assert 2+2 == 4"}
+  ]
+}
+```
+Behavior:
+- Runs a demo agent against the prompt (OpenAI-backed if configured, deterministic fallback otherwise).
+- Executes provided unit tests in a sandboxed temporary directory (`timeout=5`, `shell=False`).
+- Writes the trace to `demo_traces/<episode_id>.json`.
+- Computes spectral metrics from trace embeddings.
 
-residual (least-squares reconstruction error).
+Response:
+```json
+{
+  "episode_id": "...",
+  "task_success": true,
+  "task_score": 1.0,
+  "spectral_metrics": {
+    "pca_explained": 0.95,
+    "max_eig": 0.7,
+    "spectral_gap": 0.2,
+    "residual": 0.01,
+    "confidence": 0.99
+  },
+  "trace_path": "demo_traces/<episode_id>.json"
+}
+```
 
-Demo traces and scripts to reproduce the certificate outputs.
+## Spectral metrics
+- **pca_explained**: Total variance captured by the PCA projection (fraction).
+- **max_eig**: Largest eigenvalue magnitude of the Koopman proxy; values <1 suggest stability.
+- **spectral_gap**: Difference between the largest two eigenvalue magnitudes; larger gaps indicate dominant dynamics.
+- **residual**: Normalized reconstruction error of the linear proxy; smaller is better.
+- **confidence**: Heuristic `1 - residual`, clipped at 0.
 
-Homepage
-/mnt/data/agentbeats-competition-info-session-deck.pdf
-
-Quickstart (development)
-
-bash
-Copia el codi
-git clone https://github.com/<owner>/esm-agentbench.git
-cd esm-agentbench
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-# run a demo local episode
-python assessor/kickoff.py
-# run the Flask assessor server
-python assessor/app.py
-Interpretation for judges
-
-The spectral metrics measure the low-rank, linearisable dynamics of an agent’s internal trajectory (messages, tool calls, code edits) embedded into vector form. The metrics are accompanied by a residual error term for outcome validity and reproducibility.
-
-The implementation reuses the EigenSpace certificate pipeline (experimental research code) for rigorous certificate extraction.
-
-License & IP
-
-MIT License. (If you require different IP handling due to patent concerns, see ULELAT/ or contact the author.)
-
-Contact
-
-Andreu Ballús Santacana — andreuballus@gmail.com
-
-javascript
-Copia el codi
+## Development
+- Run tests with `pytest`.
+- Optional OpenAI usage is gated by the `OPENAI_API_KEY` environment variable; without it, deterministic local embeddings and agent responses are used.
