@@ -1,0 +1,8 @@
+assessment_id = "esm_demo"
+prompt = "Debate whether Koopman residuals are stable for chain-of-thought"
+max_steps = 5
+seed = 7
+participants = ["green", "purple"]
+
+[logging]
+show_logs = true

@@ -17,12 +17,33 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install sentence-transformers scikit-learn
+      - name: Import tutorial assets
+        run: python tools/import_tutorial.py || true
       - name: Run pytest
         run: pytest -q
-      - name: Build Docker image if available
+      - name: Build Docker image
+        run: docker build -t esm-agentbench:ci .
+      - name: Run demo scenario
         run: |
-          if command -v docker >/dev/null 2>&1; then
-            docker build -t esm-agentbench:ci .
-          else
-            echo "Docker not available; skipping image build"
-          fi
+          export ESM_FORCE_TFIDF=1
+          python -m esmassessor.green_server --host 127.0.0.1 --port 8080 --serve-only --show-logs &
+          python third_party/tutorial/scenarios/debate/debater.py --host 127.0.0.1 --port 9019 --show-logs &
+          sleep 5
+          ./agentbeats-run scenarios/esm/scenario.toml --show-logs
+          ls demo_traces/*certificate.json
+      - name: Validate certificate artifact
+        run: |
+          python - <<'PY'
+import json
+from pathlib import Path
+paths = sorted(Path('demo_traces').glob('*_certificate.json'))
+if not paths:
+    raise SystemExit('no certificates produced')
+for p in paths:
+    data = json.loads(p.read_text())
+    metrics = data.get('spectral_metrics', {})
+    if 'residual' not in metrics:
+        raise SystemExit(f'missing residual in {p}')
+print('validated', len(paths), 'certificates')
+PY

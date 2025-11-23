@@ -1,0 +1,1 @@
+Contributors agree that any patentable improvements or inventions contributed to this repository are either assigned to the maintainers or accompanied by a Contributor License Agreement (CLA) as directed by the project.

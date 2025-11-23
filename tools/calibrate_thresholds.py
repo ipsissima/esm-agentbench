@@ -1,268 +1,149 @@
 #!/usr/bin/env python3
-"""
-Calibrate residual_threshold and jump_factor for canonical evaluation.
-
-Algorithm:
-  - For each backend (sentence-transformers | tfidf | openai):
-      * Generate labeled runs (good/bad) using `tools/generate_hallucination_demo.py` strategy or demo episodes.
-      * For each run: extract texts, embed using canonical embedding function for the backend, compute certificate (using compute_certificate).
-      * Collect episode-level residuals (certificate["residual"]) and labels (good/bad).
-      * Grid-search threshold over residual range to maximize F1 score (good = residual <= threshold).
-      * Grid-search jump_factor from candidate values to maximize separation in segmentation or F1 on pivot detection (simple heuristic: compare theoretical_bound distributions).
-  - Write per-backend calibration JSON and update evaluation_config.yaml
-"""
-
+"""Calibrate residual and jump thresholds for the ESM assessor."""
 from __future__ import annotations
+
 import argparse
 import json
+import logging
 import os
 import sys
 from pathlib import Path
+from typing import Any, Dict, Iterable, List
+
 import numpy as np
-from sklearn.metrics import f1_score
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+TUTORIAL_SRC = PROJECT_ROOT / "third_party" / "tutorial" / "src"
+if str(TUTORIAL_SRC) not in sys.path:
+    sys.path.insert(0, str(TUTORIAL_SRC))
 
 from certificates.make_certificate import compute_certificate
-from assessor.kickoff import run_episode
+from third_party.tutorial.src.agentbeats.runner import _synthetic_trace
 
-# Reuse embedding helpers from generate_seed_traces
-def embed_sentence_transformers(texts, model_name="all-MiniLM-L6-v2"):
-    if os.environ.get("ESM_FAST_EMBEDDINGS"):
-        rng = np.random.default_rng(0)
-        arr = rng.standard_normal((len(texts), 384))
-        arr = arr / (np.linalg.norm(arr, axis=1, keepdims=True) + 1e-12)
-        return arr
-    try:
-        from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer(model_name)
-        arr = model.encode(texts, normalize_embeddings=True)
-    except Exception as exc:  # pragma: no cover - fallback for environments without weights
-        print(
-            f"sentence-transformers unavailable: {exc}. Falling back to TF-IDF.",
-        )
-        return embed_tfidf(texts)
-    arr = np.asarray(arr, dtype=float)
-    if arr.ndim == 1:
-        arr = arr.reshape(len(texts), -1)
-    return arr
+LOGGER = logging.getLogger(__name__)
 
-def embed_tfidf(texts, max_features=512):
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    vect = TfidfVectorizer(ngram_range=(1,2), max_features=max_features)
-    X = vect.fit_transform(texts).toarray().astype(float)
-    norms = np.linalg.norm(X, axis=1, keepdims=True) + 1e-12
-    X = X / norms
-    return X
 
-def embed_openai(texts, model="text-embedding-3-small"):
-    try:
-        import openai
-    except Exception:
-        raise RuntimeError("openai not available")
-    if hasattr(openai, "OpenAI"):
-        client = openai.OpenAI()
-        resp = client.embeddings.create(model=model, input=texts)
-        arr = np.array([item.embedding for item in resp.data], dtype=float)
-    else:
-        resp = openai.Embedding.create(model=model, input=texts)
-        arr = np.array([item["embedding"] for item in resp["data"]], dtype=float)
-    arr = arr / (np.linalg.norm(arr, axis=1, keepdims=True) + 1e-12)
-    return arr
+def load_config(path: Path) -> Dict[str, Any]:
+    import yaml
 
-def extract_texts(trace):
-    texts = [str(step.get("text","")) for step in trace]
-    return texts
+    if not path.exists():
+        raise RuntimeError(f"config missing: {path}")
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
-def run_and_embed(ep, backend, embed_args):
-    # Run episode to get trace, then embed deterministically using supplied backend
-    payload = run_episode(ep, seed=embed_args.get("seed", 0), max_steps=ep.get("max_steps", 12))
-    trace = payload.get("trace", [])
-    texts = extract_texts(trace)
+
+def embed_texts(texts: Iterable[str], backend: str, config: Dict[str, Any]) -> np.ndarray:
+    if os.environ.get("ESM_FORCE_TFIDF"):
+        backend = "tfidf"
+    backend = backend or (config.get("canonical", {}) or {}).get("embedding_backend", "sentence-transformers")
     if backend == "sentence-transformers":
-        emb = embed_sentence_transformers(texts, model_name=embed_args.get("model"))
-    elif backend == "tfidf":
-        emb = embed_tfidf(texts, max_features=embed_args.get("tfidf_max"))
-    elif backend == "openai":
-        emb = embed_openai(texts, model=embed_args.get("openai_model"))
-    else:
-        raise RuntimeError("Unknown backend")
-    return emb, payload, trace
-
-def best_threshold(residuals_good, residuals_bad):
-    # Build candidate thresholds between min and max residuals
-    all_vals = np.concatenate([residuals_good, residuals_bad])
-    lo, hi = float(np.nanmin(all_vals)), float(np.nanmax(all_vals))
-    # grid of 200 thresholds
-    candidates = np.linspace(lo, hi, num=200)
-    best = {"threshold": None, "f1": -1.0}
-    y_true = np.array([1]*len(residuals_good) + [0]*len(residuals_bad))
-    for t in candidates:
-        preds = np.array([1 if r <= t else 0 for r in np.concatenate([residuals_good, residuals_bad])])
-        score = f1_score(y_true, preds)
-        if score > best["f1"]:
-            best = {"threshold": float(t), "f1": float(score)}
-    return best
-
-def calibrate_backend(backend, episodes, args, config):
-    print(f"[calibrate] backend={backend}")
-    if os.environ.get("ESM_FAST_EMBEDDINGS"):
-        rng = np.random.default_rng(args.seed)
-        residuals_good = rng.uniform(0.05, 0.4, size=args.trials)
-        residuals_bad = rng.uniform(0.6, 1.0, size=args.trials)
-        best = best_threshold(np.array(residuals_good), np.array(residuals_bad))
-        jump_choice = 4.0
-        result = {
-            "backend": backend,
-            "residuals_good": residuals_good.tolist(),
-            "residuals_bad": residuals_bad.tolist(),
-            "threshold": best["threshold"],
-            "threshold_f1": best["f1"],
-            "jump_factor": jump_choice,
-            "notes": "fast-path calibration using synthetic residuals",
-        }
-        return result
-    residuals_good = []
-    residuals_bad = []
-    records = []
-
-    embed_args = {
-        "model": config["canonical"].get("sentence_transformers_model", "all-MiniLM-L6-v2"),
-        "tfidf_max": config["canonical"].get("tfidf_max_features", 512),
-        "openai_model": config["canonical"].get("openai_embedding_model", "text-embedding-3-small"),
-        "seed": args.seed
-    }
-
-    # Build labeled dataset: use generate_hallucination_demo style good and bad if present in repo
-    # Fallback: use episodes[0] for good and a variation for bad (poison), but better if demo_swe has good/bad known files
-    # We'll attempt to import tools/generate_hallucination_demo._good_spec/_bad_spec
-    try:
-        import tools.generate_hallucination_demo as gh
-        good_spec = gh._good_spec()
-        bad_spec = gh._bad_spec()
-        good_list = [good_spec] * args.trials
-        bad_list = [bad_spec] * args.trials
-    except Exception:
-        # fallback: use episodes[0] as "good" and episodes[0] with poison string as "bad"
-        good_list = [episodes[0]] * args.trials
-        bad_poison = {**episodes[0], "prompt": "POISON: induce hallucination\n" + episodes[0].get("prompt","")}
-        bad_list = [bad_poison] * args.trials
-
-    for i in range(args.trials):
-        g_ep = good_list[i % len(good_list)]
-        b_ep = bad_list[i % len(bad_list)]
-        # run and embed
         try:
-            g_emb, g_payload, g_trace = run_and_embed(g_ep, backend, embed_args)
-            b_emb, b_payload, b_trace = run_and_embed(b_ep, backend, embed_args)
-        except Exception as exc:
-            print(f"[calibrate] skipping trial {i} for backend {backend}: {exc}")
-            continue
+            from sentence_transformers import SentenceTransformer
 
-        g_cert = compute_certificate(g_emb, r=config["certificate"].get("pca_rank", 10))
-        b_cert = compute_certificate(b_emb, r=config["certificate"].get("pca_rank", 10))
-        residuals_good.append(float(g_cert.get("residual", 1.0)))
-        residuals_bad.append(float(b_cert.get("residual", 1.0)))
-        records.append({"good_cert": g_cert, "bad_cert": b_cert})
+            model_name = (config.get("canonical", {}) or {}).get("sentence_transformers_model", "all-MiniLM-L6-v2")
+            model = SentenceTransformer(model_name)
+            arr = np.asarray(model.encode(list(texts), normalize_embeddings=True), dtype=float)
+            return arr
+        except Exception as exc:  # pragma: no cover - fallback
+            LOGGER.warning("sentence-transformers unavailable: %s; falling back to tf-idf", exc)
+            backend = "tfidf"
+    if backend == "tfidf":
+        from sklearn.feature_extraction.text import TfidfVectorizer
 
-    if not residuals_good or not residuals_bad:
-        raise RuntimeError(f"No residuals collected for backend {backend}")
+        vect = TfidfVectorizer(ngram_range=(1, 2), max_features=(config.get("canonical", {}) or {}).get("tfidf_max_features", 512))
+        mat = vect.fit_transform(list(texts)).toarray().astype(float)
+        norms = np.linalg.norm(mat, axis=1, keepdims=True) + 1e-12
+        return mat / norms
+    raise RuntimeError(f"unsupported backend {backend}")
 
-    best = best_threshold(np.array(residuals_good), np.array(residuals_bad))
-    # pick jump_factor by simple grid search and heuristic: test segmentation on combined records and score by separation of mean theoretical_bound
-    candidate_jump = [1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
-    best_jump = {"jump_factor": None, "score": -1.0}
-    # compute separation score: mean(theoretical_bound_bad) - mean(theoretical_bound_good)
-    tg = [rec["good_cert"].get("theoretical_bound", 1.0) for rec in records]
-    tb = [rec["bad_cert"].get("theoretical_bound", 1.0) for rec in records]
-    mean_sep = float(np.mean(tb) - np.mean(tg))
-    # choose jump that is closest to pivot_spike_factor (heuristic), but we will just pick 4.0 if separation is positive
-    # For practical purposes, pick candidate with maximal mean separation (dummy heuristic)
-    if mean_sep > 0:
-        best_jump = {"jump_factor": 4.0, "score": mean_sep}
+
+def compute_residuals(trials: int, prompt: str, backend: str, config: Dict[str, Any], seed: int, bad: bool = False) -> List[float]:
+    rng = np.random.default_rng(seed + (1 if bad else 0))
+    residuals: List[float] = []
+    for idx in range(trials):
+        trace = _synthetic_trace("debater" if not bad else "noisy", f"{prompt} #{idx}", max_steps=5, seed=seed + idx)
+        if bad:
+            for step in trace:
+                step["text"] += " noisy pivot" * 2
+        embeddings = embed_texts([s["text"] for s in trace], backend, config)
+        cert = compute_certificate(embeddings, r=(config.get("certificate", {}) or {}).get("pca_rank", 10))
+        residuals.append(float(cert.get("residual", 1.0)))
+    return residuals
+
+
+def calibrate(backend: str, trials: int, config: Dict[str, Any], seed: int, dry_run: bool = False) -> Dict[str, Any]:
+    if dry_run:
+        rng = np.random.default_rng(seed)
+        residuals_good = rng.uniform(0.05, 0.35, size=trials).tolist()
+        residuals_bad = rng.uniform(0.55, 0.95, size=trials).tolist()
     else:
-        best_jump = {"jump_factor": 3.0, "score": mean_sep}
+        residuals_good = compute_residuals(trials, "coherent argument", backend, config, seed, bad=False)
+        residuals_bad = compute_residuals(trials, "chaotic rebuttal", backend, config, seed, bad=True)
 
-    result = {
+    all_vals = np.array(residuals_good + residuals_bad)
+    thresholds = np.linspace(float(np.min(all_vals)), float(np.max(all_vals)), num=100)
+    best_thresh = thresholds[0]
+    best_score = -1.0
+    for t in thresholds:
+        preds = np.array([1 if r <= t else 0 for r in all_vals])
+        labels = np.array([1] * len(residuals_good) + [0] * len(residuals_bad))
+        tp = float(np.sum((preds == 1) & (labels == 1)))
+        fp = float(np.sum((preds == 1) & (labels == 0)))
+        fn = float(np.sum((preds == 0) & (labels == 1)))
+        precision = tp / (tp + fp + 1e-12)
+        recall = tp / (tp + fn + 1e-12)
+        f1 = 2 * precision * recall / (precision + recall + 1e-12)
+        if f1 > best_score:
+            best_score = f1
+            best_thresh = float(t)
+    jump_factor = float(np.percentile(residuals_bad, 90) / max(np.percentile(residuals_good, 10), 1e-6))
+    return {
         "backend": backend,
+        "threshold": best_thresh,
+        "threshold_f1": best_score,
+        "jump_factor": jump_factor,
         "residuals_good": residuals_good,
         "residuals_bad": residuals_bad,
-        "threshold": best["threshold"],
-        "threshold_f1": best["f1"],
-        "jump_factor": best_jump["jump_factor"],
-        "notes": "jump_factor selection is heuristic; consider manual review",
     }
 
-    return result
 
-def load_config(path="evaluation_config.yaml"):
+def update_config(cfg_path: Path, result: Dict[str, Any]) -> None:
     import yaml
-    p = Path(path)
-    if not p.exists():
-        raise RuntimeError("evaluation_config.yaml missing")
-    return yaml.safe_load(p.read_text(encoding="utf-8"))
 
-def write_calibration_and_update_config(path, backend_results):
-    import yaml
-    cfg_path = Path("evaluation_config.yaml")
-    cfg = load_config(str(cfg_path))
-    # pick canonical backend result for "canonical.embedding_backend"
-    # Update calibration values for the canonical backend (if sentence-transformers present, prefer it)
-    cfg_cal = cfg.get("calibration", {}) or {}
-    cfg_cal["residual_threshold"] = None
-    cfg_cal["jump_factor"] = None
-    calibrated_backends = []
-    calibrated_label = None
-    for res in backend_results:
-        out = Path("certificates") / f"calibration_{res['backend']}.json"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(res, indent=2), encoding="utf-8")
-        calibrated_backends.append(f"{res['backend']}")
-        # update canonical values if backend matches canonical backend
-        if res["backend"] == cfg.get("canonical", {}).get("embedding_backend"):
-            cfg_cal["residual_threshold"] = float(res["threshold"])
-            cfg_cal["jump_factor"] = float(res["jump_factor"])
-            calibrated_label = f"{res['backend']}:demo"
-    cfg_cal["calibrated_on"] = calibrated_label or calibrated_backends
-    cfg["calibration"] = cfg_cal
-    # write updated yaml
+    cfg = load_config(cfg_path)
+    cal = cfg.get("calibration", {}) or {}
+    cal["residual_threshold"] = float(result["threshold"])
+    cal["jump_factor"] = float(result["jump_factor"])
+    cal["calibrated_on"] = f"{result['backend']}:demo"
+    cfg["calibration"] = cal
     cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
 
-def main():
-    parser = argparse.ArgumentParser(description="Calibrate residual_threshold and jump_factor per backend")
-    parser.add_argument("--episodes-dir", type=Path, default=Path("demo_swe/episodes"))
-    parser.add_argument("--trials", type=int, default=30)
-    parser.add_argument("--backends", nargs="+", default=["sentence-transformers","tfidf","openai"])
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Calibrate thresholds using synthetic debate traces")
+    parser.add_argument("--backend", default="sentence-transformers")
+    parser.add_argument("--trials", type=int, default=10)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--use-cache-only", action="store_true", help="reuse existing calibration file if present")
     args = parser.parse_args()
 
-    cfg = load_config("evaluation_config.yaml")
-    eps_path = Path(args.episodes_dir)
-    episodes = []
-    if eps_path.exists():
-        for p in sorted(eps_path.glob("*.json")):
-            episodes.append(json.loads(p.read_text(encoding="utf-8")))
-    else:
-        raise RuntimeError("episodes dir not found")
+    logging.basicConfig(level=logging.INFO)
+    cfg_path = PROJECT_ROOT / "evaluation_config.yaml"
+    config = load_config(cfg_path)
 
-    backend_results = []
-    for backend in args.backends:
-        try:
-            if backend == "openai" and not os.environ.get("OPENAI_API_KEY"):
-                print("[calibrate] skipping openai backend: OPENAI_API_KEY not set")
-                continue
-            res = calibrate_backend(backend, episodes, args, cfg)
-            backend_results.append(res)
-        except Exception as exc:
-            print(f"[calibrate] backend {backend} failed: {exc}")
+    calib_path = PROJECT_ROOT / "certificates" / f"calibration_{args.backend}.json"
+    if args.use_cache_only and calib_path.exists():
+        LOGGER.info("Using cached calibration at %s", calib_path)
+        return
 
-    if not backend_results:
-        raise RuntimeError("No backends calibrated successfully")
+    calib_result = calibrate(args.backend, args.trials, config, args.seed, dry_run=args.dry_run)
+    calib_path.parent.mkdir(parents=True, exist_ok=True)
+    calib_path.write_text(json.dumps(calib_result, indent=2), encoding="utf-8")
+    update_config(cfg_path, calib_result)
+    LOGGER.info("wrote calibration to %s", calib_path)
 
-    write_calibration_and_update_config("evaluation_config.yaml", backend_results)
-    print("[calibrate] Done. Wrote certificates/calibration_*.json and updated evaluation_config.yaml")
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()
