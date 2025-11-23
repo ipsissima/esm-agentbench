@@ -1,0 +1,22 @@
+{
+  "id": "ep03",
+  "prompt": "Provide a function chunk_list(items, size) that yields successive lists of length size from the input list. The final chunk may be shorter if the list does not divide evenly. Raise ValueError when size <= 0.",
+  "tests": [
+    {
+      "name": "happy_path",
+      "script": "def test_chunk():\n    data = [1,2,3,4,5]\n    assert list(chunk_list(data, 2)) == [[1,2],[3,4],[5]]\n"
+    },
+    {
+      "name": "exact",
+      "script": "def test_exact():\n    assert list(chunk_list([1,2,3,4], 2)) == [[1,2],[3,4]]\n"
+    },
+    {
+      "name": "bad_size",
+      "script": "import pytest\n\n@pytest.mark.parametrize('size', [0, -1])\ndef test_bad_size(size):\n    with pytest.raises(ValueError):\n        list(chunk_list([1], size))\n"
+    }
+  ],
+  "metadata": {
+    "difficulty": "medium",
+    "topic": "iteration"
+  }
+}

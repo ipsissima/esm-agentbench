@@ -1,0 +1,22 @@
+{
+  "id": "ep01",
+  "prompt": "Write a function fibonacci(n) returning the n-th Fibonacci number with fibonacci(0)=0 and fibonacci(1)=1. Use an iterative implementation and handle n < 0 by raising ValueError.",
+  "tests": [
+    {
+      "name": "base_cases",
+      "script": "def test_base():\n    assert fibonacci(0) == 0\n    assert fibonacci(1) == 1\n"
+    },
+    {
+      "name": "small_sequence",
+      "script": "def test_sequence():\n    seq = [fibonacci(i) for i in range(7)]\n    assert seq == [0,1,1,2,3,5,8]\n"
+    },
+    {
+      "name": "negative",
+      "script": "import pytest\n\ndef test_negative():\n    with pytest.raises(ValueError):\n        fibonacci(-2)\n"
+    }
+  ],
+  "metadata": {
+    "difficulty": "easy",
+    "topic": "recurrence"
+  }
+}

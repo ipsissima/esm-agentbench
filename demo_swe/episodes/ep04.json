@@ -1,0 +1,22 @@
+{
+  "id": "ep04",
+  "prompt": "Write function to_slug(text) that converts text to a lowercase slug: trim whitespace, replace spaces and consecutive non-alphanumeric characters with single hyphens, remove leading/trailing hyphens, and return an empty string if no alphanumeric characters remain.",
+  "tests": [
+    {
+      "name": "basic",
+      "script": "def test_basic():\n    assert to_slug('Hello World!') == 'hello-world'\n"
+    },
+    {
+      "name": "punctuation",
+      "script": "def test_punct():\n    assert to_slug('Python 3.11 --- Rocks') == 'python-3-11-rocks'\n"
+    },
+    {
+      "name": "empty",
+      "script": "def test_empty():\n    assert to_slug('***') == ''\n"
+    }
+  ],
+  "metadata": {
+    "difficulty": "easy",
+    "topic": "string-cleanup"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "ep05",
+  "prompt": "Implement a function safe_divide(a, b, default=None) that returns a/b when b is nonzero, returns default when b is zero, and propagates TypeError for non-numeric inputs without swallowing it.",
+  "tests": [
+    {
+      "name": "nonzero",
+      "script": "def test_nonzero():\n    assert safe_divide(6, 3) == 2\n    assert safe_divide(5.0, 2.0) == 2.5\n"
+    },
+    {
+      "name": "zero",
+      "script": "def test_zero():\n    assert safe_divide(1, 0, default=0) == 0\n    assert safe_divide(-4, 0, default='undefined') == 'undefined'\n"
+    },
+    {
+      "name": "type_errors",
+      "script": "import pytest\n\ndef test_types():\n    with pytest.raises(TypeError):\n        safe_divide('a', 2)\n    with pytest.raises(TypeError):\n        safe_divide(1, 'b')\n"
+    }
+  ],
+  "metadata": {
+    "difficulty": "easy",
+    "topic": "numerics"
+  }
+}
