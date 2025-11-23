@@ -1,3 +1,8 @@
+## Demo & Appendix
+- Run `./demo.sh` to start the assessor (if needed) and execute the offline SWE demo; results land in `demo_swe/report.json` and `demo_traces/`.
+- The math appendix is documented in [DOCS/appendix.md](DOCS/appendix.md), including the conservative theoretical bound.
+- CI runs `pytest -q` and optionally builds the Docker image via GitHub Actions; locally, run `pytest -q` before pushing.
+
 # ESM-AgentBench Green Assessor
 
 This repository contains a minimal, judge-friendly "green assessor" for the ESM-AgentBench competition. It exposes a small Flask service that can serve the agent card, run a demonstration episode, save traces, and compute spectral certificates that summarize stability and dynamical properties of agent traces. The project emphasizes deterministic local behavior with optional OpenAI integrations when an `OPENAI_API_KEY` is available.
@@ -27,7 +32,7 @@ Returns the contents of `agent_card.toml` as JSON. If the file is missing, a 404
 Request body:
 ```json
 {
-  "prompt": "...", 
+  "prompt": "...",
   "tests": [
     {"name": "t1", "script": "assert 2+2 == 4"}
   ]

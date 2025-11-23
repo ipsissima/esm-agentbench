@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run pytest
+        run: pytest -q
+      - name: Build Docker image if available
+        run: |
+          if command -v docker >/dev/null 2>&1; then
+            docker build -t esm-agentbench:ci .
+          else
+            echo "Docker not available; skipping image build"
+          fi

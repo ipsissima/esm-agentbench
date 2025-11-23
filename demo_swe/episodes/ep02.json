@@ -1,0 +1,22 @@
+{
+  "id": "ep02",
+  "prompt": "Implement a function normalize_email(addr) that lowercases the local and domain parts, strips surrounding whitespace, and rejects addresses without exactly one '@' by raising ValueError.",
+  "tests": [
+    {
+      "name": "basic",
+      "script": "def test_basic():\n    assert normalize_email('Alice@Example.Com') == 'alice@example.com'\n"
+    },
+    {
+      "name": "whitespace",
+      "script": "def test_strip():\n    assert normalize_email('  Bob@Mail.Org  ') == 'bob@mail.org'\n"
+    },
+    {
+      "name": "invalid",
+      "script": "import pytest\n\n@pytest.mark.parametrize('bad', ['noatsign', 'too@many@parts'])\ndef test_invalid(bad):\n    with pytest.raises(ValueError):\n        normalize_email(bad)\n"
+    }
+  ],
+  "metadata": {
+    "difficulty": "medium",
+    "topic": "string-normalization"
+  }
+}
