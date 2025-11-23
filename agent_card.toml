@@ -1,0 +1,9 @@
+name = "ESM Spectral Assessor"
+type = "green_assessor"
+entrypoint = "<fill-later>"
+description = "SWE-bench Lite + EigenSpace spectral certificates. Assessor logs agent traces, computes embeddings, and emits spectral certificates."
+contact = "andreuballus@gmail.com"
+tags = ["agent-evaluation","spectral-analysis","koopman","swe-bench","agentbeats","eigenspace"]
+
+markdown
+Copia el codi
