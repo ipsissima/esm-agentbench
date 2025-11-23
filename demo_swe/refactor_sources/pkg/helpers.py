@@ -1,9 +1,15 @@
+"""Test helpers to support refactor episode."""
+from __future__ import annotations
 
 import math
+from typing import Iterable, List
 
 
-def normalize_vector(vec):
-    """Return a safely normalized vector, avoiding zero-division."""
+def normalize_vector(vec: Iterable[float]) -> List[float]:
+    """Return a unit-length copy of the vector, defaulting to zeros on empty."""
 
-    total = math.sqrt(sum(v * v for v in vec)) or 1.0
-    return [v / total for v in vec]
+    vals = [float(x) for x in vec]
+    if not vals:
+        return []
+    norm = math.sqrt(sum(v * v for v in vals)) or 1.0
+    return [v / norm for v in vals]
