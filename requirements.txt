@@ -4,3 +4,4 @@ scikit-learn
 joblib
 pytest
 tomli
+gunicorn==20.1.0
