@@ -1,0 +1,9 @@
+flask
+numpy
+scikit-learn
+openai
+gunicorn
+pytest
+
+javascript
+Copia el codi
