@@ -1,3 +1,6 @@
+"""Test helpers to support refactor episode."""
+from __future__ import annotations
 
-# Legacy function slated for refactor; kept for backward compatibility.
-from .geometry import compute_projection
+from pkg.geometry import compute_projection
+
+__all__ = ["compute_projection"]

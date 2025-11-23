@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, os.path.abspath("demo_swe/refactor_sources"))
 sys.path.insert(0, str(REPO_ROOT / "demo_swe" / "refactor_sources"))
 
 EPISODE_DIR = REPO_ROOT / "demo_swe" / "episodes"
@@ -113,6 +114,7 @@ def run_demo() -> Dict[str, Any]:
                 "trace_path": response.get("trace_path"),
                 "certificate_path": str(certificate_path.relative_to(REPO_ROOT)),
                 "spectral_metrics": spectral,
+                "error": response.get("error"),
             }
         )
 

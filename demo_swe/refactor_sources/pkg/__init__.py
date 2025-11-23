@@ -1,6 +1,6 @@
-"""Lightweight geometry helpers used by the refactor demo tests."""
+"""Test helpers to support refactor episode."""
 
-from .geometry import compute_projection
-from .helpers import normalize_vector
+from pkg.geometry import compute_projection
+from pkg.helpers import normalize_vector
 
 __all__ = ["compute_projection", "normalize_vector"]

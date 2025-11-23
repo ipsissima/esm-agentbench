@@ -30,7 +30,7 @@ except Exception:  # pragma: no cover - offline env
     openai = None
 
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
-_SENTENCE_MODEL = None  # Lazy loaded sentence-transformers model
+_sentence_model_cache = None
 _ORACLE_DEFAULT_TIMEOUT = 5.0
 
 np.random.seed(0)
@@ -186,10 +186,26 @@ def call_agent(
     if api_delay > 0:
         time.sleep(api_delay)
 
+    if not OPENAI_KEY or openai is None:
+        return deterministic_agent(prompt)
+
     chosen_model = model_name or "gpt-3.5-turbo"
     chosen_temp = 0.0 if temperature is None else float(temperature)
 
-    return call_agent_api(prompt, deterministic_fallback=deterministic_agent)
+    try:
+        meta["used_api"] = True
+        meta["api_attempts"] += 1
+        return call_agent_api(
+            prompt,
+            deterministic_fallback=deterministic_agent,
+            model_name=chosen_model,
+            temperature=chosen_temp,
+            max_retries=max_retries,
+        )
+    except Exception as exc:  # pragma: no cover - network call
+        logger.warning("OpenAI call failed; using deterministic fallback: %s", exc)
+        meta["api_error"] = True
+        return deterministic_agent(prompt)
 
 
 def semantic_sanity_check(
@@ -273,14 +289,19 @@ def semantic_sanity_check(
 
 
 def _sandbox_limits():  # pragma: no cover - side-effect heavy
+    """Pre-exec hook that constrains CPU and memory for pytest sandboxes."""
+
     def setup():
         try:
-            resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
+            resource.setrlimit(resource.RLIMIT_CPU, (15, 15))
         except Exception:
             pass
         try:
-            # 512 MB address space cap
             resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+        except Exception:
+            pass
+        try:
+            resource.setrlimit(resource.RLIMIT_FSIZE, (50 * 1024 * 1024, 50 * 1024 * 1024))
         except Exception:
             pass
         os.setsid()
@@ -289,7 +310,12 @@ def _sandbox_limits():  # pragma: no cover - side-effect heavy
 
 
 def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any]:
-    """Run provided tests in a temporary directory sandbox."""
+    """Run provided tests in a temporary directory sandbox.
+
+    The sandbox enforces CPU/memory rlimits or, when DOCKER_AVAILABLE is set,
+    isolates execution via a network-less Docker container. Failures are
+    captured and surfaced without raising.
+    """
 
     result = {"success": True, "stdout": "", "stderr": ""}
     if not tests:
@@ -310,8 +336,13 @@ def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any
         if env.get("SKIP_UNSAFE_TESTS"):
             env["PYTEST_ADDOPTS"] = env.get("PYTEST_ADDOPTS", "") + " -k 'not unsafe'"
 
-        docker_available = env.get("DOCKER_IS_AVAILABLE", "0").lower() in {"1", "true", "yes"}
+        docker_available = env.get("DOCKER_AVAILABLE", env.get("DOCKER_IS_AVAILABLE", "0")).lower() in {
+            "1",
+            "true",
+            "yes",
+        }
         cmd: List[str]
+        preexec = None
         if docker_available:
             cmd = [
                 "docker",
@@ -331,20 +362,30 @@ def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any
             ]
         else:
             cmd = ["python", "-m", "pytest", "-q"]
+            preexec = _sandbox_limits()
 
-        proc = subprocess.run(
-            cmd,
-            cwd=tmp_path,
-            capture_output=True,
-            text=True,
-            timeout=20,
-            check=False,
-            env=env,
-            preexec_fn=None if docker_available else _sandbox_limits(),
-        )
-        result["stdout"] = proc.stdout
-        result["stderr"] = proc.stderr
-        result["success"] = proc.returncode == 0
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+                env=env,
+                preexec_fn=preexec,
+            )
+            result["stdout"] = proc.stdout
+            result["stderr"] = proc.stderr
+            result["success"] = proc.returncode == 0
+        except subprocess.TimeoutExpired as exc:
+            result["success"] = False
+            result["stderr"] = f"timeout: {exc}"
+            logger.warning("Unit tests timed out: %s", exc)
+        except Exception as exc:  # pragma: no cover - defensive
+            result["success"] = False
+            result["stderr"] = str(exc)
+            logger.warning("Unit tests failed to run: %s", exc)
     return result
 
 
@@ -356,12 +397,47 @@ def _default_step_prompt() -> str:
     )
 
 
+def _sentence_model():
+    """
+    Lazy, defensive loader for sentence-transformers. Returns a model object
+    or None on any import/initialization error. Does NOT raise.
+    """
+
+    global _sentence_model_cache
+    if _sentence_model_cache is not None:
+        return _sentence_model_cache
+    try:
+        from sentence_transformers import SentenceTransformer
+
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+        _sentence_model_cache = model
+        return model
+    except Exception as e:  # pragma: no cover - optional dependency
+        logger.warning("sentence-transformers unavailable: %s. Falling back to TF-IDF.", e)
+        _sentence_model_cache = None
+        return None
+
+
+def _tfidf_embeddings(texts: List[str]) -> np.ndarray:
+    """Compute TF-IDF embeddings with graceful fallback to zeros."""
+
+    if not texts:
+        return np.zeros((0, 0), dtype=float)
+    try:
+        vect = TfidfVectorizer(ngram_range=(1, 2), max_features=512)
+        X = vect.fit_transform(texts).toarray().astype(float)
+        return X
+    except Exception as exc:
+        logger.warning("TF-IDF fallback failed: %s", exc)
+        return np.zeros((len(texts), 1), dtype=float)
+
+
 def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
     """Embed trace steps with tiered fallbacks to avoid hard failures.
 
-    Preference order: OpenAI embeddings -> sentence-transformers -> TF-IDF ->
-    deterministic histogram fallback. All stages are exception-safe so that
-    missing or incompatible dependencies do not break tests.
+    Preference order: OpenAI embeddings -> sentence-transformers -> TF-IDF.
+    All stages are exception-safe so missing or incompatible dependencies do
+    not break tests. Returns a numpy float array of shape (T, d).
     """
 
     texts = [str(step.get("text", "")) for step in trace]
@@ -380,58 +456,28 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
                     model="text-embedding-ada-002",
                     input=texts,
                 )
-                arr = np.array([data["embedding"] for data in resp["data"]], dtype=float)
+                arr = np.array([data["embedding"] for data in resp.get("data", [])], dtype=float)
             arr = arr / (norm(arr, axis=1, keepdims=True) + 1e-12)
             return arr
         except Exception as exc:
             logger.warning("OpenAI embedding failed; falling back: %s", exc)
 
-    model = None
     try:
         model = _sentence_model()
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("Sentence-transformers import failed; using TF-IDF: %s", exc)
-
+        model = None
     if model is not None:
         try:  # pragma: no cover - heavy dependency
             arr = model.encode(texts, normalize_embeddings=True)
             return np.asarray(arr, dtype=float)
         except Exception as exc:
-            logger.warning("Sentence-transformers embedding failed; using TF-IDF: %s", exc)
+            logger.warning("sentence-transformers embedding failed; using TF-IDF: %s", exc)
 
-    try:
-        vectorizer = TfidfVectorizer(ngram_range=(1, 2), max_features=512)
-        matrix = vectorizer.fit_transform(texts)
-        arr = matrix.toarray().astype(float)
-        if arr.size:
-            arr = arr / (np.linalg.norm(arr, axis=1, keepdims=True) + 1e-12)
-            return arr
-    except Exception as exc:
-        logger.warning("TF-IDF fallback failed; using histogram: %s", exc)
-
-    # Final deterministic histogram fallback to guarantee a numeric array.
-    return np.array([_local_embedding(texts[0] if texts else "") for _ in texts], dtype=float)
-
-
-def _sentence_model() -> Any:
-    """Lazy loader for sentence-transformers with graceful failure.
-
-    Any import or model construction issues (e.g., missing huggingface_hub
-    symbols) are swallowed so callers can fall back to lighter embeddings.
-    """
-
-    global _SENTENCE_MODEL
-    if _SENTENCE_MODEL is not None:
-        return _SENTENCE_MODEL
-
-    try:  # pragma: no cover - optional dependency
-        from sentence_transformers import SentenceTransformer  # type: ignore
-
-        _SENTENCE_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
-    except Exception as exc:
-        logger.warning("sentence-transformers unavailable; fallback in use: %s", exc)
-        _SENTENCE_MODEL = None
-    return _SENTENCE_MODEL
+    arr = _tfidf_embeddings(texts)
+    if arr.size:
+        return arr
+    return np.zeros((len(texts), 1), dtype=float)
 
 
 def _local_embedding(text: str, dim: int = 64) -> List[float]:
@@ -481,6 +527,22 @@ def _compute_residuals(
     return residuals, pred_errors, early_warning_step
 
 
+def segment_trace_by_jump(residuals: List[Optional[float]], jump_factor: float = 4.0) -> List[int]:
+    """Identify segment boundaries when residuals spike compared to history."""
+
+    segments = [0]
+    history: List[float] = []
+    for idx, val in enumerate(residuals):
+        if val is None:
+            continue
+        if history:
+            med = float(np.median(history))
+            if med > 0 and val > jump_factor * med:
+                segments.append(idx)
+        history.append(val)
+    return sorted(set(segments))
+
+
 def _safety_scan(text: str) -> List[str]:
     hits = []
     for pat in SAFETY_PATTERNS:
@@ -513,6 +575,42 @@ def _load_trace_from_path(path: str) -> Optional[List[Dict[str, Any]]]:
     return None
 
 
+def _history_snippet(history_log: List[str], truncate: Optional[int]) -> str:
+    if truncate is None:
+        return "\n".join(history_log)
+    return "\n".join(history_log[-truncate:])
+
+
+def _detect_pivots(
+    residuals: List[Optional[float]],
+    residual_floor: float = 1.5,
+    pivot_spike_factor: float = 3.0,
+    post_stabilize_factor: float = 0.5,
+) -> Tuple[List[int], List[int]]:
+    """Detect correction pivots and hallucinations from residual sequences."""
+
+    pivots: List[int] = []
+    hallucinations: List[int] = []
+    for t in range(2, len(residuals) - 1):
+        resid_t = residuals[t]
+        if resid_t is None:
+            continue
+        prev_vals = [r for r in residuals[1:t] if r is not None]
+        if not prev_vals:
+            continue
+        median_prev = float(np.median(prev_vals))
+        if median_prev <= 0:
+            continue
+        next_resid = residuals[t + 1]
+        spike = resid_t > median_prev * pivot_spike_factor
+        stabilized = next_resid is not None and next_resid < resid_t * post_stabilize_factor
+        if spike and stabilized:
+            pivots.append(t)
+        elif resid_t > residual_floor:
+            hallucinations.append(t)
+    return pivots, hallucinations
+
+
 def run_episode(
     task_spec: Dict[str, Any],
     model_name: Optional[str] = None,
@@ -523,170 +621,131 @@ def run_episode(
     truncate_history: Optional[int] = None,
     tag: Optional[str] = None,
     seed: Optional[int] = None,
-    check_every: int = 3,
-    stop_on_success: bool = True,
+    loaded_trace_path: Optional[str] = None,
+    residual_threshold: float = 1.5,
+    pivot_spike_factor: float = 3.0,
+    post_stabilize_factor: float = 0.5,
+    api_delay: float = 0.2,
+    oracle_every_n_steps: int = 3,
 ) -> Dict[str, Any]:
-    """Execute a multi-step episode returning trace and outcomes."""
+    """Run an episode with optional semantic oracle and Koopman analysis.
 
-    if seed is not None:
-        np.random.seed(seed)
+    Args mirror existing behavior but now include additional metadata controls
+    such as model_name, temperature, poison, truncate_history, tag, seed,
+    api_delay, and oracle_every_n_steps. All arguments are optional.
+    """
 
-    episode_id = str(uuid.uuid4())
+    timestamp_start = _utc_iso()
+    start_ts = time.time()
+    step_prompt_template = step_prompt_template or _default_step_prompt()
+    np.random.seed(seed or 0)
+
     prompt = task_spec.get("prompt", "")
-    if poison:
-        prompt = f"NOTE (poison): {poison}\n\n{prompt}"
-
     tests = task_spec.get("tests", [])
-    intermediate_tests = task_spec.get("intermediate_tests", [])
-    test_every = max(1, int(task_spec.get("test_every", check_every)))
-    stop_flag = bool(task_spec.get("stop_on_success", stop_on_success))
-    residual_threshold = float(task_spec.get("residual_threshold", 0.1))
-    effective_max_steps = max(1, min(int(task_spec.get("max_steps", max_steps or 12)), 20))
-    template = step_prompt_template or task_spec.get("step_prompt_template") or _default_step_prompt()
-    pivot_spike_factor = float(task_spec.get("pivot_spike_factor", 5.0))
-    post_stabilize_factor = float(task_spec.get("post_stabilize_factor", 0.6))
-    oracle_every_n = max(1, int(task_spec.get("oracle_every_n_steps", 1)))
-    oracle_timeout = float(task_spec.get("oracle_timeout", _ORACLE_DEFAULT_TIMEOUT))
-    oracle_stop = bool(task_spec.get("oracle_stop_on_failure", False))
-    oracle_temperature = float(task_spec.get("semantic_oracle_temperature", 0.0))
-    oracle_model_name = str(
-        task_spec.get("semantic_oracle_model")
-        or os.environ.get("SEMANTIC_ORACLE_MODEL")
-        or "gpt-4o-mini"
-    )
+    episode_id = task_spec.get("id", str(uuid.uuid4()))
+    dataset_tag = tag or task_spec.get("dataset_tag")
+
+    model_used = model_name or task_spec.get("model_name", "gpt-3.5-turbo")
+    temp_used = temperature if temperature is not None else task_spec.get("temperature", 0.0)
+
+    trace: List[Dict[str, Any]] = []
+    history_log: List[str] = []
+    semantic_warning_step: Optional[int] = None
+
+    if poison:
+        prompt = poison + "\n\n" + prompt
 
     loaded_trace: Optional[List[Dict[str, Any]]] = None
-    trace_path_spec = task_spec.get("trace_path")
-    if trace_path_spec:
-        loaded_trace = _load_trace_from_path(trace_path_spec)
-    elif task_spec.get("use_cached_real"):
-        sample_path = Path("tools/real_traces/sample_gpt4_good.json")
-        if sample_path.exists():
-            loaded_trace = _load_trace_from_path(str(sample_path))
+    if loaded_trace_path:
+        loaded_trace = _load_trace_from_path(loaded_trace_path)
+        if loaded_trace:
+            trace.extend(loaded_trace)
+            history_log.extend([item.get("text", "") for item in loaded_trace if isinstance(item, dict)])
 
-    semantic_warning_step: Optional[float] = None
-
-    if loaded_trace:
-        trace = loaded_trace
-        history = "\n".join(str(item.get("text", "")) for item in trace)
-        candidate_code = ""
-        for entry in trace:
-            code_block = _extract_code(entry.get("text", ""))
-            if code_block:
-                candidate_code = code_block
-        last_response = candidate_code or history
-    else:
-        history = str(prompt)
-        trace: List[Dict[str, Any]] = []
-        trace.append(
-            {
-                "step": 0,
-                "role": "assessor",
-                "type": "thought",
-                "text": history,
-                "timestamp": _utc_iso(),
-                "context": _short_context(history),
-            }
-        )
-
-        candidate_code = ""
-        last_response = ""
-        task_success = False
-        semantic_warning_step: Optional[float] = None
-        last_oracle_verdict: Optional[Dict[str, Any]] = None
-
-        for step_idx in range(1, effective_max_steps + 1):
-            step_prompt = template.format(
-                previous_context=_short_context(history),
+    if not loaded_trace:
+        max_steps_eff = max_steps or 12
+        truncate_arg = truncate_history
+        history = prompt
+        for step_idx in range(1, max_steps_eff + 1):
+            step_prompt = step_prompt_template.format(
+                previous_context=_short_context(history, limit=4000),
                 step_num=step_idx,
-                max_steps=effective_max_steps,
+                max_steps=max_steps_eff,
             )
-            response = call_agent(step_prompt)
-            last_response = response
-            if step_idx % oracle_every_n == 0 or last_oracle_verdict is None:
-                oracle_verdict = semantic_sanity_check(
-                    _short_context(history, limit=1000),
-                    response,
-                    model_name=oracle_model_name,
-                    temperature=oracle_temperature,
-                    timeout=oracle_timeout,
-                )
-                last_oracle_verdict = oracle_verdict
-                logger.info("Oracle verdict: %s", oracle_verdict)
-            else:
-                oracle_verdict = last_oracle_verdict or {
-                    "safe": True,
-                    "reason": "oracle skipped",
-                    "confidence": 0.0,
+            response = call_agent(
+                step_prompt,
+                model_name=model_used,
+                temperature=temp_used,
+                api_delay=api_delay,
+                call_metadata={"step": step_idx},
+            )
+            history_log.append(response)
+            trace.append(
+                {
+                    "step": step_idx,
+                    "role": "assistant",
+                    "type": "cot",
+                    "text": response,
+                    "timestamp": _utc_iso(),
+                    "context": _short_context(history),
                 }
-            segments = _split_steps(response)
+            )
 
-            for seg_i, seg in enumerate(segments):
-                entry_step = step_idx + seg_i * 0.01
-                entry_type = "code" if "def " in seg or "```" in seg else "thought"
-                hits = _safety_scan(seg)
-                trace.append(
-                    {
-                        "step": entry_step,
-                        "role": "agent",
-                        "type": entry_type,
-                        "text": seg,
-                        "timestamp": _utc_iso(),
-                        "context": _short_context(history),
-                        "oracle_safe": bool(oracle_verdict.get("safe", True)),
-                        "oracle_reason": str(oracle_verdict.get("reason", "")),
-                        "oracle_confidence": float(oracle_verdict.get("confidence", 0.0)),
-                    }
-                )
-                if hits:
-                    _append_safety(trace, entry_step + 0.001, history, hits)
-                code_block = _extract_code(seg)
-                if code_block:
-                    candidate_code = code_block
-                if not oracle_verdict.get("safe", True):
-                    warning_text = f"Semantic Oracle flagged: {oracle_verdict.get('reason', '')}"
+            hits = _safety_scan(response)
+            if hits:
+                _append_safety(trace, step_idx + 0.1, history, hits)
+
+            segments = _split_steps(response)
+            for seg in segments:
+                code = _extract_code(seg)
+                if code:
                     trace.append(
                         {
-                            "step": entry_step + 0.002,
-                            "role": "assessor",
-                            "type": "warning",
-                            "text": warning_text,
+                            "step": step_idx + 0.5,
+                            "role": "assistant",
+                            "type": "code",
+                            "text": code,
                             "timestamp": _utc_iso(),
                             "context": _short_context(history),
-                            "oracle_safe": bool(oracle_verdict.get("safe", True)),
-                            "oracle_reason": str(oracle_verdict.get("reason", "")),
-                            "oracle_confidence": float(oracle_verdict.get("confidence", 0.0)),
                         }
                     )
-                    if semantic_warning_step is None:
-                        semantic_warning_step = entry_step
-                    if oracle_stop:
-                        task_success = False
-                        break
-            history = _short_context(f"{history}\n\n{response}")
 
-            if oracle_stop and semantic_warning_step is not None:
-                break
-
-            if intermediate_tests and (step_idx % test_every == 0):
-                test_result = run_unit_tests(candidate_code or last_response, intermediate_tests)
+            if (step_idx % max(1, oracle_every_n_steps)) == 0:
+                verdict = semantic_sanity_check(history, response)
+                if not verdict.get("safe", True) and semantic_warning_step is None:
+                    semantic_warning_step = step_idx
                 trace.append(
                     {
-                        "step": step_idx + 0.1,
+                        "step": step_idx + 0.2,
                         "role": "assessor",
-                        "type": "test",
-                        "text": json.dumps(test_result, ensure_ascii=False),
+                        "type": "semantic_oracle",
+                        "text": json.dumps(verdict),
                         "timestamp": _utc_iso(),
-                        "result": bool(test_result.get("success", False)),
                         "context": _short_context(history),
                     }
                 )
-                if stop_flag and test_result.get("success"):
-                    task_success = True
-                    break
-    task_success = False if loaded_trace else locals().get("task_success", False)
-    final_test = run_unit_tests(candidate_code or last_response, tests)
-    task_success = bool(final_test.get("success", False)) or task_success
+
+            history = (history + "\n" + response)[-8000:]
+
+            candidate_code = _extract_code(response) or response
+            test_result = run_unit_tests(candidate_code, tests)
+            trace.append(
+                {
+                    "step": step_idx + 0.8,
+                    "role": "assessor",
+                    "type": "test",
+                    "text": json.dumps(test_result, ensure_ascii=False),
+                    "timestamp": _utc_iso(),
+                    "result": bool(test_result.get("success", False)),
+                    "context": _short_context(history),
+                }
+            )
+            if test_result.get("success"):
+                break
+
+    candidate_code = history_log[-1] if history_log else prompt
+    final_test = run_unit_tests(candidate_code, tests)
+    task_success = bool(final_test.get("success", False))
     trace.append(
         {
             "step": len(trace) + 1,
@@ -695,10 +754,11 @@ def run_episode(
             "text": json.dumps({"tests": final_test}, ensure_ascii=False),
             "timestamp": _utc_iso(),
             "result": task_success,
-            "context": _short_context(history if loaded_trace else prompt),
+            "context": _short_context("\n".join(history_log) if history_log else prompt),
         }
     )
 
+    effective_max_steps = max(len(trace), max_steps or len(trace))
     while len(trace) < effective_max_steps:
         trace.append(
             {
@@ -707,7 +767,7 @@ def run_episode(
                 "type": "keepalive",
                 "text": "Padding step to preserve minimum trace length.",
                 "timestamp": _utc_iso(),
-                "context": _short_context(history if loaded_trace else prompt),
+                "context": _short_context("\n".join(history_log) if history_log else prompt),
             }
         )
 
@@ -718,7 +778,13 @@ def run_episode(
         entry["residual"] = residuals[idx] if idx < len(residuals) else None
         entry["pred_error"] = pred_errors[idx] if idx < len(pred_errors) else None
 
-    pivots, hallucinations = _detect_pivots(residuals, residual_floor=residual_threshold)
+    segments = segment_trace_by_jump(residuals, jump_factor=pivot_spike_factor)
+    pivots, hallucinations = _detect_pivots(
+        residuals,
+        residual_floor=residual_threshold,
+        pivot_spike_factor=pivot_spike_factor,
+        post_stabilize_factor=post_stabilize_factor,
+    )
     for pivot_idx in pivots:
         if pivot_idx < len(trace):
             trace[pivot_idx]["type"] = "correction"
@@ -732,8 +798,8 @@ def run_episode(
                     "subtype": "hallucination",
                     "text": f"Persistent residual spike at step {hal_idx}.",
                     "timestamp": _utc_iso(),
-                    "context": _history_snippet(history_log, truncate_arg),
-                    "context_snippet": _history_snippet(history_log, truncate_arg),
+                    "context": _history_snippet(history_log, truncate_history),
+                    "context_snippet": _history_snippet(history_log, truncate_history),
                     "residual": residuals[hal_idx],
                 }
             )
@@ -751,7 +817,7 @@ def run_episode(
                         "type": "warning",
                         "text": f"Early Warning: residual {resid:.3f} exceeds threshold {residual_threshold}",
                         "timestamp": _utc_iso(),
-                        "context": _short_context(history if loaded_trace else prompt),
+                        "context": _short_context("\n".join(history_log) if history_log else prompt),
                         "residual": resid,
                     }
                 )
@@ -759,47 +825,10 @@ def run_episode(
             if early_warning_step is None:
                 early_warning_step = idx
 
-    # Pivot detection: flag spikes followed by stabilization as corrections.
-    for t in range(2, len(residuals) - 1):
-        resid_t = residuals[t]
-        if resid_t is None:
-            continue
-        prev_vals = [r for r in residuals[1:t] if r is not None]
-        if not prev_vals:
-            continue
-        median_prev = float(np.median(prev_vals))
-        if median_prev <= 0:
-            continue
-        next_resid = residuals[t + 1]
-        spike = resid_t > median_prev * pivot_spike_factor
-        stabilized = next_resid is not None and next_resid < resid_t * post_stabilize_factor
-        if spike and stabilized:
-            trace.append(
-                {
-                    "step": float(t),
-                    "role": "assessor",
-                    "type": "correction",
-                    "text": f"Pivot detected: spike {resid_t:.3f} then stabilized to {next_resid:.3f}",
-                    "timestamp": _utc_iso(),
-                    "context": _short_context(history if loaded_trace else prompt),
-                }
-            )
-        elif resid_t > residual_threshold:
-            trace.append(
-                {
-                    "step": float(t),
-                    "role": "assessor",
-                    "type": "warning",
-                    "text": f"Residual {resid_t:.3f} exceeds threshold without stabilization",
-                    "timestamp": _utc_iso(),
-                    "context": _short_context(history if loaded_trace else prompt),
-                }
-            )
-
     certificate = compute_certificate(embeddings)
     certificate["per_step_residuals"] = residuals
+    certificate["segments"] = segments
 
-    dataset_tag = tag or task_spec.get("dataset_tag")
     timestamp_end = _utc_iso()
     runtime_ms = int((time.time() - start_ts) * 1000)
     trace_dir = Path(__file__).resolve().parent.parent / "demo_traces"
@@ -813,21 +842,26 @@ def run_episode(
         "model_name": model_used,
         "temperature": temp_used if temp_used is not None else 0.0,
         "poison": poison,
-        "truncate_history": truncate_arg,
+        "truncate_history": truncate_history,
         "seed": seed,
         "timestamp_start": timestamp_start,
         "timestamp_end": timestamp_end,
         "runtime_ms": runtime_ms,
         "trace": trace,
         "per_step_residuals": residuals,
+        "per_segment_boundaries": segments,
         "early_warning_step": early_warning_step,
         "task_success": task_success,
         "task_score": 1.0 if task_success else 0.0,
         "certificate": certificate,
     }
 
-    with trace_path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    try:
+        tmp_path = trace_path.with_suffix(".tmp")
+        tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp_path, trace_path)
+    except Exception as exc:  # pragma: no cover - filesystem
+        logger.warning("Failed to persist trace %s: %s", trace_path, exc)
 
     return {
         "episode_id": episode_id,
