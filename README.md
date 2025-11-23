@@ -4,6 +4,7 @@ The tool is a **heuristic diagnostic** validated empirically on cached real trac
 Run cached demos safely offline: `./demo.sh` (or Docker) executes good/bad traces, renders `demo_swe/fig_hallucination.png`, and writes `demo_traces/*.json` plus `demo_swe/report.json`.
 Replay cached traces without API keys via `python -m assessor.kickoff` options `trace_path` / `use_cached_real`, and calibrate thresholds with `python tools/calibrate_threshold.py`.
 CI can disable networking for tests (`--network none`, `DOCKER_IS_AVAILABLE=1`) while local dev can skip risky cases with `SKIP_UNSAFE_TESTS=1`.
+The Semantic Oracle nano-judge shadows each reasoning step to flag destructive commands, hallucinated imports, or incoherent pivots. It defaults to `gpt-4o-mini` (override with `SEMANTIC_ORACLE_MODEL`) and can be throttled via `oracle_every_n_steps`, gracefully falling back to offline warnings when no key is present.
 
 ## Coherence & Early Warning
 Agents that think well move smoothly through semantic space; jagged jumps often signal hallucinations or incoherent pivots. This repo now emphasizes *coherence* over generic “stability,” pairing chain-of-thought traces with Koopman-style drift metrics and an early-warning flag when residuals spike.
