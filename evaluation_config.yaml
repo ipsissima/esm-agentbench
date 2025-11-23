@@ -1,0 +1,16 @@
+canonical:
+  embedding_backend: sentence-transformers
+  sentence_transformers_model: all-MiniLM-L6-v2
+  openai_embedding_model: text-embedding-3-small
+  tfidf_max_features: 512
+  embedding_dimension: 384
+certificate:
+  pca_rank: 10
+  pivot_spike_factor: 5.0
+  post_stabilize_factor: 0.5
+calibration:
+  trials: 30
+  seed: 0
+  residual_threshold: 0.27486767789093136
+  jump_factor: 4.0
+  calibrated_on: sentence-transformers:demo

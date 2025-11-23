@@ -1,0 +1,15 @@
+{
+  "backend": "sentence-transformers",
+  "residuals_good": [
+    0.272936590562509,
+    0.1444253498173546
+  ],
+  "residuals_bad": [
+    0.6163894095744779,
+    0.6066110542114116
+  ],
+  "threshold": 0.27486767789093136,
+  "threshold_f1": 1.0,
+  "jump_factor": 4.0,
+  "notes": "fast-path calibration using synthetic residuals"
+}
