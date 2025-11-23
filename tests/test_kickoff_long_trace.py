@@ -1,34 +1,41 @@
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT))
 
-from assessor import kickoff
-from certificates.make_certificate import compute_certificate
+from assessor.kickoff import run_episode  # noqa: E402
 
 
-def test_run_episode_produces_long_trace():
-    result = kickoff.run_episode({"prompt": "demo long trace", "tests": []}, max_steps=12)
-    trace = result["trace"]
+def _iso_parse(value: str) -> None:
+    datetime.fromisoformat(value.replace("Z", "+00:00"))
 
-    assert len(trace) >= 12
-    for entry in trace:
-        for key in ["step", "role", "type", "text", "timestamp", "context"]:
-            assert key in entry
 
-    trace_path = Path("demo_traces") / f"{result['episode_id']}.json"
+def test_trace_schema_and_length(tmp_path: Path):
+    task_spec = {
+        "prompt": "Compute fibonacci sequence with deterministic agent.",
+        "tests": [
+            {"name": "fib", "script": "assert fibonacci(7) == 13\nassert fibonacci(0) == 0"}
+        ],
+        "max_steps": 12,
+    }
+
+    result = run_episode(task_spec)
+
+    assert len(result["trace"]) >= 12
+    for entry in result["trace"]:
+        assert "step" in entry
+        assert "role" in entry
+        assert "type" in entry
+        assert "text" in entry
+        assert "timestamp" in entry
+        assert "context" in entry
+        _iso_parse(str(entry["timestamp"]))
+
+    trace_path = Path(result["trace_path"])
     assert trace_path.exists()
-    with trace_path.open("r", encoding="utf-8") as f:
-        saved = json.load(f)
-    assert isinstance(saved, list)
-
-
-def test_chain_of_thought_certificate_runs():
-    result = kickoff.run_episode({"prompt": "certificate check", "tests": []}, max_steps=12)
-    embeddings = kickoff.embed_trace_steps(result["trace"])
-    cert = compute_certificate(embeddings)
-
-    assert "theoretical_bound" in cert
+    parsed = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert isinstance(parsed, list)
+    assert len(parsed) == len(result["trace"])

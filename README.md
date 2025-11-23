@@ -1,8 +1,9 @@
-## Coherence & Early Warning Demo
-- Run `./demo.sh` to start the assessor, execute the offline SWE demo, and generate the Good vs Bad Chain-of-Thought hallucination figure at `demo_swe/fig_hallucination.png`. Reports land in `demo_swe/report.json` and `demo_traces/`.
-- The figure shows cumulative residuals: smooth growth indicates coherent reasoning, while a spike highlights hallucination drift flagged by the early warning system.
-- The math appendix is documented in [DOCS/appendix.md](DOCS/appendix.md), including the conservative theoretical bound.
-- CI runs `pytest -q` and optionally builds the Docker image via GitHub Actions; locally, run `pytest -q` before pushing.
+## Coherence & Early Warning
+Agents that think well move smoothly through semantic space; jagged jumps often signal hallucinations or incoherent pivots. This repo now emphasizes *coherence* over generic “stability,” pairing chain-of-thought traces with Koopman-style drift metrics and an early-warning flag when residuals spike.
+
+- Run `./demo.sh` to launch the assessor (or Docker entrypoint), execute offline SWE episodes, and generate Good vs Bad CoT runs. The hallucination plot saves to `demo_swe/fig_hallucination.png` and the episode report to `demo_swe/report.json` alongside trace JSON in `demo_traces/`.
+- Interpret the curves as a **heuristic**: smooth, low cumulative residuals suggest coherent reasoning; sharp jumps (and the `early_warning_step`) highlight semantic drift. Thresholds are tunable and not a proof of safety—treat them as an interpretable early-warning light.
+- For reproducible embeddings and offline portability, the Docker image preloads `all-MiniLM-L6-v2`; OpenAI embeddings are used only when an API key is present.
 
 # ESM-AgentBench Green Assessor
 
@@ -19,65 +20,25 @@ Competition info deck: [AgentBeats Info Session](file:///mnt/data/agentbeats-com
    ```bash
    pip install -r requirements.txt
    ```
-3. Run the service:
+3. Run tests:
    ```bash
-   python assessor/app.py
+   pytest -q
    ```
-   The app listens on port `8080` by default.
+4. Start the demo server locally:
+   ```bash
+   python -m assessor.app
+   ```
 
-## Deployment helper: Cloud Run
-If you have gcloud access, you can deploy and auto-update the agent card entrypoint with:
-
+## Running the SWE demo
+A sample SWE demo can be invoked with:
 ```bash
-scripts/update_entrypoint_cloudrun.sh --project <gcp-project> [--region <region>] [--service <name>]
+./demo.sh
 ```
+This saves a trace JSON to `demo_traces/`, a summary report to `demo_swe/report.json`, and a hallucination coherence figure to `demo_swe/fig_hallucination.png`.
 
-The script deploys to Cloud Run from source, retrieves the public HTTPS URL, updates `agent_card.toml` to point at `/.well-known/agent-card.json`, and commits the change. Use `--force` if you need to run with a dirty working tree.
+## Certificate computation
+The `certificates` module provides Koopman-based certificates over the state space of an MDP using the approach described in “PCA reduction of Koopman operators.” `compute_certificate` computes finite approximations of the Koopman operator which yield certificates describing global long-term properties of dynamical systems. See the mathematical appendix in [DOCS/appendix.md](DOCS/appendix.md) for additional details.
 
-## API
-### `GET /.well-known/agent-card.json`
-Returns the contents of `agent_card.toml` as JSON. If the file is missing, a 404 JSON error is returned.
-
-### `POST /run_episode`
-Request body:
-```json
-{
-  "prompt": "...",
-  "tests": [
-    {"name": "t1", "script": "assert 2+2 == 4"}
-  ]
-}
-```
-Behavior:
-- Runs a demo agent against the prompt (OpenAI-backed if configured, deterministic fallback otherwise).
-- Executes provided unit tests in a sandboxed temporary directory (`timeout=5`, `shell=False`).
-- Writes the trace to `demo_traces/<episode_id>.json`.
-- Computes spectral metrics from trace embeddings.
-
-Response:
-```json
-{
-  "episode_id": "...",
-  "task_success": true,
-  "task_score": 1.0,
-  "spectral_metrics": {
-    "pca_explained": 0.95,
-    "max_eig": 0.7,
-    "spectral_gap": 0.2,
-    "residual": 0.01,
-    "confidence": 0.99
-  },
-  "trace_path": "demo_traces/<episode_id>.json"
-}
-```
-
-## Spectral metrics
-- **pca_explained**: Total variance captured by the PCA projection (fraction).
-- **max_eig**: Largest eigenvalue magnitude of the Koopman proxy; values <1 suggest coherent dynamics.
-- **spectral_gap**: Difference between the largest two eigenvalue magnitudes; larger gaps indicate dominant dynamics.
-- **residual**: Normalized reconstruction error of the linear proxy; smaller is better.
-- **confidence**: Heuristic `1 - residual`, clipped at 0.
-
-## Development
-- Run tests with `pytest`.
-- Optional OpenAI usage is gated by the `OPENAI_API_KEY` environment variable; without it, deterministic local embeddings and agent responses are used.
+## Configuration
+- `OPENAI_API_KEY`: If set, the demo attempts to use OpenAI for completions and embeddings.
+- Without an API key, the demo uses a deterministic agent and embedding stack suitable for offline evaluation.
