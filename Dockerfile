@@ -8,11 +8,20 @@ WORKDIR /app
 # application code changes, reducing rebuild time.
 COPY requirements.txt /app/
 
+# Install minimal build tools for wheels that sentence-transformers depends on.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Python dependencies without caching to keep image small; upgrade pip first
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /app/requirements.txt
 
-# Pre-download the sentence-transformers model for offline use
+# Pre-download the sentence-transformers model for offline use. To avoid CI rebuilds,
+# you can instead pre-populate the cache with:
+#   docker build --build-arg TRANSFORMERS_OFFLINE=1 ...
+# or run `python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"`
+# in CI and bake the layer. Expect ~90MB extra size from this step.
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 # Create a dedicated non-root runtime user for security

@@ -1,4 +1,4 @@
-"""Episode runner with chain-of-thought tracing and coherence analysis."""
+"""Episode runner with chain-of-thought tracing, safety notes, and coherence analysis."""
 from __future__ import annotations
 
 import datetime as _dt
@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import resource
 import subprocess
 import tempfile
 import uuid
@@ -17,27 +18,27 @@ from numpy.linalg import norm, pinv
 from sklearn.decomposition import PCA
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+from assessor.call_agent_api import call_agent_api
 from certificates.make_certificate import compute_certificate
 
 logger = logging.getLogger(__name__)
 
-OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
-
-if OPENAI_KEY:
-    try:  # pragma: no cover - optional dependency
-        import openai  # type: ignore
-
-        openai_client = openai.OpenAI() if hasattr(openai, "OpenAI") else None
-    except Exception:  # pragma: no cover
-        openai = None
-        openai_client = None
-else:
+try:  # pragma: no cover - optional dependency
+    import openai  # type: ignore
+except Exception:  # pragma: no cover - offline env
     openai = None
-    openai_client = None
 
+OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 _SENTENCE_MODEL = None  # Lazy loaded sentence-transformers model
 
 np.random.seed(0)
+
+SAFETY_PATTERNS = [
+    re.compile(r"\brm\s+-rf\b", re.IGNORECASE),
+    re.compile(r"os\.system\(", re.IGNORECASE),
+    re.compile(r"subprocess\.\w+\(", re.IGNORECASE),
+    re.compile(r"open\(.*['\"]w", re.IGNORECASE),
+]
 
 
 def _utc_iso() -> str:
@@ -154,24 +155,23 @@ def deterministic_agent(prompt: str) -> str:
 def call_agent(prompt: str) -> str:
     """Call OpenAI if configured, otherwise return deterministic output."""
 
-    if OPENAI_KEY and openai is not None:
-        try:  # pragma: no cover - external call
-            if openai_client is not None:
-                response = openai_client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=300,
-                )
-                return response.choices[0].message.content or ""
-            response = openai.ChatCompletion.create(  # type: ignore[attr-defined]
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=300,
-            )
-            return response["choices"][0]["message"]["content"]
+    return call_agent_api(prompt, deterministic_fallback=deterministic_agent)
+
+
+def _sandbox_limits():  # pragma: no cover - side-effect heavy
+    def setup():
+        try:
+            resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
         except Exception:
-            logger.warning("OpenAI call failed; using deterministic agent.")
-    return deterministic_agent(prompt)
+            pass
+        try:
+            # 512 MB address space cap
+            resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+        except Exception:
+            pass
+        os.setsid()
+
+    return setup
 
 
 def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -192,13 +192,41 @@ def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any
             test_file = tmp_path / f"test_{name}.py"
             test_file.write_text(f"from solution import *\n{script}\n", encoding="utf-8")
 
+        env = os.environ.copy()
+        if env.get("SKIP_UNSAFE_TESTS"):
+            env["PYTEST_ADDOPTS"] = env.get("PYTEST_ADDOPTS", "") + " -k 'not unsafe'"
+
+        docker_available = env.get("DOCKER_IS_AVAILABLE", "0").lower() in {"1", "true", "yes"}
+        cmd: List[str]
+        if docker_available:
+            cmd = [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "-v",
+                f"{tmp_path}:/work",
+                "-w",
+                "/work",
+                "python:3.11-slim",
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+            ]
+        else:
+            cmd = ["python", "-m", "pytest", "-q"]
+
         proc = subprocess.run(
-            ["python", "-m", "pytest", "-q"],
+            cmd,
             cwd=tmp_path,
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=20,
             check=False,
+            env=env,
+            preexec_fn=None if docker_available else _sandbox_limits(),
         )
         result["stdout"] = proc.stdout
         result["stderr"] = proc.stderr
@@ -225,8 +253,9 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
 
     if OPENAI_KEY and openai is not None:
         try:  # pragma: no cover - external call
-            if openai_client is not None:
-                response = openai_client.embeddings.create(
+            if hasattr(openai, "OpenAI"):
+                client = openai.OpenAI()
+                response = client.embeddings.create(
                     model="text-embedding-3-small",
                     input=texts,
                 )
@@ -321,6 +350,38 @@ def _compute_residuals(
     return residuals, pred_errors, early_warning_step
 
 
+def _safety_scan(text: str) -> List[str]:
+    hits = []
+    for pat in SAFETY_PATTERNS:
+        if pat.search(text):
+            hits.append(pat.pattern)
+    return hits
+
+
+def _append_safety(trace: List[Dict[str, Any]], step: float, history: str, hits: List[str]):
+    for pat in hits:
+        trace.append(
+            {
+                "step": step,
+                "role": "assessor",
+                "type": "safety_warning",
+                "text": f"Potential unsafe intent detected: pattern '{pat}'",
+                "timestamp": _utc_iso(),
+                "context": _short_context(history),
+            }
+        )
+
+
+def _load_trace_from_path(path: str) -> Optional[List[Dict[str, Any]]]:
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+    except Exception:
+        logger.warning("Failed to load trace from %s", path)
+    return None
+
+
 def run_episode(
     task_spec: Dict[str, Any],
     max_steps: Optional[int] = 12,
@@ -339,69 +400,93 @@ def run_episode(
     residual_threshold = float(task_spec.get("residual_threshold", 0.1))
     effective_max_steps = max(1, min(int(task_spec.get("max_steps", max_steps or 12)), 20))
     template = step_prompt_template or task_spec.get("step_prompt_template") or _default_step_prompt()
+    pivot_spike_factor = float(task_spec.get("pivot_spike_factor", 5.0))
+    post_stabilize_factor = float(task_spec.get("post_stabilize_factor", 0.6))
 
-    history = str(prompt)
-    trace: List[Dict[str, Any]] = []
-    trace.append(
-        {
-            "step": 0,
-            "role": "assessor",
-            "type": "thought",
-            "text": history,
-            "timestamp": _utc_iso(),
-            "context": _short_context(history),
-        }
-    )
+    loaded_trace: Optional[List[Dict[str, Any]]] = None
+    trace_path_spec = task_spec.get("trace_path")
+    if trace_path_spec:
+        loaded_trace = _load_trace_from_path(trace_path_spec)
+    elif task_spec.get("use_cached_real"):
+        sample_path = Path("tools/real_traces/sample_gpt4_good.json")
+        if sample_path.exists():
+            loaded_trace = _load_trace_from_path(str(sample_path))
 
-    candidate_code = ""
-    last_response = ""
-    task_success = False
-
-    for step_idx in range(1, effective_max_steps + 1):
-        step_prompt = template.format(
-            previous_context=_short_context(history),
-            step_num=step_idx,
-            max_steps=effective_max_steps,
-        )
-        response = call_agent(step_prompt)
-        last_response = response
-        segments = _split_steps(response)
-
-        for seg_i, seg in enumerate(segments):
-            entry_step = step_idx + seg_i * 0.01
-            entry_type = "code" if "def " in seg or "```" in seg else "thought"
-            trace.append(
-                {
-                    "step": entry_step,
-                    "role": "agent",
-                    "type": entry_type,
-                    "text": seg,
-                    "timestamp": _utc_iso(),
-                    "context": _short_context(history),
-                }
-            )
-            code_block = _extract_code(seg)
+    if loaded_trace:
+        trace = loaded_trace
+        history = "\n".join(str(item.get("text", "")) for item in trace)
+        candidate_code = ""
+        for entry in trace:
+            code_block = _extract_code(entry.get("text", ""))
             if code_block:
                 candidate_code = code_block
-        history = _short_context(f"{history}\n\n{response}")
+        last_response = candidate_code or history
+    else:
+        history = str(prompt)
+        trace: List[Dict[str, Any]] = []
+        trace.append(
+            {
+                "step": 0,
+                "role": "assessor",
+                "type": "thought",
+                "text": history,
+                "timestamp": _utc_iso(),
+                "context": _short_context(history),
+            }
+        )
 
-        if intermediate_tests and (step_idx % test_every == 0):
-            test_result = run_unit_tests(candidate_code or last_response, intermediate_tests)
-            trace.append(
-                {
-                    "step": step_idx + 0.1,
-                    "role": "assessor",
-                    "type": "test",
-                    "text": json.dumps(test_result, ensure_ascii=False),
-                    "timestamp": _utc_iso(),
-                    "result": bool(test_result.get("success", False)),
-                    "context": _short_context(history),
-                }
+        candidate_code = ""
+        last_response = ""
+        task_success = False
+
+        for step_idx in range(1, effective_max_steps + 1):
+            step_prompt = template.format(
+                previous_context=_short_context(history),
+                step_num=step_idx,
+                max_steps=effective_max_steps,
             )
-            if stop_flag and test_result.get("success"):
-                task_success = True
-                break
+            response = call_agent(step_prompt)
+            last_response = response
+            segments = _split_steps(response)
 
+            for seg_i, seg in enumerate(segments):
+                entry_step = step_idx + seg_i * 0.01
+                entry_type = "code" if "def " in seg or "```" in seg else "thought"
+                hits = _safety_scan(seg)
+                trace.append(
+                    {
+                        "step": entry_step,
+                        "role": "agent",
+                        "type": entry_type,
+                        "text": seg,
+                        "timestamp": _utc_iso(),
+                        "context": _short_context(history),
+                    }
+                )
+                if hits:
+                    _append_safety(trace, entry_step + 0.001, history, hits)
+                code_block = _extract_code(seg)
+                if code_block:
+                    candidate_code = code_block
+            history = _short_context(f"{history}\n\n{response}")
+
+            if intermediate_tests and (step_idx % test_every == 0):
+                test_result = run_unit_tests(candidate_code or last_response, intermediate_tests)
+                trace.append(
+                    {
+                        "step": step_idx + 0.1,
+                        "role": "assessor",
+                        "type": "test",
+                        "text": json.dumps(test_result, ensure_ascii=False),
+                        "timestamp": _utc_iso(),
+                        "result": bool(test_result.get("success", False)),
+                        "context": _short_context(history),
+                    }
+                )
+                if stop_flag and test_result.get("success"):
+                    task_success = True
+                    break
+    task_success = False if loaded_trace else locals().get("task_success", False)
     final_test = run_unit_tests(candidate_code or last_response, tests)
     task_success = bool(final_test.get("success", False)) or task_success
     trace.append(
@@ -412,7 +497,7 @@ def run_episode(
             "text": json.dumps({"tests": final_test}, ensure_ascii=False),
             "timestamp": _utc_iso(),
             "result": task_success,
-            "context": _short_context(history),
+            "context": _short_context(history if loaded_trace else prompt),
         }
     )
 
@@ -424,7 +509,7 @@ def run_episode(
                 "type": "keepalive",
                 "text": "Padding step to preserve minimum trace length.",
                 "timestamp": _utc_iso(),
-                "context": _short_context(history),
+                "context": _short_context(history if loaded_trace else prompt),
             }
         )
 
@@ -446,13 +531,50 @@ def run_episode(
                         "type": "warning",
                         "text": f"Early Warning: residual {resid:.3f} exceeds threshold {residual_threshold}",
                         "timestamp": _utc_iso(),
-                        "context": _short_context(history),
+                        "context": _short_context(history if loaded_trace else prompt),
                         "residual": resid,
                     }
                 )
                 warning_added = True
             if early_warning_step is None:
                 early_warning_step = idx
+
+    # Pivot detection: flag spikes followed by stabilization as corrections.
+    for t in range(2, len(residuals) - 1):
+        resid_t = residuals[t]
+        if resid_t is None:
+            continue
+        prev_vals = [r for r in residuals[1:t] if r is not None]
+        if not prev_vals:
+            continue
+        median_prev = float(np.median(prev_vals))
+        if median_prev <= 0:
+            continue
+        next_resid = residuals[t + 1]
+        spike = resid_t > median_prev * pivot_spike_factor
+        stabilized = next_resid is not None and next_resid < resid_t * post_stabilize_factor
+        if spike and stabilized:
+            trace.append(
+                {
+                    "step": float(t),
+                    "role": "assessor",
+                    "type": "correction",
+                    "text": f"Pivot detected: spike {resid_t:.3f} then stabilized to {next_resid:.3f}",
+                    "timestamp": _utc_iso(),
+                    "context": _short_context(history if loaded_trace else prompt),
+                }
+            )
+        elif resid_t > residual_threshold:
+            trace.append(
+                {
+                    "step": float(t),
+                    "role": "assessor",
+                    "type": "warning",
+                    "text": f"Residual {resid_t:.3f} exceeds threshold without stabilization",
+                    "timestamp": _utc_iso(),
+                    "context": _short_context(history if loaded_trace else prompt),
+                }
+            )
 
     certificate = compute_certificate(embeddings)
     certificate["per_step_residuals"] = residuals
