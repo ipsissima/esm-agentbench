@@ -17,7 +17,6 @@ start_app() {
   echo "Starting assessor app in background..."
   python -m assessor.app >"$LOG_FILE" 2>&1 &
   echo $! >"$APP_PID_FILE"
-  # Give it a moment to start
   for _ in {1..5}; do
     if is_app_running; then
       echo "Assessor started (pid $(cat "$APP_PID_FILE"))"

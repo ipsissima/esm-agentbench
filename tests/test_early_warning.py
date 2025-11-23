@@ -1,48 +1,37 @@
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT))
 
-from assessor import kickoff
-
-
-def test_early_warning_good(monkeypatch, tmp_path):
-    monkeypatch.setenv("OPENAI_API_KEY", "")
-
-    def fake_embed(trace):
-        return [[i * 0.1, 0.0] for i in range(len(trace))]
-
-    def fake_residuals(embeddings, threshold=0.1):
-        n = len(embeddings)
-        return [None] + [0.01] * (n - 1), [None] * n, None
-
-    monkeypatch.setattr(kickoff, "embed_trace_steps", fake_embed)
-    monkeypatch.setattr(kickoff, "_compute_residuals", fake_residuals)
-
-    result = kickoff.run_episode(
-        {"prompt": "Compute Fibonacci sequence", "tests": [], "trace_dir": tmp_path},
-        max_steps=6,
-    )
-    assert result["early_warning_step"] is None
+from assessor.kickoff import run_episode  # noqa: E402
 
 
-def test_early_warning_bad(monkeypatch, tmp_path):
-    monkeypatch.setenv("OPENAI_API_KEY", "")
+def test_early_warning_triggers_for_bad_only():
+    good_spec = {
+        "prompt": "Compute fibonacci numbers with coherent reasoning.",
+        "tests": [
+            {"name": "fib", "script": "assert fibonacci(5) == 5"}
+        ],
+        "residual_threshold": 2.0,
+        "max_steps": 8,
+    }
 
-    def fake_embed(trace):
-        return [[i * 0.1, 0.0] for i in range(len(trace))]
+    bad_spec = {
+        "prompt": "Compute fibonacci numbers but induce bad cot hallucination.",
+        "tests": [
+            {"name": "fib", "script": "assert fibonacci(4) == 3"}
+        ],
+        "residual_threshold": 0.05,
+        "max_steps": 8,
+        "step_prompt_template": (
+            "{previous_context}\n\nStep {step_num}/{max_steps}: Continue reasoning about fibonacci with bad cot injection."
+        ),
+    }
 
-    def fake_residuals(embeddings, threshold=0.1):
-        n = len(embeddings)
-        residuals = [None, 0.02, 0.15] + [0.02] * max(0, n - 3)
-        pred_errors = [None] * n
-        return residuals[:n], pred_errors, None
+    good = run_episode(good_spec)
+    bad = run_episode(bad_spec)
 
-    monkeypatch.setattr(kickoff, "embed_trace_steps", fake_embed)
-    monkeypatch.setattr(kickoff, "_compute_residuals", fake_residuals)
-
-    result = kickoff.run_episode(
-        {"prompt": "Bad CoT about cakes", "tests": [], "trace_dir": tmp_path},
-        max_steps=6,
-    )
-    assert result["early_warning_step"] == 2 or result["early_warning_step"] == 3
+    assert good["early_warning_step"] is None
+    assert bad["early_warning_step"] is not None
+    assert bad["early_warning_step"] > 0

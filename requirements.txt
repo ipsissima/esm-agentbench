@@ -5,5 +5,5 @@ joblib
 pytest
 tomli
 gunicorn==20.1.0
-matplotlib==3.8.4
+matplotlib==3.8.1
 sentence-transformers==2.2.2
