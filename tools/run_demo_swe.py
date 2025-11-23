@@ -37,16 +37,26 @@ def _read_episode(path: Path) -> Dict[str, Any]:
     return data
 
 
-def _post_json(url: str, payload: Dict[str, Any], retries: int = 5, delay: float = 1.0) -> Dict[str, Any]:
+def _post_json(url: str, payload: Dict[str, Any], retries: int = 2, delay: float = 1.0) -> Dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
     last_err: Exception | None = None
+    timeout_sec = float(os.environ.get("DEMO_HTTP_TIMEOUT", "20"))
     for attempt in range(retries):
         try:
             req = Request(url=url, data=body, headers={"Content-Type": "application/json"}, method="POST")
-            with urlopen(req, timeout=5) as resp:
+            with urlopen(req, timeout=timeout_sec) as resp:
                 text = resp.read().decode("utf-8")
                 return json.loads(text)
-        except (URLError, HTTPError, TimeoutError, ValueError) as exc:
+        except HTTPError as exc:
+            try:
+                text = exc.read().decode("utf-8")
+            except Exception:
+                text = str(exc)
+            if exc.code == 400:
+                raise RuntimeError(f"HTTP 400 from assessor: {text}")
+            last_err = exc
+            time.sleep(delay)
+        except (URLError, TimeoutError, ValueError) as exc:
             last_err = exc
             time.sleep(delay)
     raise RuntimeError(f"Failed to POST after {retries} attempts: {last_err}")
@@ -74,12 +84,18 @@ def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
 
 def run_demo() -> Dict[str, Any]:
     episodes = sorted(EPISODE_DIR.glob("ep*.json"))
+    max_eps = int(os.environ.get("DEMO_MAX_EPISODES", "3"))
+    if max_eps > 0:
+        episodes = episodes[:max_eps]
     summaries: List[Dict[str, Any]] = []
 
     for ep_path in episodes:
         episode = _read_episode(ep_path)
         try:
             response = _post_json(ASSESS_ENDPOINT, episode)
+        except RuntimeError as exc:
+            print(f"Episode {episode.get('id')} failed: {exc}", file=sys.stderr)
+            raise
         except Exception as exc:
             # Preserve diagnostics so demo tests can inspect errors without crashing.
             response = {

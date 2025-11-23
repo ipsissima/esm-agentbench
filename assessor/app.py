@@ -29,9 +29,17 @@ def _load_agent_card() -> Dict[str, Any]:
     """Load the agent_card.toml from repository root."""
     if not AGENT_CARD_PATH.exists():
         raise FileNotFoundError("agent_card.toml is missing at repository root")
-    with AGENT_CARD_PATH.open("rb") as f:
-        data = tomllib.load(f)
-    return data
+    try:
+        with AGENT_CARD_PATH.open("rb") as f:
+            data = tomllib.load(f)
+        return data
+    except Exception as exc:
+        logging.error("agent_card.toml is malformed: %s", exc)
+        return {
+            "name": "ESM Spectral Assessor",
+            "entrypoint": "http://localhost:8080/.well-known/agent-card.json",
+            "description": "Fallback card due to parse error",
+        }
 
 
 @app.route("/.well-known/agent-card.json", methods=["GET"])

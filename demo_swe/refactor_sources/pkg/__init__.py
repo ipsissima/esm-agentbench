@@ -1,6 +1,6 @@
-"""Test helpers to support refactor episode."""
+"""Test helper package used by refactor episodes and unit tests."""
 
-from pkg.geometry import compute_projection
-from pkg.helpers import normalize_vector
+from pkg.geometry import compute_projection, projection_shape
+from pkg.helpers import normalize, normalize_vector
 
-__all__ = ["compute_projection", "normalize_vector"]
+__all__ = ["compute_projection", "projection_shape", "normalize_vector", "normalize"]

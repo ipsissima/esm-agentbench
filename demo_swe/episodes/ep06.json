@@ -1,12 +1,6 @@
 {
   "id": "ep06",
-  "prompt": "Refactor the following legacy callback-based class `DataFetcher` into a modern `asyncio` compatible class. \n\nCURRENT LEGACY CODE:\n```python\nimport time\n\nclass DataFetcher:\n    def fetch(self, url, callback):\n        # Simulates blocking I/O\n        time.sleep(0.1)\n        if 'error' in url:\n            callback(None, Exception('Network Error'))\n        else:\n            callback(f'data_from_{url}', None)\n\n    def fetch_all(self, urls, final_callback):\n        results = []\n        error = None\n        def internal_cb(data, err):\n            nonlocal error\n            if err:\n                error = err\n            if data:\n                results.append(data)\n            if len(results) + (1 if error else 0) == len(urls):\n                final_callback(results, error)\n        \n        for url in urls:\n            self.fetch(url, internal_cb)\n```
-
-REQUIREMENTS:
-1. Rewrite this as `AsyncFetcher` using `async/await`.
-2. The `fetch` method should be a coroutine that raises exceptions normally.
-3. The `fetch_all` method should use `asyncio.gather` to run requests concurrently.
-4. Do not use `time.sleep`; use `asyncio.sleep`.",
+  "prompt": "Refactor the following legacy callback-based class `DataFetcher` into a modern `asyncio` compatible class.\n\nCURRENT LEGACY CODE:\n```python\nimport time\n\nclass DataFetcher:\n    def fetch(self, url, callback):\n        # Simulates blocking I/O\n        time.sleep(0.1)\n        if 'error' in url:\n            callback(None, Exception('Network Error'))\n        else:\n            callback(f'data_from_{url}', None)\n\n    def fetch_all(self, urls, final_callback):\n        results = []\n        error = None\n        def internal_cb(data, err):\n            nonlocal error\n            if err:\n                error = err\n            if data:\n                results.append(data)\n            if len(results) + (1 if error else 0) == len(urls):\n                final_callback(results, error)\n\n        for url in urls:\n            self.fetch(url, internal_cb)\n```\n\nREQUIREMENTS:\n1. Rewrite this as `AsyncFetcher` using `async/await`.\n2. The `fetch` method should be a coroutine that raises exceptions normally.\n3. The `fetch_all` method should use `asyncio.gather` to run requests concurrently.\n4. Do not use `time.sleep`; use `asyncio.sleep`.",
   "tests": [
     {
       "name": "async_conversion",

@@ -1,23 +1,17 @@
-import os
-import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import sys
+
+# Ensure repo root importable
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from assessor import kickoff  # noqa: E402
-
-
-class DummyModel:
-    def __init__(self, raise_on_encode: bool = False):
-        self.raise_on_encode = raise_on_encode
-
-    def encode(self, texts, normalize_embeddings: bool = True):
-        if self.raise_on_encode:
-            raise RuntimeError("boom")
-        return np.ones((len(texts), 3))
 
 
 @pytest.fixture(autouse=True)
@@ -27,28 +21,43 @@ def clear_sentence_model_cache(monkeypatch):
     monkeypatch.setattr(kickoff, "_sentence_model_cache", None, raising=False)
 
 
-def test_embed_falls_back_when_sentence_transformers_missing(monkeypatch):
-    def _fail_model():
-        raise ImportError("nope")
-
-    monkeypatch.setattr(kickoff, "_sentence_model", _fail_model)
+def _disable_openai(monkeypatch):
+    monkeypatch.setattr(kickoff, "OPENAI_KEY", None, raising=False)
+    monkeypatch.setattr(kickoff, "openai", None, raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    arr = kickoff.embed_trace_steps([{"text": "hello"}, {"text": "world"}])
+
+
+def _assert_embedding_shape(arr: np.ndarray, rows: int) -> None:
     assert isinstance(arr, np.ndarray)
-    assert arr.shape[0] == 2
+    assert arr.shape[0] == rows
+    assert arr.dtype == float
+
+
+def test_embed_falls_back_when_sentence_model_import_errors(monkeypatch):
+    _disable_openai(monkeypatch)
+
+    def _boom() -> Any:
+        raise ImportError("missing")
+
+    monkeypatch.setattr(kickoff, "_sentence_model", _boom)
+    arr = kickoff.embed_trace_steps([{"text": "hello"}, {"text": "world"}])
+    _assert_embedding_shape(arr, 2)
 
 
 def test_embed_uses_tfidf_when_model_none(monkeypatch):
+    _disable_openai(monkeypatch)
     monkeypatch.setattr(kickoff, "_sentence_model", lambda: None)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     arr = kickoff.embed_trace_steps([{"text": "a"}])
-    assert isinstance(arr, np.ndarray)
-    assert arr.shape[0] == 1
+    _assert_embedding_shape(arr, 1)
 
 
 def test_embed_handles_model_encode_failure(monkeypatch):
-    monkeypatch.setattr(kickoff, "_sentence_model", lambda: DummyModel(raise_on_encode=True))
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    _disable_openai(monkeypatch)
+
+    class DummyModel:
+        def encode(self, texts, normalize_embeddings: bool = True):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(kickoff, "_sentence_model", lambda: DummyModel())
     arr = kickoff.embed_trace_steps([{"text": "x"}, {"text": "y"}])
-    assert isinstance(arr, np.ndarray)
-    assert arr.shape[0] == 2
+    _assert_embedding_shape(arr, 2)
