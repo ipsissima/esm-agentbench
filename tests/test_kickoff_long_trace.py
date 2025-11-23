@@ -37,5 +37,6 @@ def test_trace_schema_and_length(tmp_path: Path):
     trace_path = Path(result["trace_path"])
     assert trace_path.exists()
     parsed = json.loads(trace_path.read_text(encoding="utf-8"))
-    assert isinstance(parsed, list)
-    assert len(parsed) == len(result["trace"])
+    assert isinstance(parsed, dict)
+    assert "trace" in parsed
+    assert len(parsed["trace"]) == len(result["trace"])

@@ -42,3 +42,7 @@ The `certificates` module provides Koopman-based certificates over the state spa
 ## Configuration
 - `OPENAI_API_KEY`: If set, the demo attempts to use OpenAI for completions and embeddings.
 - Without an API key, the demo uses a deterministic agent and embedding stack suitable for offline evaluation.
+
+## Harvesting real traces
+- Dry-run the harvester without API calls: `python tools/harvest_data.py --episodes demo_swe/episodes --outdir demo_traces --gold_runs 1 --drift_runs 1 --poison_runs 1 --starve_runs 1 --dry-run`
+- Full run with budget guardrails: `python tools/harvest_data.py --episodes demo_swe/episodes --outdir demo_traces --gold_runs 5 --drift_runs 5 --poison_runs 5 --starve_runs 5 --api_delay 0.2 --max_api_calls 100 --est_cost_limit 5`
