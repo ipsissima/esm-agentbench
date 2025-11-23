@@ -1,11 +1,12 @@
-## Demo & Appendix
-- Run `./demo.sh` to start the assessor (if needed) and execute the offline SWE demo; results land in `demo_swe/report.json` and `demo_traces/`.
+## Coherence & Early Warning Demo
+- Run `./demo.sh` to start the assessor, execute the offline SWE demo, and generate the Good vs Bad Chain-of-Thought hallucination figure at `demo_swe/fig_hallucination.png`. Reports land in `demo_swe/report.json` and `demo_traces/`.
+- The figure shows cumulative residuals: smooth growth indicates coherent reasoning, while a spike highlights hallucination drift flagged by the early warning system.
 - The math appendix is documented in [DOCS/appendix.md](DOCS/appendix.md), including the conservative theoretical bound.
 - CI runs `pytest -q` and optionally builds the Docker image via GitHub Actions; locally, run `pytest -q` before pushing.
 
 # ESM-AgentBench Green Assessor
 
-This repository contains a minimal, judge-friendly "green assessor" for the ESM-AgentBench competition. It exposes a small Flask service that can serve the agent card, run a demonstration episode, save traces, and compute spectral certificates that summarize stability and dynamical properties of agent traces. The project emphasizes deterministic local behavior with optional OpenAI integrations when an `OPENAI_API_KEY` is available.
+This repository contains a minimal, judge-friendly "green assessor" for the ESM-AgentBench competition. It exposes a small Flask service that can serve the agent card, run a demonstration episode, save traces, and compute spectral certificates that summarize coherence and dynamical properties of agent traces. The project emphasizes deterministic local behavior with optional OpenAI integrations when an `OPENAI_API_KEY` is available.
 
 Competition info deck: [AgentBeats Info Session](file:///mnt/data/agentbeats-competition-info-session-deck.pdf)
 
@@ -72,7 +73,7 @@ Response:
 
 ## Spectral metrics
 - **pca_explained**: Total variance captured by the PCA projection (fraction).
-- **max_eig**: Largest eigenvalue magnitude of the Koopman proxy; values <1 suggest stability.
+- **max_eig**: Largest eigenvalue magnitude of the Koopman proxy; values <1 suggest coherent dynamics.
 - **spectral_gap**: Difference between the largest two eigenvalue magnitudes; larger gaps indicate dominant dynamics.
 - **residual**: Normalized reconstruction error of the linear proxy; smaller is better.
 - **confidence**: Heuristic `1 - residual`, clipped at 0.

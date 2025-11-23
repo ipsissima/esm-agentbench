@@ -12,6 +12,9 @@ COPY requirements.txt /app/
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /app/requirements.txt
 
+# Pre-download the sentence-transformers model for offline use
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
 # Create a dedicated non-root runtime user for security
 RUN useradd --create-home --shell /bin/bash appuser
 
