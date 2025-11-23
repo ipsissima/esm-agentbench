@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List
@@ -12,6 +14,8 @@ from urllib.request import Request, urlopen
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "demo_swe" / "refactor_sources"))
+
 EPISODE_DIR = REPO_ROOT / "demo_swe" / "episodes"
 TRACE_DIR = REPO_ROOT / "demo_traces"
 REPORT_PATH = REPO_ROOT / "demo_swe" / "report.json"
@@ -47,13 +51,44 @@ def _post_json(url: str, payload: Dict[str, Any], retries: int = 5, delay: float
     raise RuntimeError(f"Failed to POST after {retries} attempts: {last_err}")
 
 
+def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
+    """Write JSON atomically to avoid partially written demo outputs."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=path.parent) as tmp:
+            json.dump(payload, tmp, ensure_ascii=False, indent=2)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp_path = Path(tmp.name)
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
 def run_demo() -> Dict[str, Any]:
     episodes = sorted(EPISODE_DIR.glob("ep*.json"))
     summaries: List[Dict[str, Any]] = []
 
     for ep_path in episodes:
         episode = _read_episode(ep_path)
-        response = _post_json(ASSESS_ENDPOINT, episode)
+        try:
+            response = _post_json(ASSESS_ENDPOINT, episode)
+        except Exception as exc:
+            # Preserve diagnostics so demo tests can inspect errors without crashing.
+            response = {
+                "episode_id": episode.get("id"),
+                "task_success": False,
+                "task_score": 0.0,
+                "spectral_metrics": {},
+                "trace_path": None,
+                "error": str(exc),
+            }
 
         episode_id = response.get("episode_id", episode["id"])
         spectral = response.get("spectral_metrics", {})
@@ -67,8 +102,7 @@ def run_demo() -> Dict[str, Any]:
             "task_score": float(response.get("task_score", 0.0)),
             "trace_path": response.get("trace_path"),
         }
-        with certificate_path.open("w", encoding="utf-8") as f:
-            json.dump(certificate, f, ensure_ascii=False, indent=2)
+        _atomic_write_json(certificate_path, certificate)
 
         summaries.append(
             {
@@ -96,8 +130,7 @@ def run_demo() -> Dict[str, Any]:
         "notes": "Deterministic offline SWE demo",
     }
 
-    with REPORT_PATH.open("w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
+    _atomic_write_json(REPORT_PATH, report)
 
     return report
 

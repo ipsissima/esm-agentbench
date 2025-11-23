@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as _dt
-import importlib.util
 import json
 import logging
 import os
@@ -358,10 +357,11 @@ def _default_step_prompt() -> str:
 
 
 def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
-    """Embed each trace step using available embedding backends.
+    """Embed trace steps with tiered fallbacks to avoid hard failures.
 
     Preference order: OpenAI embeddings -> sentence-transformers -> TF-IDF ->
-    deterministic histogram fallback. Embeddings are L2 normalized.
+    deterministic histogram fallback. All stages are exception-safe so that
+    missing or incompatible dependencies do not break tests.
     """
 
     texts = [str(step.get("text", "")) for step in trace]
@@ -383,37 +383,53 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
                 arr = np.array([data["embedding"] for data in resp["data"]], dtype=float)
             arr = arr / (norm(arr, axis=1, keepdims=True) + 1e-12)
             return arr
-        except Exception:
-            logger.warning("OpenAI embedding failed; falling back to offline model.")
+        except Exception as exc:
+            logger.warning("OpenAI embedding failed; falling back: %s", exc)
 
-    model = _sentence_model()
+    model = None
+    try:
+        model = _sentence_model()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Sentence-transformers import failed; using TF-IDF: %s", exc)
+
     if model is not None:
         try:  # pragma: no cover - heavy dependency
             arr = model.encode(texts, normalize_embeddings=True)
             return np.asarray(arr, dtype=float)
-        except Exception:
-            logger.warning("Sentence-transformers embedding failed; using TF-IDF.")
+        except Exception as exc:
+            logger.warning("Sentence-transformers embedding failed; using TF-IDF: %s", exc)
 
-    vectorizer = TfidfVectorizer(max_features=512)
-    matrix = vectorizer.fit_transform(texts)
-    arr = matrix.toarray().astype(float)
-    if arr.size:
-        arr = arr / (np.linalg.norm(arr, axis=1, keepdims=True) + 1e-12)
-        return arr
+    try:
+        vectorizer = TfidfVectorizer(ngram_range=(1, 2), max_features=512)
+        matrix = vectorizer.fit_transform(texts)
+        arr = matrix.toarray().astype(float)
+        if arr.size:
+            arr = arr / (np.linalg.norm(arr, axis=1, keepdims=True) + 1e-12)
+            return arr
+    except Exception as exc:
+        logger.warning("TF-IDF fallback failed; using histogram: %s", exc)
 
-    # Fallback deterministic histogram
+    # Final deterministic histogram fallback to guarantee a numeric array.
     return np.array([_local_embedding(texts[0] if texts else "") for _ in texts], dtype=float)
 
 
 def _sentence_model() -> Any:
+    """Lazy loader for sentence-transformers with graceful failure.
+
+    Any import or model construction issues (e.g., missing huggingface_hub
+    symbols) are swallowed so callers can fall back to lighter embeddings.
+    """
+
     global _SENTENCE_MODEL
     if _SENTENCE_MODEL is not None:
         return _SENTENCE_MODEL
-    if importlib.util.find_spec("sentence_transformers"):
-        from sentence_transformers import SentenceTransformer
+
+    try:  # pragma: no cover - optional dependency
+        from sentence_transformers import SentenceTransformer  # type: ignore
 
         _SENTENCE_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
-    else:  # pragma: no cover - dependency missing
+    except Exception as exc:
+        logger.warning("sentence-transformers unavailable; fallback in use: %s", exc)
         _SENTENCE_MODEL = None
     return _SENTENCE_MODEL
 
