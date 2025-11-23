@@ -1,0 +1,10 @@
+{
+  "id": "ep_refactor",
+  "prompt": "Refactor geometry helpers across multiple files and ensure imports remain stable.",
+  "tests": [
+    {
+      "name": "refactor",
+      "script": "import sys; sys.path.append('refactor_sources'); exec(open('refactor_tests/test_refactor.py').read())"
+    }
+  ]
+}

@@ -6,7 +6,7 @@ on reconstruction error using PCA tail estimates.
 from __future__ import annotations
 
 import json
-from typing import Dict, Iterable
+from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
 from numpy.linalg import norm, pinv
@@ -33,38 +33,28 @@ def _initial_empty_certificate() -> Dict[str, float]:
     }
 
 
-def compute_certificate(embeddings: Iterable[Iterable[float]], r: int = 10) -> Dict[str, float]:
-    """Compute PCA reduction then finite-rank Koopman spectral summary.
+def segment_trace_by_jump(residuals: List[float], jump_threshold: float) -> List[Tuple[int, int]]:
+    """Segment residual series whenever a jump exceeds ``jump_threshold``."""
 
-    The routine follows three stages: (1) augment embeddings with a bias term
-    to capture affine drift; (2) fit PCA to reduce dimensionality; (3) compute
-    a finite-rank Koopman proxy via least-squares and measure reconstruction
-    residual. The certificate additionally reports a conservative theoretical
-    bound defined as ``residual + pca_tail_estimate`` where ``pca_tail_estimate``
-    is the fraction of variance omitted by PCA.
+    clean = [r if r is not None else 0.0 for r in residuals]
+    if not clean:
+        return [(0, 0)]
+    segments: List[Tuple[int, int]] = []
+    start = 0
+    for idx in range(1, len(clean)):
+        if abs(clean[idx] - clean[idx - 1]) > jump_threshold:
+            segments.append((start, idx))
+            start = idx
+    segments.append((start, len(clean)))
+    return segments
 
-    Parameters
-    ----------
-    embeddings: iterable of iterables
-        Sequence of embedding vectors. Shape (T, d).
-    r: int
-        Maximum reduced dimension for PCA.
 
-    Returns
-    -------
-    dict
-        Dictionary with pca_explained, max_eig, spectral_gap, residual,
-        pca_tail_estimate, theoretical_bound.
-    """
-
-    X = _safe_array(embeddings)
+def _compute_certificate_core(X: np.ndarray, r: int) -> Dict[str, float]:
     T = X.shape[0]
     if T < 2 or X.size == 0:
         return _initial_empty_certificate()
 
-    # Augment with a bias term so affine drifts remain representable linearly.
     X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
-
     r_eff = max(1, min(r, T - 1, X_aug.shape[1]))
     pca = PCA(n_components=r_eff, svd_solver="auto", random_state=0)
     pca.fit(X_aug)
@@ -85,11 +75,10 @@ def compute_certificate(embeddings: Iterable[Iterable[float]], r: int = 10) -> D
         certificate["theoretical_bound"] = float(certificate["residual"] + pca_tail_estimate)
         return certificate
 
-    X0 = Z[:-1].T  # shape (r_eff, T-1)
+    X0 = Z[:-1].T
     X1 = Z[1:].T
 
     gram = X0 @ X0.T
-    # Small Tikhonov regularization for numerical stability.
     eps = 1e-12
     gram = gram + eps * np.eye(gram.shape[0])
     A = (X1 @ X0.T) @ pinv(gram)
@@ -110,7 +99,61 @@ def compute_certificate(embeddings: Iterable[Iterable[float]], r: int = 10) -> D
         "residual": residual,
         "pca_tail_estimate": pca_tail_estimate,
         "theoretical_bound": theoretical_bound,
+        "Z": Z,
     }
+
+
+def compute_certificate(embeddings: Iterable[Iterable[float]], r: int = 10) -> Dict[str, float]:
+    """Compute PCA reduction then finite-rank Koopman spectral summary."""
+
+    X = _safe_array(embeddings)
+    base = _compute_certificate_core(X, r)
+    certificate = {k: v for k, v in base.items() if k != "Z"}
+
+    Z = base.get("Z")
+    if Z is None or not isinstance(Z, np.ndarray):
+        return certificate
+
+    # Optional segmented modeling to support pivot detection downstream.
+    try:
+        seg_residuals = residuals_from_Z(Z)
+        segments = segment_trace_by_jump([float(v) for v in seg_residuals], jump_threshold=0.3)
+        if len(segments) > 1:
+            segment_meta = []
+            for start, end in segments:
+                if end - start < 2:
+                    continue
+                cert_seg = _compute_certificate_core(Z[start:end], r=min(r, end - start))
+                segment_meta.append(
+                    {
+                        "start": start,
+                        "end": end,
+                        "pca_explained": cert_seg.get("pca_explained", 0.0),
+                        "residual": cert_seg.get("residual", 0.0),
+                    }
+                )
+            if segment_meta:
+                certificate["segments"] = segment_meta
+    except Exception:
+        # Segmentation is optional; never fail certificate computation.
+        pass
+
+    return certificate
+
+
+def residuals_from_Z(Z: np.ndarray) -> List[float]:
+    """Compute residual magnitudes directly from reduced states."""
+
+    if Z.shape[0] < 2:
+        return [0.0] * Z.shape[0]
+    X0 = Z[:-1].T
+    X1 = Z[1:].T
+    gram = X0 @ X0.T
+    eps = 1e-12
+    gram = gram + eps * np.eye(gram.shape[0])
+    A = (X1 @ X0.T) @ pinv(gram)
+    errs = X1 - A @ X0
+    return [float(norm(errs[:, i]) / (norm(X1[:, i]) + eps)) for i in range(errs.shape[1])]
 
 
 if __name__ == "__main__":  # pragma: no cover

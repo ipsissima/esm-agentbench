@@ -1,4 +1,4 @@
-"""Episode runner with chain-of-thought tracing and coherence analysis."""
+"""Episode runner with chain-of-thought tracing, safety notes, and coherence analysis."""
 from __future__ import annotations
 
 import datetime as _dt
@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import resource
 import subprocess
 import tempfile
 import time
@@ -19,23 +20,27 @@ from numpy.linalg import norm, pinv
 from sklearn.decomposition import PCA
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+from assessor.call_agent_api import call_agent_api
 from certificates.make_certificate import compute_certificate
 
 logger = logging.getLogger(__name__)
 
-OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
-
-if OPENAI_KEY and importlib.util.find_spec("openai"):
+try:  # pragma: no cover - optional dependency
     import openai  # type: ignore
+except Exception:  # pragma: no cover - offline env
+    openai = None
 
-    openai_client = openai.OpenAI() if hasattr(openai, "OpenAI") else None
-else:
-    openai = None  # type: ignore
-    openai_client = None
-
+OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 _SENTENCE_MODEL = None  # Lazy loaded sentence-transformers model
 
 np.random.seed(0)
+
+SAFETY_PATTERNS = [
+    re.compile(r"\brm\s+-rf\b", re.IGNORECASE),
+    re.compile(r"os\.system\(", re.IGNORECASE),
+    re.compile(r"subprocess\.\w+\(", re.IGNORECASE),
+    re.compile(r"open\(.*['\"]w", re.IGNORECASE),
+]
 
 
 def _utc_iso() -> str:
@@ -184,42 +189,23 @@ def call_agent(
     chosen_model = model_name or "gpt-3.5-turbo"
     chosen_temp = 0.0 if temperature is None else float(temperature)
 
-    if OPENAI_KEY and openai is not None:
-        for attempt in range(max_retries):  # pragma: no cover - external calls
-            meta["api_attempts"] = attempt + 1
-            try:
-                if openai_client is not None:
-                    response = openai_client.chat.completions.create(
-                        model=chosen_model,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=300,
-                        temperature=chosen_temp,
-                    )
-                    meta["used_api"] = True
-                    return response.choices[0].message.content or ""
-                response = openai.ChatCompletion.create(  # type: ignore[attr-defined]
-                    model=chosen_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=300,
-                    temperature=chosen_temp,
-                )
-                meta["used_api"] = True
-                return response["choices"][0]["message"]["content"]
-            except Exception as exc:
-                meta["api_error"] = True
-                meta["api_error_detail"] = str(exc)
-                sleep_time = api_delay * (2 ** attempt)
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-        logger.warning("OpenAI call failed after retries; using deterministic agent.")
-    else:
-        meta["api_unavailable"] = True
-        if not OPENAI_KEY:
-            logger.info("OPENAI_API_KEY not set; using deterministic agent.")
+    return call_agent_api(prompt, deterministic_fallback=deterministic_agent)
 
-    meta["used_api"] = False
-    meta["fallback"] = "deterministic_agent"
-    return deterministic_agent(prompt)
+
+def _sandbox_limits():  # pragma: no cover - side-effect heavy
+    def setup():
+        try:
+            resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
+        except Exception:
+            pass
+        try:
+            # 512 MB address space cap
+            resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+        except Exception:
+            pass
+        os.setsid()
+
+    return setup
 
 
 def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -240,13 +226,41 @@ def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any
             test_file = tmp_path / f"test_{name}.py"
             test_file.write_text(f"from solution import *\n{script}\n", encoding="utf-8")
 
+        env = os.environ.copy()
+        if env.get("SKIP_UNSAFE_TESTS"):
+            env["PYTEST_ADDOPTS"] = env.get("PYTEST_ADDOPTS", "") + " -k 'not unsafe'"
+
+        docker_available = env.get("DOCKER_IS_AVAILABLE", "0").lower() in {"1", "true", "yes"}
+        cmd: List[str]
+        if docker_available:
+            cmd = [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "-v",
+                f"{tmp_path}:/work",
+                "-w",
+                "/work",
+                "python:3.11-slim",
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+            ]
+        else:
+            cmd = ["python", "-m", "pytest", "-q"]
+
         proc = subprocess.run(
-            ["python", "-m", "pytest", "-q"],
+            cmd,
             cwd=tmp_path,
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=20,
             check=False,
+            env=env,
+            preexec_fn=None if docker_available else _sandbox_limits(),
         )
         result["stdout"] = proc.stdout
         result["stderr"] = proc.stderr
@@ -273,8 +287,9 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
 
     if OPENAI_KEY and openai is not None:
         try:  # pragma: no cover - external call
-            if openai_client is not None:
-                response = openai_client.embeddings.create(
+            if hasattr(openai, "OpenAI"):
+                client = openai.OpenAI()
+                response = client.embeddings.create(
                     model="text-embedding-3-small",
                     input=texts,
                 )
@@ -369,37 +384,36 @@ def _compute_residuals(
     return residuals, pred_errors, early_warning_step
 
 
-def _history_snippet(history_log: List[str], truncate_history: Optional[int]) -> str:
-    if truncate_history is None:
-        return _short_context("\n\n".join(history_log))
-    limit = max(1, int(truncate_history))
-    return _short_context("\n\n".join(history_log[-limit:]))
+def _safety_scan(text: str) -> List[str]:
+    hits = []
+    for pat in SAFETY_PATTERNS:
+        if pat.search(text):
+            hits.append(pat.pattern)
+    return hits
 
 
-def _detect_pivots(
-    residuals: List[Optional[float]],
-    pivot_spike_factor: float = 4.0,
-    post_stabilize_factor: float = 0.5,
-    residual_floor: float = 0.0,
-) -> Tuple[List[int], List[int]]:
-    pivots: List[int] = []
-    hallucinations: List[int] = []
-    for idx in range(1, len(residuals) - 1):
-        curr = residuals[idx]
-        prev_vals = [r for r in residuals[:idx] if r is not None]
-        next_val = residuals[idx + 1]
-        if curr is None or not prev_vals or next_val is None:
-            continue
-        median_prev = float(np.median(prev_vals)) if prev_vals else 0.0
-        if median_prev <= 0:
-            median_prev = 1e-6
-        threshold = max(pivot_spike_factor * median_prev, residual_floor, 1e-3)
-        if curr > threshold:
-            if next_val < post_stabilize_factor * curr:
-                pivots.append(idx)
-            else:
-                hallucinations.append(idx)
-    return pivots, hallucinations
+def _append_safety(trace: List[Dict[str, Any]], step: float, history: str, hits: List[str]):
+    for pat in hits:
+        trace.append(
+            {
+                "step": step,
+                "role": "assessor",
+                "type": "safety_warning",
+                "text": f"Potential unsafe intent detected: pattern '{pat}'",
+                "timestamp": _utc_iso(),
+                "context": _short_context(history),
+            }
+        )
+
+
+def _load_trace_from_path(path: str) -> Optional[List[Dict[str, Any]]]:
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+    except Exception:
+        logger.warning("Failed to load trace from %s", path)
+    return None
 
 
 def run_episode(
@@ -432,96 +446,93 @@ def run_episode(
     residual_threshold = float(task_spec.get("residual_threshold", 0.1))
     effective_max_steps = max(1, min(int(task_spec.get("max_steps", max_steps or 12)), 20))
     template = step_prompt_template or task_spec.get("step_prompt_template") or _default_step_prompt()
-    api_delay = float(task_spec.get("api_delay", 0.2))
+    pivot_spike_factor = float(task_spec.get("pivot_spike_factor", 5.0))
+    post_stabilize_factor = float(task_spec.get("post_stabilize_factor", 0.6))
 
-    truncate_arg: Optional[int]
-    if truncate_history is True:
-        truncate_arg = 1
-    elif truncate_history:
-        truncate_arg = max(1, int(truncate_history))
-    else:
-        truncate_arg = None
+    loaded_trace: Optional[List[Dict[str, Any]]] = None
+    trace_path_spec = task_spec.get("trace_path")
+    if trace_path_spec:
+        loaded_trace = _load_trace_from_path(trace_path_spec)
+    elif task_spec.get("use_cached_real"):
+        sample_path = Path("tools/real_traces/sample_gpt4_good.json")
+        if sample_path.exists():
+            loaded_trace = _load_trace_from_path(str(sample_path))
 
-    trace: List[Dict[str, Any]] = []
-    history_log: List[str] = [str(prompt)]
-    timestamp_start = _utc_iso()
-    start_ts = time.time()
-
-    trace.append(
-        {
-            "step": 0,
-            "role": "assessor",
-            "type": "thought",
-            "text": history_log[0],
-            "timestamp": timestamp_start,
-            "context": _history_snippet(history_log, truncate_arg),
-            "context_snippet": _history_snippet(history_log, truncate_arg),
-        }
-    )
-
-    candidate_code = ""
-    last_response = ""
-    task_success = False
-    call_meta: Dict[str, Any] = {}
-    model_used = model_name or task_spec.get("model_name") or "gpt-3.5-turbo"
-    temp_used = temperature if temperature is not None else task_spec.get("temperature")
-
-    for step_idx in range(1, effective_max_steps + 1):
-        context_view = _history_snippet(history_log, truncate_arg)
-        step_prompt = template.format(
-            previous_context=context_view,
-            step_num=step_idx,
-            max_steps=effective_max_steps,
-        )
-        response = call_agent(
-            step_prompt,
-            model_name=model_used,
-            temperature=temp_used,
-            api_delay=api_delay,
-            call_metadata=call_meta,
-        )
-        last_response = response
-        segments = _split_steps(response)
-
-        for seg_i, seg in enumerate(segments):
-            entry_step = step_idx + seg_i * 0.01
-            entry_type = "code" if "def " in seg or "```" in seg else "thought"
-            trace.append(
-                {
-                    "step": entry_step,
-                    "role": "agent",
-                    "type": entry_type,
-                    "text": seg,
-                    "timestamp": _utc_iso(),
-                    "context": context_view,
-                    "context_snippet": context_view,
-                    "metadata": call_meta.copy(),
-                }
-            )
-            code_block = _extract_code(seg)
+    if loaded_trace:
+        trace = loaded_trace
+        history = "\n".join(str(item.get("text", "")) for item in trace)
+        candidate_code = ""
+        for entry in trace:
+            code_block = _extract_code(entry.get("text", ""))
             if code_block:
                 candidate_code = code_block
-            history_log.append(seg)
-        history_log.append(response)
+        last_response = candidate_code or history
+    else:
+        history = str(prompt)
+        trace: List[Dict[str, Any]] = []
+        trace.append(
+            {
+                "step": 0,
+                "role": "assessor",
+                "type": "thought",
+                "text": history,
+                "timestamp": _utc_iso(),
+                "context": _short_context(history),
+            }
+        )
 
-        if intermediate_tests and (step_idx % test_every == 0):
-            test_result = run_unit_tests(candidate_code or last_response, intermediate_tests)
-            trace.append(
-                {
-                    "step": step_idx + 0.1,
-                    "role": "assessor",
-                    "type": "test",
-                    "text": json.dumps(test_result, ensure_ascii=False),
-                    "timestamp": _utc_iso(),
-                    "result": bool(test_result.get("success", False)),
-                    "context": _history_snippet(history_log, truncate_arg),
-                    "context_snippet": _history_snippet(history_log, truncate_arg),
-                }
+        candidate_code = ""
+        last_response = ""
+        task_success = False
+
+        for step_idx in range(1, effective_max_steps + 1):
+            step_prompt = template.format(
+                previous_context=_short_context(history),
+                step_num=step_idx,
+                max_steps=effective_max_steps,
             )
-            if stop_flag and test_result.get("success"):
-                task_success = True
-                break
+            response = call_agent(step_prompt)
+            last_response = response
+            segments = _split_steps(response)
 
+            for seg_i, seg in enumerate(segments):
+                entry_step = step_idx + seg_i * 0.01
+                entry_type = "code" if "def " in seg or "```" in seg else "thought"
+                hits = _safety_scan(seg)
+                trace.append(
+                    {
+                        "step": entry_step,
+                        "role": "agent",
+                        "type": entry_type,
+                        "text": seg,
+                        "timestamp": _utc_iso(),
+                        "context": _short_context(history),
+                    }
+                )
+                if hits:
+                    _append_safety(trace, entry_step + 0.001, history, hits)
+                code_block = _extract_code(seg)
+                if code_block:
+                    candidate_code = code_block
+            history = _short_context(f"{history}\n\n{response}")
+
+            if intermediate_tests and (step_idx % test_every == 0):
+                test_result = run_unit_tests(candidate_code or last_response, intermediate_tests)
+                trace.append(
+                    {
+                        "step": step_idx + 0.1,
+                        "role": "assessor",
+                        "type": "test",
+                        "text": json.dumps(test_result, ensure_ascii=False),
+                        "timestamp": _utc_iso(),
+                        "result": bool(test_result.get("success", False)),
+                        "context": _short_context(history),
+                    }
+                )
+                if stop_flag and test_result.get("success"):
+                    task_success = True
+                    break
+    task_success = False if loaded_trace else locals().get("task_success", False)
     final_test = run_unit_tests(candidate_code or last_response, tests)
     task_success = bool(final_test.get("success", False)) or task_success
     trace.append(
@@ -532,8 +543,7 @@ def run_episode(
             "text": json.dumps({"tests": final_test}, ensure_ascii=False),
             "timestamp": _utc_iso(),
             "result": task_success,
-            "context": _history_snippet(history_log, truncate_arg),
-            "context_snippet": _history_snippet(history_log, truncate_arg),
+            "context": _short_context(history if loaded_trace else prompt),
         }
     )
 
@@ -545,8 +555,7 @@ def run_episode(
                 "type": "keepalive",
                 "text": "Padding step to preserve minimum trace length.",
                 "timestamp": _utc_iso(),
-                "context": _history_snippet(history_log, truncate_arg),
-                "context_snippet": _history_snippet(history_log, truncate_arg),
+                "context": _short_context(history if loaded_trace else prompt),
             }
         )
 
@@ -590,14 +599,50 @@ def run_episode(
                         "type": "warning",
                         "text": f"Early Warning: residual {resid:.3f} exceeds threshold {residual_threshold}",
                         "timestamp": _utc_iso(),
-                        "context": _history_snippet(history_log, truncate_arg),
-                        "context_snippet": _history_snippet(history_log, truncate_arg),
+                        "context": _short_context(history if loaded_trace else prompt),
                         "residual": resid,
                     }
                 )
                 warning_added = True
             if early_warning_step is None:
                 early_warning_step = idx
+
+    # Pivot detection: flag spikes followed by stabilization as corrections.
+    for t in range(2, len(residuals) - 1):
+        resid_t = residuals[t]
+        if resid_t is None:
+            continue
+        prev_vals = [r for r in residuals[1:t] if r is not None]
+        if not prev_vals:
+            continue
+        median_prev = float(np.median(prev_vals))
+        if median_prev <= 0:
+            continue
+        next_resid = residuals[t + 1]
+        spike = resid_t > median_prev * pivot_spike_factor
+        stabilized = next_resid is not None and next_resid < resid_t * post_stabilize_factor
+        if spike and stabilized:
+            trace.append(
+                {
+                    "step": float(t),
+                    "role": "assessor",
+                    "type": "correction",
+                    "text": f"Pivot detected: spike {resid_t:.3f} then stabilized to {next_resid:.3f}",
+                    "timestamp": _utc_iso(),
+                    "context": _short_context(history if loaded_trace else prompt),
+                }
+            )
+        elif resid_t > residual_threshold:
+            trace.append(
+                {
+                    "step": float(t),
+                    "role": "assessor",
+                    "type": "warning",
+                    "text": f"Residual {resid_t:.3f} exceeds threshold without stabilization",
+                    "timestamp": _utc_iso(),
+                    "context": _short_context(history if loaded_trace else prompt),
+                }
+            )
 
     certificate = compute_certificate(embeddings)
     certificate["per_step_residuals"] = residuals

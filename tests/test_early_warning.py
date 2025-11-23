@@ -1,37 +1,42 @@
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(ROOT))
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from assessor.kickoff import run_episode  # noqa: E402
+from assessor import kickoff
 
 
-def test_early_warning_triggers_for_bad_only():
-    good_spec = {
-        "prompt": "Compute fibonacci numbers with coherent reasoning.",
-        "tests": [
-            {"name": "fib", "script": "assert fibonacci(5) == 5"}
-        ],
-        "residual_threshold": 2.0,
-        "max_steps": 8,
-    }
+def test_pivot_detection_labels_correction(monkeypatch):
+    def fake_compute_residuals(_embeddings, threshold):
+        residuals = [None, 0.05, 2.0, 0.2, 0.2]
+        return residuals, [None] * len(residuals), 2
 
-    bad_spec = {
-        "prompt": "Compute fibonacci numbers but induce bad cot hallucination.",
-        "tests": [
-            {"name": "fib", "script": "assert fibonacci(4) == 3"}
-        ],
-        "residual_threshold": 0.05,
-        "max_steps": 8,
-        "step_prompt_template": (
-            "{previous_context}\n\nStep {step_num}/{max_steps}: Continue reasoning about fibonacci with bad cot injection."
-        ),
-    }
+    monkeypatch.setattr(kickoff, "_compute_residuals", fake_compute_residuals)
 
-    good = run_episode(good_spec)
-    bad = run_episode(bad_spec)
+    result = kickoff.run_episode({
+        "trace_path": "tools/real_traces/sample_gpt4_bad.json",
+        "residual_threshold": 0.1,
+        "pivot_spike_factor": 5.0,
+        "post_stabilize_factor": 0.5,
+        "max_steps": 5,
+    })
+    types = [entry.get("type") for entry in result["trace"]]
+    assert "correction" in types
+    assert result["early_warning_step"] == 2
 
-    assert good["early_warning_step"] is None
-    assert bad["early_warning_step"] is not None
-    assert bad["early_warning_step"] > 0
+
+def test_good_trace_no_warning(monkeypatch):
+    def fake_compute_residuals(_embeddings, threshold):
+        residuals = [None, 0.01, 0.02, 0.03, 0.02]
+        return residuals, [None] * len(residuals), None
+
+    monkeypatch.setattr(kickoff, "_compute_residuals", fake_compute_residuals)
+
+    result = kickoff.run_episode({
+        "trace_path": "tools/real_traces/sample_gpt4_good.json",
+        "residual_threshold": 0.5,
+        "max_steps": 5,
+    })
+    types = [entry.get("type") for entry in result["trace"]]
+    assert "warning" not in types
+    assert result["early_warning_step"] is None
