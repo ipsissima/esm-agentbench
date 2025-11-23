@@ -34,3 +34,33 @@ so $\text{theoretical\_bound}$ upper-bounds the normalized Frobenius reconstruct
 
 ## Sandboxing note
 Unit tests run via `pytest -q` inside a temporary directory with a short timeout, and without `shell=True`. For stronger isolation, judges can execute the same flow inside the provided Docker image using `docker run --network none esm-agentbench:ci` to disable external access.
+
+### Coq / UELAT bridge and constants
+The formal UELAT lemma bounding the finite-rank reconstruction error takes the form
+\(\|X_1 - \hat{A}PX_0\|/\|X_1\| \leq C_{\text{tail}}\,\text{tail} + C_{\text{res}}\,\text{residual}\),
+where ``tail`` is the PCA variance discarded and ``residual`` is the in-subspace Koopman fit error.
+In the current certificate code, ``theoretical_bound`` already implements ``residual + tail``.
+Therefore the runtime *guaranteed* bound is instantiated as
+``guaranteed_bound = C_tail * pca_tail_estimate + C_res * residual`` with Coq-exported constants.
+When the lemma states the coefficients are exactly 1, we set ``C_tail = 1`` and ``C_res = 1``;
+other extracted constants will automatically override these defaults via the bridge.
+
+To extract numeric constants from Coq manually:
+```
+coqtop -batch -quiet -l path/to/ulelat.v -eval 'Print C_tail.' -eval 'Print C_res.' \
+  2>&1 | sed -n 's/.*C_tail *= *\([^ ]*\).*/C_tail \1/p; s/.*C_res *= *\([^ ]*\).*/C_res \1/p'
+```
+The helper ``tools/generate_uelat_constants_from_coq.sh`` automates this flow:
+```
+./tools/generate_uelat_constants_from_coq.sh path/to/ulelat.v certificates/uelat_constants.json C_tail C_res
+```
+
+Annotated Coq references (placeholders to be replaced with the project’s concrete files):
+- `ULELAT/lemmas/finite_rank_truncation.v` — Formalization of the finite-rank truncation lemma proving constants `C_tail` and `C_res` under assumptions on PCA variance and Koopman residuals.
+- `ULELAT/analysis/constants_export.v` — Utility lemmas that `Print` the numeric instantiations of the constants for extraction into JSON.
+
+Verification workflow:
+1. Export constants with ``tools/generate_uelat_constants_from_coq.sh`` (or manually with ``coqtop``) to create ``uelat_constants.json``.
+2. Load them at runtime via ``certificates/uelat_bridge.py`` to sanitize and expose ``C_tail`` / ``C_res``.
+3. Run ``python certificates/verify_bound.py --constants certificates/uelat_constants.json --datasets all --T 40 --d 8 --r-values 1,2,4 --trials 3``.
+   The script compares the runtime ``theoretical_bound`` against the formal ``guaranteed_bound`` and reports ``OK`` if the conservative inequality holds for all trials.
