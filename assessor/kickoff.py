@@ -330,10 +330,16 @@ def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any
         repo_root = Path(__file__).resolve().parent.parent
         refactor_src = repo_root / "demo_swe" / "refactor_sources"
         refactor_tests = repo_root / "demo_swe" / "refactor_tests"
+        extra_paths: List[str] = []
         if refactor_src.exists():
             shutil.copytree(refactor_src, tmp_path / "refactor_sources", dirs_exist_ok=True)
+            extra_paths.append(str(tmp_path / "refactor_sources"))
         if refactor_tests.exists():
             shutil.copytree(refactor_tests, tmp_path / "refactor_tests", dirs_exist_ok=True)
+
+        env = os.environ.copy()
+        if extra_paths:
+            env["PYTHONPATH"] = os.pathsep.join(extra_paths + [env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
 
         for test in tests:
             script = test.get("script", "")
@@ -341,7 +347,6 @@ def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any
             test_file = tmp_path / f"test_{name}.py"
             test_file.write_text(f"from solution import *\n{script}\n", encoding="utf-8")
 
-        env = os.environ.copy()
         if env.get("SKIP_UNSAFE_TESTS"):
             env["PYTEST_ADDOPTS"] = env.get("PYTEST_ADDOPTS", "") + " -k 'not unsafe'"
 
