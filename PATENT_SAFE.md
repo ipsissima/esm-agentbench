@@ -1,0 +1,1 @@
+This public repository intentionally excludes logic-fragment / categorical-colimit / compilation to hardware or encrypted fragment assembly; those features are not present. See provisional for private implementation.

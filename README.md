@@ -19,6 +19,11 @@ This repository contains a minimal, judge-friendly "green assessor" for the ESM-
 
 Competition info deck: [AgentBeats Info Session](file:///mnt/data/agentbeats-competition-info-session-deck.pdf)
 
+### AgentBeats cheat sheet
+- Run the tutorial debate: `./agentbeats-run scenarios/esm/scenario.toml --show-logs`
+- Start the green assessor: `python -m esmassessor.green_server --port 8080 --serve-only`
+- Launch the purple baseline: `python scenarios/debate/debater.py --host 127.0.0.1 --port 9019`
+
 ## Quickstart
 1. Create and activate a virtual environment (Python 3.9+):
    ```bash
@@ -82,3 +87,5 @@ Notes:
 The GitHub Action writes an idempotent .well-known/agent-card.json and opens a PR; maintainer review is recommended before merging.
 
 The workflow uses gcloud and gcloud builds to produce a reproducible container.
+
+See [DOCS/AGENTBEATS_INTEGRATION.md](DOCS/AGENTBEATS_INTEGRATION.md) for the full integration walkthrough and calibration notes.
