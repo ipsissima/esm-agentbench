@@ -1,13 +1,23 @@
-"""Demo episode runner and embedding utilities."""
+"""Demo episode runner and embedding utilities.
+
+This module now drives multi-step chain-of-thought traces to support spectral
+analysis. The ``run_episode`` routine records rich metadata for each reasoning
+step, interleaves lightweight assessor checks, and ensures reproducible
+behavior even without external APIs.
+"""
+import datetime
 import json
+import logging
 import os
 import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 
@@ -77,30 +87,156 @@ def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any
     return result
 
 
-def run_episode(task_spec: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute a minimal episode returning trace and outcomes."""
+def _timestamp() -> str:
+    return datetime.datetime.utcnow().isoformat() + "Z"
+
+
+def _short_context(context: str) -> str:
+    return context[-4096:]
+
+
+def _default_step_prompt() -> str:
+    return (
+        "{previous_context}\n\n"
+        "Step {step_num}/{max_steps}: Please provide the next reasoning step toward "
+        "solving the task. Keep the step concise and include any code or tool calls."
+    )
+
+
+def run_episode(
+    task_spec: Dict[str, Any],
+    max_steps: int = 12,
+    step_prompt_template: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Execute a multi-step episode returning trace and outcomes."""
+
     episode_id = str(uuid.uuid4())
     prompt = task_spec.get("prompt", "")
     tests = task_spec.get("tests", [])
+    intermediate_tests = task_spec.get("intermediate_tests", [])
+    test_every = max(1, int(task_spec.get("test_every", 3)))
+    stop_on_success = bool(task_spec.get("stop_on_success", True))
+    effective_max_steps = min(max(1, int(task_spec.get("max_steps", max_steps))), 20)
+    template = step_prompt_template or task_spec.get("step_prompt_template") or _default_step_prompt()
 
+    context = str(prompt)
     trace: List[Dict[str, Any]] = []
-    trace.append({"step": 0, "role": "assessor", "text": prompt, "tool_calls": []})
-
-    agent_output = call_agent(prompt)
-    trace.append({"step": 1, "role": "agent", "text": agent_output, "tool_calls": []})
-
-    test_result = run_unit_tests(agent_output, tests)
-    task_success = bool(test_result.get("success", False))
-    task_score = 1.0 if task_success else 0.0
-
     trace.append(
         {
-            "step": 2,
+            "step": 0,
             "role": "assessor",
-            "text": json.dumps({"tests": test_result}, ensure_ascii=False),
-            "tool_calls": [],
+            "type": "thought",
+            "text": context,
+            "timestamp": _timestamp(),
+            "context": _short_context(context),
         }
     )
+
+    last_response = ""
+    task_success = False
+    done = False
+
+    for t in range(effective_max_steps):
+        logger.info("episode %s step %d role=%s", episode_id, t, "agent")
+        response = call_agent(context)
+        last_response = response
+        entry_type = "code" if ("def " in response or "import " in response) else "thought"
+        trace.append(
+            {
+                "step": t + 1,
+                "role": "agent",
+                "type": entry_type,
+                "text": response,
+                "timestamp": _timestamp(),
+                "context": _short_context(context),
+            }
+        )
+
+        if intermediate_tests and (t + 1) % test_every == 0:
+            logger.info("episode %s step %d role=%s", episode_id, t, "assessor")
+            test_result = run_unit_tests(response, intermediate_tests)
+            trace.append(
+                {
+                    "step": t + 0.1,
+                    "role": "assessor",
+                    "type": "test",
+                    "text": json.dumps(test_result, ensure_ascii=False),
+                    "timestamp": _timestamp(),
+                    "result": bool(test_result.get("success", False)),
+                    "context": _short_context(context),
+                }
+            )
+            if stop_on_success and test_result.get("success"):
+                done = True
+
+        if "TOOL_CALL:" in response:
+            logger.info("episode %s step %d role=%s", episode_id, t, "tool")
+            tool_text = f"TOOL_RESULT: simulated output for step {t + 1}"
+            trace.append(
+                {
+                    "step": t + 0.2,
+                    "role": "tool",
+                    "type": "tool",
+                    "text": tool_text,
+                    "timestamp": _timestamp(),
+                    "context": _short_context(context),
+                }
+            )
+            response = f"{response}\n{tool_text}"
+
+        if "DONE" in response:
+            done = True
+
+        previous_context = f"{context}\n\n{response}"
+        agent_texts = [step.get("text", "") for step in trace if step.get("role") == "agent"]
+        summary = " | ".join(agent_texts[-3:])
+        prompt_fragment = template.format(
+            previous_context=_short_context(previous_context),
+            step_num=t + 1,
+            max_steps=effective_max_steps,
+        )
+        if summary:
+            prompt_fragment = f"{prompt_fragment}\nLAST_STEPS: {summary}"
+        context = _short_context(prompt_fragment)
+
+        if done and stop_on_success:
+            break
+
+    test_result = run_unit_tests(last_response, tests)
+    task_success = bool(test_result.get("success", False))
+    task_score = 1.0 if task_success else 0.0
+    logger.info("episode %s step %d role=%s", episode_id, len(trace), "assessor")
+    trace.append(
+        {
+            "step": len(trace) + 1,
+            "role": "assessor",
+            "type": "result",
+            "text": json.dumps({"tests": test_result}, ensure_ascii=False),
+            "timestamp": _timestamp(),
+            "result": task_success,
+            "context": _short_context(context),
+        }
+    )
+
+    while len(trace) < effective_max_steps:
+        logger.info("episode %s step %d role=%s", episode_id, len(trace), "assessor")
+        trace.append(
+            {
+                "step": len(trace),
+                "role": "assessor",
+                "type": "result",
+                "text": "padding to maintain minimum trace length",
+                "timestamp": _timestamp(),
+                "result": task_success,
+                "context": _short_context(context),
+            }
+        )
+
+    trace_dir = Path(__file__).resolve().parent.parent / "demo_traces"
+    trace_dir.mkdir(exist_ok=True)
+    trace_path = trace_dir / f"{episode_id}.json"
+    with trace_path.open("w", encoding="utf-8") as f:
+        json.dump(trace, f, ensure_ascii=False, indent=2)
 
     return {
         "episode_id": episode_id,
