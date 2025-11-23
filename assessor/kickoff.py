@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import importlib.util
 import json
 import logging
 import os
@@ -9,6 +10,7 @@ import re
 import resource
 import subprocess
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -51,13 +53,26 @@ def _short_context(text: str, limit: int = 4096) -> str:
     return text[-limit:]
 
 
+def _chunk_response(response: str, max_len: int = 500) -> List[str]:
+    if not response:
+        return [""]
+    if len(response) <= max_len:
+        return [response.strip()]
+    chunks = []
+    for idx in range(0, len(response), max_len):
+        chunk = response[idx : idx + max_len].strip()
+        if chunk:
+            chunks.append(chunk)
+    return chunks or [response.strip()]
+
+
 def _split_steps(response: str) -> List[str]:
     """Split multi-step agent replies into separate step segments."""
 
     pattern = re.compile(r"(?:^|\n)(Step\s*\d+\s*:)", flags=re.IGNORECASE)
     matches = list(pattern.finditer(response))
     if not matches:
-        return [response.strip()]
+        return _chunk_response(response)
 
     segments = []
     for idx, match in enumerate(matches):
@@ -152,8 +167,27 @@ def deterministic_agent(prompt: str) -> str:
     return f"Step {step_no}: Provide concise reasoning for the task."
 
 
-def call_agent(prompt: str) -> str:
-    """Call OpenAI if configured, otherwise return deterministic output."""
+def call_agent(
+    prompt: str,
+    *,
+    model_name: Optional[str] = None,
+    temperature: Optional[float] = None,
+    api_delay: float = 0.2,
+    max_retries: int = 3,
+    call_metadata: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Call OpenAI with retries and deterministic fallback."""
+
+    meta = call_metadata if call_metadata is not None else {}
+    meta.setdefault("api_error", False)
+    meta.setdefault("used_api", False)
+    meta.setdefault("api_attempts", 0)
+
+    if api_delay > 0:
+        time.sleep(api_delay)
+
+    chosen_model = model_name or "gpt-3.5-turbo"
+    chosen_temp = 0.0 if temperature is None else float(temperature)
 
     return call_agent_api(prompt, deterministic_fallback=deterministic_agent)
 
@@ -294,11 +328,11 @@ def _sentence_model() -> Any:
     global _SENTENCE_MODEL
     if _SENTENCE_MODEL is not None:
         return _SENTENCE_MODEL
-    try:  # pragma: no cover - heavy dependency
+    if importlib.util.find_spec("sentence_transformers"):
         from sentence_transformers import SentenceTransformer
 
         _SENTENCE_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
-    except Exception:
+    else:  # pragma: no cover - dependency missing
         _SENTENCE_MODEL = None
     return _SENTENCE_MODEL
 
@@ -384,15 +418,27 @@ def _load_trace_from_path(path: str) -> Optional[List[Dict[str, Any]]]:
 
 def run_episode(
     task_spec: Dict[str, Any],
+    model_name: Optional[str] = None,
+    temperature: Optional[float] = None,
     max_steps: Optional[int] = 12,
     step_prompt_template: Optional[str] = None,
+    poison: Optional[str] = None,
+    truncate_history: Optional[int] = None,
+    tag: Optional[str] = None,
+    seed: Optional[int] = None,
     check_every: int = 3,
     stop_on_success: bool = True,
 ) -> Dict[str, Any]:
     """Execute a multi-step episode returning trace and outcomes."""
 
+    if seed is not None:
+        np.random.seed(seed)
+
     episode_id = str(uuid.uuid4())
     prompt = task_spec.get("prompt", "")
+    if poison:
+        prompt = f"NOTE (poison): {poison}\n\n{prompt}"
+
     tests = task_spec.get("tests", [])
     intermediate_tests = task_spec.get("intermediate_tests", [])
     test_every = max(1, int(task_spec.get("test_every", check_every)))
@@ -520,6 +566,28 @@ def run_episode(
         entry["residual"] = residuals[idx] if idx < len(residuals) else None
         entry["pred_error"] = pred_errors[idx] if idx < len(pred_errors) else None
 
+    pivots, hallucinations = _detect_pivots(residuals, residual_floor=residual_threshold)
+    for pivot_idx in pivots:
+        if pivot_idx < len(trace):
+            trace[pivot_idx]["type"] = "correction"
+    for hal_idx in hallucinations:
+        if hal_idx < len(trace):
+            trace.append(
+                {
+                    "step": float(hal_idx),
+                    "role": "assessor",
+                    "type": "warning",
+                    "subtype": "hallucination",
+                    "text": f"Persistent residual spike at step {hal_idx}.",
+                    "timestamp": _utc_iso(),
+                    "context": _history_snippet(history_log, truncate_arg),
+                    "context_snippet": _history_snippet(history_log, truncate_arg),
+                    "residual": residuals[hal_idx],
+                }
+            )
+            if early_warning_step is None:
+                early_warning_step = hal_idx
+
     warning_added = False
     for idx, resid in enumerate(residuals):
         if resid is not None and resid > residual_threshold:
@@ -579,11 +647,35 @@ def run_episode(
     certificate = compute_certificate(embeddings)
     certificate["per_step_residuals"] = residuals
 
+    dataset_tag = tag or task_spec.get("dataset_tag")
+    timestamp_end = _utc_iso()
+    runtime_ms = int((time.time() - start_ts) * 1000)
     trace_dir = Path(__file__).resolve().parent.parent / "demo_traces"
     trace_dir.mkdir(parents=True, exist_ok=True)
-    trace_path = trace_dir / f"{episode_id}.json"
+
+    prefix = dataset_tag or model_used.replace("/", "-")
+    trace_path = trace_dir / f"{prefix}_{episode_id}.json"
+    payload = {
+        "episode_id": episode_id,
+        "dataset_tag": dataset_tag,
+        "model_name": model_used,
+        "temperature": temp_used if temp_used is not None else 0.0,
+        "poison": poison,
+        "truncate_history": truncate_arg,
+        "seed": seed,
+        "timestamp_start": timestamp_start,
+        "timestamp_end": timestamp_end,
+        "runtime_ms": runtime_ms,
+        "trace": trace,
+        "per_step_residuals": residuals,
+        "early_warning_step": early_warning_step,
+        "task_success": task_success,
+        "task_score": 1.0 if task_success else 0.0,
+        "certificate": certificate,
+    }
+
     with trace_path.open("w", encoding="utf-8") as f:
-        json.dump(trace, f, ensure_ascii=False, indent=2)
+        json.dump(payload, f, ensure_ascii=False, indent=2)
 
     return {
         "episode_id": episode_id,
@@ -594,6 +686,10 @@ def run_episode(
         "early_warning_step": early_warning_step,
         "per_step_residuals": residuals,
         "certificate": certificate,
+        "dataset_tag": dataset_tag,
+        "timestamp_start": timestamp_start,
+        "timestamp_end": timestamp_end,
+        "runtime_ms": runtime_ms,
     }
 
 

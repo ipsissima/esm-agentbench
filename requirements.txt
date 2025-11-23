@@ -7,3 +7,4 @@ tomli
 gunicorn==20.1.0
 matplotlib==3.8.1
 sentence-transformers==2.2.2
+pandas==2.2.3
