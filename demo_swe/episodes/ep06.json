@@ -1,0 +1,24 @@
+{
+  "id": "ep06",
+  "prompt": "Refactor the following legacy callback-based class `DataFetcher` into a modern `asyncio` compatible class. \n\nCURRENT LEGACY CODE:\n```python\nimport time\n\nclass DataFetcher:\n    def fetch(self, url, callback):\n        # Simulates blocking I/O\n        time.sleep(0.1)\n        if 'error' in url:\n            callback(None, Exception('Network Error'))\n        else:\n            callback(f'data_from_{url}', None)\n\n    def fetch_all(self, urls, final_callback):\n        results = []\n        error = None\n        def internal_cb(data, err):\n            nonlocal error\n            if err:\n                error = err\n            if data:\n                results.append(data)\n            if len(results) + (1 if error else 0) == len(urls):\n                final_callback(results, error)\n        \n        for url in urls:\n            self.fetch(url, internal_cb)\n```
+
+REQUIREMENTS:
+1. Rewrite this as `AsyncFetcher` using `async/await`.
+2. The `fetch` method should be a coroutine that raises exceptions normally.
+3. The `fetch_all` method should use `asyncio.gather` to run requests concurrently.
+4. Do not use `time.sleep`; use `asyncio.sleep`.",
+  "tests": [
+    {
+      "name": "async_conversion",
+      "script": "import asyncio\nimport pytest\n\n@pytest.mark.asyncio\nasync def test_async_conversion():\n    fetcher = AsyncFetcher()\n    \n    # Test single fetch\n    data = await fetcher.fetch('http://test.com')\n    assert data == 'data_from_http://test.com'\n\n    # Test concurrency (timing check)\n    start = asyncio.get_running_loop().time()\n    results = await fetcher.fetch_all(['u1', 'u2', 'u3'])\n    end = asyncio.get_running_loop().time()\n    \n    # If serial, would take 0.3s. If concurrent, ~0.1s\n    assert (end - start) < 0.25\n    assert len(results) == 3\n"
+    },
+    {
+      "name": "error_handling",
+      "script": "import asyncio\nimport pytest\n\n@pytest.mark.asyncio\nasync def test_error_handling():\n    fetcher = AsyncFetcher()\n    with pytest.raises(Exception) as exc:\n        await fetcher.fetch('http://error.com')\n    assert 'Network Error' in str(exc.value)\n"
+    }
+  ],
+  "metadata": {
+    "difficulty": "hard",
+    "topic": "refactoring-concurrency"
+  }
+}
