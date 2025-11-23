@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import resource
+import shutil
 import subprocess
 import tempfile
 import time
@@ -326,6 +327,14 @@ def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any
         solution_path = tmp_path / "solution.py"
         solution_path.write_text(code_text, encoding="utf-8")
 
+        repo_root = Path(__file__).resolve().parent.parent
+        refactor_src = repo_root / "demo_swe" / "refactor_sources"
+        refactor_tests = repo_root / "demo_swe" / "refactor_tests"
+        if refactor_src.exists():
+            shutil.copytree(refactor_src, tmp_path / "refactor_sources", dirs_exist_ok=True)
+        if refactor_tests.exists():
+            shutil.copytree(refactor_tests, tmp_path / "refactor_tests", dirs_exist_ok=True)
+
         for test in tests:
             script = test.get("script", "")
             name = test.get("name", "case")
@@ -398,22 +407,19 @@ def _default_step_prompt() -> str:
 
 
 def _sentence_model():
-    """
-    Lazy, defensive loader for sentence-transformers. Returns a model object
-    or None on any import/initialization error. Does NOT raise.
-    """
+    """Lazily load sentence-transformers with defensive guards."""
 
     global _sentence_model_cache
     if _sentence_model_cache is not None:
         return _sentence_model_cache
-    try:
+    try:  # pragma: no cover - optional dependency
         from sentence_transformers import SentenceTransformer
 
         model = SentenceTransformer("all-MiniLM-L6-v2")
         _sentence_model_cache = model
         return model
-    except Exception as e:  # pragma: no cover - optional dependency
-        logger.warning("sentence-transformers unavailable: %s. Falling back to TF-IDF.", e)
+    except Exception as exc:  # pragma: no cover - optional dependency
+        logger.warning("sentence-transformers unavailable: %s. Falling back to TF-IDF.", exc)
         _sentence_model_cache = None
         return None
 
@@ -458,7 +464,7 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
                 )
                 arr = np.array([data["embedding"] for data in resp.get("data", [])], dtype=float)
             arr = arr / (norm(arr, axis=1, keepdims=True) + 1e-12)
-            return arr
+            return np.asarray(arr, dtype=float)
         except Exception as exc:
             logger.warning("OpenAI embedding failed; falling back: %s", exc)
 
@@ -467,17 +473,26 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("Sentence-transformers import failed; using TF-IDF: %s", exc)
         model = None
+
     if model is not None:
         try:  # pragma: no cover - heavy dependency
             arr = model.encode(texts, normalize_embeddings=True)
-            return np.asarray(arr, dtype=float)
+            arr = np.asarray(arr, dtype=float)
+            if arr.ndim == 1:
+                arr = arr.reshape(len(texts), -1)
+            return arr
         except Exception as exc:
             logger.warning("sentence-transformers embedding failed; using TF-IDF: %s", exc)
 
-    arr = _tfidf_embeddings(texts)
-    if arr.size:
-        return arr
-    return np.zeros((len(texts), 1), dtype=float)
+    tfidf_arr = _tfidf_embeddings(texts)
+    tfidf_arr = np.asarray(tfidf_arr, dtype=float)
+    if tfidf_arr.ndim == 1:
+        tfidf_arr = tfidf_arr.reshape(len(texts), -1)
+    if tfidf_arr.shape[0] != len(texts):
+        tfidf_arr = np.resize(tfidf_arr, (len(texts), tfidf_arr.shape[1] if tfidf_arr.ndim > 1 else 1))
+    if tfidf_arr.size == 0:
+        tfidf_arr = np.zeros((len(texts), 1), dtype=float)
+    return tfidf_arr
 
 
 def _local_embedding(text: str, dim: int = 64) -> List[float]:
@@ -584,30 +599,53 @@ def _history_snippet(history_log: List[str], truncate: Optional[int]) -> str:
 def _detect_pivots(
     residuals: List[Optional[float]],
     residual_floor: float = 1.5,
-    pivot_spike_factor: float = 3.0,
+    pivot_spike_factor: float = 5.0,
     post_stabilize_factor: float = 0.5,
 ) -> Tuple[List[int], List[int]]:
     """Detect correction pivots and hallucinations from residual sequences."""
 
     pivots: List[int] = []
     hallucinations: List[int] = []
-    for t in range(2, len(residuals) - 1):
+    if not residuals:
+        return pivots, hallucinations
+
+    eps = 1e-6
+    for t in range(1, len(residuals)):
         resid_t = residuals[t]
         if resid_t is None:
             continue
-        prev_vals = [r for r in residuals[1:t] if r is not None]
-        if not prev_vals:
+
+        prev_vals = [r for r in residuals[:t] if r is not None]
+        prev_med = float(np.median(prev_vals)) if prev_vals else eps
+        prev_med = prev_med if prev_med > 0 else eps
+
+        if resid_t <= pivot_spike_factor * prev_med:
             continue
-        median_prev = float(np.median(prev_vals))
-        if median_prev <= 0:
-            continue
-        next_resid = residuals[t + 1]
-        spike = resid_t > median_prev * pivot_spike_factor
-        stabilized = next_resid is not None and next_resid < resid_t * post_stabilize_factor
-        if spike and stabilized:
+
+        next_vals: List[float] = []
+        if t + 1 < len(residuals) and residuals[t + 1] is not None:
+            next_vals.append(float(residuals[t + 1]))
+        if t + 2 < len(residuals) and residuals[t + 2] is not None:
+            next_vals.append(float(residuals[t + 2]))
+
+        stabilized = (
+            t + 1 < len(residuals)
+            and residuals[t + 1] is not None
+            and float(residuals[t + 1]) < post_stabilize_factor * float(resid_t)
+        )
+
+        if stabilized:
             pivots.append(t)
-        elif resid_t > residual_floor:
-            hallucinations.append(t)
+            continue
+
+        if resid_t > residual_floor:
+            if next_vals:
+                avg_future = float(np.mean(next_vals))
+            else:
+                avg_future = 0.0
+            if avg_future > residual_floor:
+                hallucinations.append(t)
+
     return pivots, hallucinations
 
 
@@ -623,7 +661,7 @@ def run_episode(
     seed: Optional[int] = None,
     loaded_trace_path: Optional[str] = None,
     residual_threshold: float = 1.5,
-    pivot_spike_factor: float = 3.0,
+    pivot_spike_factor: float = 5.0,
     post_stabilize_factor: float = 0.5,
     api_delay: float = 0.2,
     oracle_every_n_steps: int = 3,
@@ -672,24 +710,28 @@ def run_episode(
                 step_num=step_idx,
                 max_steps=max_steps_eff,
             )
-            response = call_agent(
-                step_prompt,
-                model_name=model_used,
-                temperature=temp_used,
-                api_delay=api_delay,
-                call_metadata={"step": step_idx},
-            )
+            try:
+                response = call_agent(
+                    step_prompt,
+                    model_name=model_used,
+                    temperature=temp_used,
+                    api_delay=api_delay,
+                    call_metadata={"step": step_idx},
+                )
+            except TypeError:
+                response = call_agent(step_prompt)
             history_log.append(response)
             trace.append(
                 {
                     "step": step_idx,
-                    "role": "assistant",
+                    "role": "agent",
                     "type": "cot",
                     "text": response,
                     "timestamp": _utc_iso(),
                     "context": _short_context(history),
                 }
             )
+            agent_entry = trace[-1]
 
             hits = _safety_scan(response)
             if hits:
@@ -710,10 +752,24 @@ def run_episode(
                         }
                     )
 
-            if (step_idx % max(1, oracle_every_n_steps)) == 0:
+            if (step_idx % max(1, oracle_every_n_steps)) == 0 or step_idx == 1:
                 verdict = semantic_sanity_check(history, response)
                 if not verdict.get("safe", True) and semantic_warning_step is None:
                     semantic_warning_step = step_idx
+                    trace.append(
+                        {
+                            "step": step_idx + 0.25,
+                            "role": "assessor",
+                            "type": "warning",
+                            "text": f"Semantic Oracle warning: {verdict.get('reason')}",
+                            "timestamp": _utc_iso(),
+                            "context": _short_context(history),
+                        }
+                    )
+                if agent_entry:
+                    agent_entry["oracle_safe"] = verdict.get("safe", True)
+                    agent_entry["oracle_reason"] = verdict.get("reason")
+                    agent_entry["oracle_confidence"] = verdict.get("confidence")
                 trace.append(
                     {
                         "step": step_idx + 0.2,
@@ -857,8 +913,11 @@ def run_episode(
     }
 
     try:
-        tmp_path = trace_path.with_suffix(".tmp")
-        tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=trace_dir) as tmp:
+            json.dump(payload, tmp, ensure_ascii=False, indent=2)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp_path = Path(tmp.name)
         os.replace(tmp_path, trace_path)
     except Exception as exc:  # pragma: no cover - filesystem
         logger.warning("Failed to persist trace %s: %s", trace_path, exc)

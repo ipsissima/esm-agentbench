@@ -1,4 +1,4 @@
-"""Test helpers to support refactor episode."""
+"""Utility helpers used by the refactor episode tests."""
 from __future__ import annotations
 
 import math
@@ -13,3 +13,12 @@ def normalize_vector(vec: Iterable[float]) -> List[float]:
         return []
     norm = math.sqrt(sum(v * v for v in vals)) or 1.0
     return [v / norm for v in vals]
+
+
+def normalize(vec: Iterable[float]) -> List[float]:
+    """Alias for normalize_vector for backward compatibility."""
+
+    return normalize_vector(vec)
+
+
+__all__ = ["normalize_vector", "normalize"]

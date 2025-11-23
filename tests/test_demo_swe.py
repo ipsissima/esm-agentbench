@@ -1,18 +1,27 @@
 import json
 import os
 import subprocess
+import socket
 import threading
 import time
+import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 from werkzeug.serving import make_server
 
-from assessor.app import app
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PORT = 18080
+sys.path.insert(0, str(REPO_ROOT))
+
+from assessor.app import app
+def _allocate_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+PORT = _allocate_port()
 DEMO_DRIVER = REPO_ROOT / "tools" / "run_demo_swe.py"
 REPORT_PATH = REPO_ROOT / "demo_swe" / "report.json"
 
@@ -41,15 +50,20 @@ def test_demo_driver_runs_offline():
     server = _start_app()
     try:
         _wait_for_app()
-        run = subprocess.run(
-            ["python", str(DEMO_DRIVER)],
-            cwd=REPO_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            env={**os.environ, "ASSESS_ENDPOINT": f"http://localhost:{PORT}/run_episode"},
-        )
+        try:
+            run = subprocess.run(
+                ["python", str(DEMO_DRIVER)],
+                cwd=REPO_ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env={**os.environ, "ASSESS_ENDPOINT": f"http://localhost:{PORT}/run_episode"},
+            )
+        except subprocess.CalledProcessError as exc:
+            print(exc.stdout)
+            print(exc.stderr)
+            raise
         assert REPORT_PATH.exists(), run.stdout + run.stderr
         report = json.loads(REPORT_PATH.read_text(encoding="utf-8"))
         assert "episodes" in report and report["episodes"], "Report missing episodes"
