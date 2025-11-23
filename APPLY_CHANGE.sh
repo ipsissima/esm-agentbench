@@ -1,3 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BRANCH="fix/dockerfile-chown-healthcheck"
+
+if [[ -n $(git status --porcelain) ]]; then
+  echo "Working tree is dirty; please commit or stash changes before running this script." >&2
+  exit 1
+fi
+
+if git rev-parse --verify --quiet "$BRANCH" >/dev/null; then
+  git checkout "$BRANCH"
+else
+  git checkout -b "$BRANCH"
+fi
+
+# Rewrite Dockerfile with hardened configuration
+cat <<'DOCKERFILE' > Dockerfile
 # Use a slim Python base image suitable for production
 FROM python:3.11-slim
 
@@ -49,3 +67,19 @@ PYCODE
 
 # Run the application with gunicorn
 CMD ["gunicorn", "-b", "0.0.0.0:8080", "assessor.app:app", "--workers", "1", "--timeout", "30"]
+DOCKERFILE
+
+# Ensure gunicorn is pinned; append if missing or unpinned
+if ! grep -q '^gunicorn==20\.1\.0$' requirements.txt; then
+  if grep -q '^gunicorn' requirements.txt; then
+    sed -i 's/^gunicorn.*/gunicorn==20.1.0/' requirements.txt
+  else
+    echo "gunicorn==20.1.0" >> requirements.txt
+  fi
+fi
+
+git add Dockerfile requirements.txt
+
+git commit -m "chore(docker): chown /app for non-root runtime and use Python healthcheck; ensure gunicorn present"
+
+git push -u origin "$BRANCH"
