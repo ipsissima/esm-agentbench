@@ -10,9 +10,9 @@ See [validation_history/latest.md](validation_history/latest.md) for the full va
 
 | Metric | Result | Threshold | Status |
 | --- | --- | --- | --- |
-| Gold vs Drift T-Statistic | -44.90 (p ~ 0.0) | p < 0.001 | ✅ |
-| ROC AUC | 0.946 | > 0.8 | ✅ |
-| Cohen's D | 2.01 | > 0.8 | ✅ |
+| Gold vs Drift T-Statistic | -147.82 (p N/A) | p < 0.001 | ✅ |
+| ROC AUC | 1.000 | > 0.8 | ✅ |
+| Cohen's D | 6.61 | > 0.8 | ✅ |
 
 _Source: `tools/drift_metric_validation_results.json` (n=1000 runs, 12 steps, 64-dim embeddings)._
 
