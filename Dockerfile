@@ -7,7 +7,9 @@ ENV SENTENCE_TRANSFORMERS_HOME=/app/models
 ENV HF_HOME=/app/models
 
 COPY requirements.txt /app/
+# Install CPU-only torch first to avoid downloading CUDA libs
 RUN python -m pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir -r /app/requirements.txt \
     && pip install --no-cache-dir sentence-transformers scikit-learn
 
