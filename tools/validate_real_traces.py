@@ -4,6 +4,11 @@
 This script tests the theoretical_bound metric using:
 1. Existing real traces in tools/real_traces/
 2. Newly generated traces via harvest_data.py (deterministic agent)
+
+IMPORTANT: This validation requires semantic embeddings (sentence-transformers or OpenAI).
+TF-IDF fallback will produce misleading results because it measures vocabulary difference,
+not semantic coherence. Creative solutions using different vocabulary (e.g., matrix
+exponentiation) would incorrectly appear as "drift" with TF-IDF.
 """
 from __future__ import annotations
 
@@ -11,7 +16,7 @@ import json
 import sys
 import os
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 
 import numpy as np
 from scipy import stats
@@ -19,8 +24,62 @@ from scipy import stats
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from assessor.kickoff import embed_trace_steps
 from certificates.make_certificate import compute_certificate
+
+# Track which embedding method is used
+_embedding_method = "unknown"
+
+
+def _check_embedding_availability() -> str:
+    """Check which embedding method is available and return its name.
+
+    Fast check that doesn't attempt network requests.
+    Uses environment checks and local cache detection only.
+    """
+    global _embedding_method
+
+    # Check OpenAI
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if openai_key:
+        try:
+            import openai
+            _embedding_method = "openai"
+            return "openai"
+        except ImportError:
+            pass
+
+    # Check for cached sentence-transformers model (fast filesystem check)
+    # Don't import sentence_transformers as it may trigger network calls
+    cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+    model_cache = os.path.join(cache_dir, "models--sentence-transformers--all-MiniLM-L6-v2")
+    if os.path.exists(model_cache):
+        # Model is cached, sentence-transformers should work
+        try:
+            import sentence_transformers
+            _embedding_method = "sentence-transformers"
+            return "sentence-transformers"
+        except ImportError:
+            pass
+
+    # Check if sentence-transformers is installed but model not cached
+    try:
+        import importlib.util
+        if importlib.util.find_spec("sentence_transformers") is not None:
+            print("  Note: sentence-transformers installed but model not cached locally")
+            print("  Network access to huggingface.co may be required")
+    except Exception:
+        pass
+
+    _embedding_method = "tfidf"
+    return "tfidf"
+
+
+def embed_trace_steps_with_check(trace: List[Dict[str, Any]]) -> Tuple[np.ndarray, str]:
+    """Embed trace steps and return (embeddings, method_used)."""
+    from assessor.kickoff import embed_trace_steps
+
+    embeddings = embed_trace_steps(trace)
+    return embeddings, _embedding_method
 
 
 def load_trace(path: Path) -> List[Dict[str, Any]]:
@@ -36,6 +95,7 @@ def load_trace(path: Path) -> List[Dict[str, Any]]:
 
 def analyze_trace(trace: List[Dict[str, Any]], label: str) -> Dict[str, Any]:
     """Analyze a single trace and compute certificate."""
+    from assessor.kickoff import embed_trace_steps
     embeddings = embed_trace_steps(trace)
     cert = compute_certificate(embeddings)
 
@@ -183,14 +243,44 @@ def main():
     print("DRIFT DETECTION METRIC - REAL TRACE VALIDATION")
     print("=" * 80)
 
+    # Check embedding availability FIRST
+    print("\n[0] Checking Embedding Availability")
+    print("-" * 80)
+    embedding_method = _check_embedding_availability()
+    print(f"  Embedding method: {embedding_method}")
+
+    if embedding_method == "tfidf":
+        print("\n" + "!" * 80)
+        print("WARNING: Using TF-IDF fallback!")
+        print("!" * 80)
+        print("""
+  TF-IDF measures vocabulary difference, NOT semantic coherence.
+  This will produce FALSE NEGATIVES for creative solutions that use
+  different vocabulary (e.g., 'matrix exponentiation' vs 'loop').
+
+  To get reliable results, ensure one of:
+  1. Set OPENAI_API_KEY environment variable
+  2. Enable network access to huggingface.co for sentence-transformers
+
+  Results below may NOT reliably distinguish creativity from drift.
+""")
+    elif embedding_method == "sentence-transformers":
+        print("  ✓ Using semantic embeddings (sentence-transformers)")
+        print("  Results will reliably distinguish creativity from drift.")
+    elif embedding_method == "openai":
+        print("  ✓ Using semantic embeddings (OpenAI)")
+        print("  Results will reliably distinguish creativity from drift.")
+
     # Validate existing real traces
     real_trace_results = run_real_trace_validation()
 
     # Save results
     output = {
+        "embedding_method": embedding_method,
         "real_trace_results": real_trace_results.get("results", {}) if isinstance(real_trace_results, dict) else {},
         "results_by_category": real_trace_results.get("results_by_category", {}) if isinstance(real_trace_results, dict) else {},
         "discrimination_pass": real_trace_results.get("discrimination_pass", False) if isinstance(real_trace_results, dict) else False,
+        "reliable": embedding_method in ("sentence-transformers", "openai"),
     }
 
     output_path = Path(__file__).parent / "real_trace_validation_results.json"
@@ -218,6 +308,16 @@ def main():
     print("\n" + "=" * 80)
     print("FINAL VERDICT")
     print("=" * 80)
+    print(f"  Embedding method: {embedding_method}")
+
+    if embedding_method == "tfidf":
+        print("\n  ⚠ WARNING: Results are UNRELIABLE (TF-IDF fallback)")
+        print("  TF-IDF cannot reliably distinguish creativity from drift.")
+        print("  Enable sentence-transformers or OpenAI for valid results.")
+        print("\n" + "=" * 80)
+        print("CONCLUSION: VALIDATION INCOMPLETE - REQUIRES SEMANTIC EMBEDDINGS")
+        print("=" * 80)
+        return 2  # Special exit code for "needs semantic embeddings"
 
     if isinstance(real_trace_results, dict):
         if real_trace_results.get("discrimination_pass"):
