@@ -1,0 +1,96 @@
+{
+  "config": {
+    "n_runs": 1000,
+    "n_steps": 12,
+    "embedding_dim": 64
+  },
+  "statistics": {
+    "gold": {
+      "mean": 0.19605970454267976,
+      "std": 0.03252024821979822,
+      "median": 0.19328166226977955,
+      "min": 0.10644036520340844,
+      "max": 0.33271868454715203,
+      "q25": 0.17351704460706402,
+      "q75": 0.21460664026300805
+    },
+    "creative": {
+      "mean": 0.16556668369320932,
+      "std": 0.03286162262694505,
+      "median": 0.16347796122646824,
+      "min": 0.06793260059227715,
+      "max": 0.3202111752670309,
+      "q25": 0.14231388981962426,
+      "q75": 0.1868726544184548
+    },
+    "drift": {
+      "mean": 0.2781754079205465,
+      "std": 0.04782695396116311,
+      "median": 0.2791069938703389,
+      "min": 0.12145090588806481,
+      "max": 0.4005802692219519,
+      "q25": 0.24543230965936352,
+      "q75": 0.3103604402928793
+    },
+    "poison": {
+      "mean": 0.3244502149185048,
+      "std": 0.08308915409168847,
+      "median": 0.3266622030020436,
+      "min": 0.10707943357864184,
+      "max": 0.5469635397003563,
+      "q25": 0.2657530835145584,
+      "q75": 0.3892263084775419
+    },
+    "starved": {
+      "mean": 0.26573472805114484,
+      "std": 0.042100753030082566,
+      "median": 0.26869707854271674,
+      "min": 0.11192476262741151,
+      "max": 0.37896286597191964,
+      "q25": 0.23784759868193833,
+      "q75": 0.2950913504634946
+    }
+  },
+  "hypothesis_tests": {
+    "gold_vs_drift_ttest": {
+      "t_statistic": -44.89822689942316,
+      "p_value": 2.736032240746739e-305,
+      "significant_at_001": true
+    },
+    "gold_vs_drift_mannwhitney": {
+      "u_statistic": 80001.0,
+      "p_value": 2.377626060648411e-232,
+      "significant_at_001": true
+    },
+    "gold_vs_drift_effect_size": {
+      "cohens_d": 2.007909748326396,
+      "interpretation": "large"
+    },
+    "creative_vs_drift_ttest": {
+      "t_statistic": -61.36643442301628,
+      "p_value": 0.0,
+      "significant_at_001": true
+    },
+    "gold_vs_creative_ttest": {
+      "t_statistic": 20.857016538274713,
+      "p_value": 1.4475663845670346e-87,
+      "not_significantly_different": false
+    },
+    "gold_vs_poison_ttest": {
+      "t_statistic": -45.502882621226284,
+      "p_value": 3.6788787680765e-311,
+      "significant_at_001": true
+    },
+    "gold_vs_starved_ttest": {
+      "t_statistic": -41.41721007277817,
+      "p_value": 1.6317562937289422e-271,
+      "significant_at_001": true
+    }
+  },
+  "separation_metrics": {
+    "optimal_threshold": 0.2384354257190451,
+    "best_accuracy": 0.893,
+    "auc_roc": 0.9462925
+  },
+  "verdict": "PASS"
+}
