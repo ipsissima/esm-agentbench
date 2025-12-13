@@ -22,6 +22,10 @@ jobs:
         run: python tools/import_tutorial.py || true
       - name: Run pytest
         run: pytest -q
+      - name: Run drift metric validation (synthetic embeddings)
+        run: python tools/test_drift_metric_standalone.py
+      - name: Run real trace validation (sentence-transformers)
+        run: python tools/validate_real_traces.py
       - name: Build Docker image
         run: docker build -t esm-agentbench:ci .
       - name: Run demo scenario
