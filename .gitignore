@@ -32,11 +32,11 @@ data/
 demo_traces/
 *.sqlite3
 *.log
-# Stale validation output
+
+# Transient validation output (regenerated each CI run)
 tools/real_trace_validation_results.json
+
+# Note: validation_history/ is TRACKED (not ignored) to maintain audit trail
 
 Docker
 docker-compose.override.yml
-
-markdown
-Copia el codi

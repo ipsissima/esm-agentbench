@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git metadata
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -89,6 +91,17 @@ jobs:
         if: always()
         run: |
           docker stop $CONTAINER_NAME || true
+
+      - name: Generate validation report (no benchmarks update)
+        run: python tools/generate_validation_report.py --no-update-benchmarks
+
+      - name: Upload validation reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-validation-reports
+          path: |
+            validation_history/*.json
+            validation_history/*.md
 
       - name: Upload demo report as artifact
         if: always()

@@ -1,0 +1,262 @@
+{
+  "version": "1.0",
+  "timestamp": "2025-12-13T23:01:30.151253+00:00",
+  "timestamp_unix": 1765666890,
+  "git_metadata": {
+    "commit_sha": "89fc822c90791bfbf2ec93db71a7d4ccc892da6c",
+    "commit_short": "89fc822",
+    "branch": "claude/add-validation-history-01H6J1vs47BCRbRKGV6Rc9Y1",
+    "author_name": "andreu-toposcircuitry",
+    "author_email": "andreuballus@toposcircuitry.com",
+    "commit_message": "Merge pull request #37 from ipsissima/codex/upgrade-benchmarking-script-for-real-datasets",
+    "commit_date": "2025-12-13T16:33:57+01:00"
+  },
+  "ci_environment": {},
+  "overall_verdict": {
+    "verdict": "PASS",
+    "passed": 3,
+    "total": 3,
+    "checks": [
+      {
+        "name": "statistical_significance",
+        "description": "p-value < 0.001",
+        "threshold": 0.001,
+        "value": 2.736032240746739e-305,
+        "passed": true
+      },
+      {
+        "name": "auc_roc",
+        "description": "AUC-ROC > 0.8",
+        "threshold": 0.8,
+        "value": 0.9462925,
+        "passed": true
+      },
+      {
+        "name": "cohens_d",
+        "description": "Cohen's d > 0.8 (large effect)",
+        "threshold": 0.8,
+        "value": 2.007909748326396,
+        "passed": true
+      }
+    ]
+  },
+  "drift_validation": {
+    "status": "present",
+    "file": "/home/user/esm-agentbench/tools/drift_metric_validation_results.json",
+    "config": {
+      "n_runs": 1000,
+      "n_steps": 12,
+      "embedding_dim": 64
+    },
+    "statistics": {
+      "gold": {
+        "mean": 0.19605970454267976,
+        "std": 0.03252024821979822,
+        "median": 0.19328166226977955,
+        "min": 0.10644036520340844,
+        "max": 0.33271868454715203,
+        "q25": 0.17351704460706402,
+        "q75": 0.21460664026300805
+      },
+      "creative": {
+        "mean": 0.16556668369320932,
+        "std": 0.03286162262694505,
+        "median": 0.16347796122646824,
+        "min": 0.06793260059227715,
+        "max": 0.3202111752670309,
+        "q25": 0.14231388981962426,
+        "q75": 0.1868726544184548
+      },
+      "drift": {
+        "mean": 0.2781754079205465,
+        "std": 0.04782695396116311,
+        "median": 0.2791069938703389,
+        "min": 0.12145090588806481,
+        "max": 0.4005802692219519,
+        "q25": 0.24543230965936352,
+        "q75": 0.3103604402928793
+      },
+      "poison": {
+        "mean": 0.3244502149185048,
+        "std": 0.08308915409168847,
+        "median": 0.3266622030020436,
+        "min": 0.10707943357864184,
+        "max": 0.5469635397003563,
+        "q25": 0.2657530835145584,
+        "q75": 0.3892263084775419
+      },
+      "starved": {
+        "mean": 0.26573472805114484,
+        "std": 0.042100753030082566,
+        "median": 0.26869707854271674,
+        "min": 0.11192476262741151,
+        "max": 0.37896286597191964,
+        "q25": 0.23784759868193833,
+        "q75": 0.2950913504634946
+      }
+    },
+    "hypothesis_tests": {
+      "gold_vs_drift_ttest": {
+        "t_statistic": -44.89822689942316,
+        "p_value": 2.736032240746739e-305,
+        "significant_at_001": true
+      },
+      "gold_vs_drift_mannwhitney": {
+        "u_statistic": 80001.0,
+        "p_value": 2.377626060648411e-232,
+        "significant_at_001": true
+      },
+      "gold_vs_drift_effect_size": {
+        "cohens_d": 2.007909748326396,
+        "interpretation": "large"
+      },
+      "creative_vs_drift_ttest": {
+        "t_statistic": -61.36643442301628,
+        "p_value": 0.0,
+        "significant_at_001": true
+      },
+      "gold_vs_creative_ttest": {
+        "t_statistic": 20.857016538274713,
+        "p_value": 1.4475663845670346e-87,
+        "not_significantly_different": false
+      },
+      "gold_vs_poison_ttest": {
+        "t_statistic": -45.502882621226284,
+        "p_value": 3.6788787680765e-311,
+        "significant_at_001": true
+      },
+      "gold_vs_starved_ttest": {
+        "t_statistic": -41.41721007277817,
+        "p_value": 1.6317562937289422e-271,
+        "significant_at_001": true
+      }
+    },
+    "separation_metrics": {
+      "optimal_threshold": 0.2384354257190451,
+      "best_accuracy": 0.893,
+      "auc_roc": 0.9462925
+    },
+    "verdict": "PASS"
+  },
+  "real_trace_validation": {
+    "status": "missing",
+    "file": "/home/user/esm-agentbench/tools/real_trace_validation_results.json"
+  },
+  "demo_validation": {
+    "status": "present",
+    "file": "/home/user/esm-agentbench/demo_swe/report.json",
+    "episode_count": 5,
+    "episodes": [
+      {
+        "episode": "ep01",
+        "episode_id": "ca3af960-73eb-464c-b47e-63772bf484e7",
+        "task_success": false,
+        "task_score": 0.0,
+        "trace_path": "demo_traces/ca3af960-73eb-464c-b47e-63772bf484e7.json",
+        "certificate_path": "demo_traces/ca3af960-73eb-464c-b47e-63772bf484e7_certificate.json",
+        "spectral_metrics": {
+          "confidence": 0.9999999999950482,
+          "max_eig": 0.7672244762009252,
+          "pca_explained": 1.0,
+          "pca_tail_estimate": 0.0,
+          "residual": 4.951846873469011e-12,
+          "spectral_gap": 0.0,
+          "theoretical_bound": 4.951846873469011e-12
+        }
+      },
+      {
+        "episode": "ep02",
+        "episode_id": "72aa2e64-b604-4ea6-986a-de53febcff00",
+        "task_success": false,
+        "task_score": 0.0,
+        "trace_path": "demo_traces/72aa2e64-b604-4ea6-986a-de53febcff00.json",
+        "certificate_path": "demo_traces/72aa2e64-b604-4ea6-986a-de53febcff00_certificate.json",
+        "spectral_metrics": {
+          "confidence": 0.9999999999940716,
+          "max_eig": 0.6611666122064294,
+          "pca_explained": 0.9999999999999999,
+          "pca_tail_estimate": 1.1102230246251565e-16,
+          "residual": 5.928418315736729e-12,
+          "spectral_gap": 0.0,
+          "theoretical_bound": 5.928529338039191e-12
+        }
+      },
+      {
+        "episode": "ep03",
+        "episode_id": "0a0c65b2-0aed-489c-9f1b-8a35a2cc06c7",
+        "task_success": false,
+        "task_score": 0.0,
+        "trace_path": "demo_traces/0a0c65b2-0aed-489c-9f1b-8a35a2cc06c7.json",
+        "certificate_path": "demo_traces/0a0c65b2-0aed-489c-9f1b-8a35a2cc06c7_certificate.json",
+        "spectral_metrics": {
+          "confidence": 0.9999999999920216,
+          "max_eig": 0.5251610741526269,
+          "pca_explained": 1.0,
+          "pca_tail_estimate": 0.0,
+          "residual": 7.978393558302083e-12,
+          "spectral_gap": 0.0,
+          "theoretical_bound": 7.978393558302083e-12
+        }
+      },
+      {
+        "episode": "ep04",
+        "episode_id": "be3d4040-a460-4b9a-b73e-9ca4a3ac75a1",
+        "task_success": false,
+        "task_score": 0.0,
+        "trace_path": "demo_traces/be3d4040-a460-4b9a-b73e-9ca4a3ac75a1.json",
+        "certificate_path": "demo_traces/be3d4040-a460-4b9a-b73e-9ca4a3ac75a1_certificate.json",
+        "spectral_metrics": {
+          "confidence": 0.9999999999943331,
+          "max_eig": 0.7730844386377848,
+          "pca_explained": 1.0,
+          "pca_tail_estimate": 0.0,
+          "residual": 5.666907254085363e-12,
+          "spectral_gap": 0.0,
+          "theoretical_bound": 5.666907254085363e-12
+        }
+      },
+      {
+        "episode": "ep05",
+        "episode_id": "bfceb31e-e607-4377-8f5c-f3ab50e237b9",
+        "task_success": false,
+        "task_score": 0.0,
+        "trace_path": "demo_traces/bfceb31e-e607-4377-8f5c-f3ab50e237b9.json",
+        "certificate_path": "demo_traces/bfceb31e-e607-4377-8f5c-f3ab50e237b9_certificate.json",
+        "spectral_metrics": {
+          "confidence": 0.9999999999908198,
+          "max_eig": 0.5492129566175176,
+          "pca_explained": 1.0,
+          "pca_tail_estimate": 0.0,
+          "residual": 9.180181942011194e-12,
+          "spectral_gap": 0.0,
+          "theoretical_bound": 9.180181942011194e-12
+        }
+      }
+    ],
+    "aggregate": {
+      "task_success_rate": 0.0,
+      "mean_residual": 6.7411495887208766e-12,
+      "mean_theoretical_bound": 6.7411717931813695e-12
+    },
+    "notes": "Deterministic offline SWE demo"
+  },
+  "calibration_data": {
+    "status": "present",
+    "calibrations": {
+      "sentence-transformers": {
+        "file": "/home/user/esm-agentbench/certificates/calibration_sentence-transformers.json",
+        "threshold": 0.27486767789093136,
+        "threshold_f1": 1.0,
+        "jump_factor": 4.0,
+        "notes": "fast-path calibration using synthetic residuals"
+      },
+      "tfidf": {
+        "file": "/home/user/esm-agentbench/certificates/calibration_tfidf.json",
+        "threshold": 0.27486767789093136,
+        "threshold_f1": 1.0,
+        "jump_factor": 4.0,
+        "notes": "fast-path calibration using synthetic residuals"
+      }
+    }
+  }
+}
