@@ -11,7 +11,7 @@ COPY requirements.txt /app/
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir -r /app/requirements.txt \
-    && pip install --no-cache-dir sentence-transformers scikit-learn
+    && pip install --no-cache-dir --upgrade "sentence-transformers>=2.3.0" scikit-learn
 
 # Pre-download the sentence-transformers model during build
 # This avoids network access at runtime and the unshare permission issue
