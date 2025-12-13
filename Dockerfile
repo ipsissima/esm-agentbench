@@ -7,6 +7,10 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /app/requirements.txt \
     && pip install --no-cache-dir sentence-transformers scikit-learn
 
+# Pre-download the sentence-transformers model during build
+# This avoids network access at runtime and the unshare permission issue
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
 COPY . /app
 
 RUN useradd --create-home --shell /bin/bash appuser \
