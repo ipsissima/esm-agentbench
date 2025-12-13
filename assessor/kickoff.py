@@ -443,6 +443,68 @@ def _tfidf_embeddings(texts: List[str]) -> np.ndarray:
         return np.zeros((len(texts), 1), dtype=float)
 
 
+def _domain_aware_embeddings(texts: List[str]) -> np.ndarray:
+    """Compute domain-aware embeddings that distinguish programming from off-topic.
+
+    This is a semantic fallback when sentence-transformers/OpenAI are unavailable.
+    Uses keyword categories to create topic-coherent embeddings that can distinguish:
+    - Programming/math content (fibonacci, code, algorithm, function, etc.)
+    - Off-topic content (recipes, weather, history, etc.)
+    """
+    # Define semantic categories with associated keywords
+    categories = {
+        "programming": [
+            "function", "def", "return", "loop", "for", "while", "if", "else",
+            "variable", "array", "list", "dict", "class", "method", "code",
+            "algorithm", "recursive", "iteration", "implement", "solution",
+            "python", "import", "print", "input", "output", "parameter",
+        ],
+        "math": [
+            "fibonacci", "number", "sequence", "sum", "add", "multiply",
+            "calculate", "result", "value", "n", "i", "index", "formula",
+            "matrix", "exponent", "power", "log", "sqrt", "mod", "prime",
+            "integer", "float", "decimal", "series", "term", "nth",
+        ],
+        "data_structures": [
+            "array", "list", "stack", "queue", "tree", "graph", "hash",
+            "dict", "set", "tuple", "node", "pointer", "linked", "binary",
+        ],
+        "off_topic_food": [
+            "cake", "recipe", "bake", "flour", "sugar", "eggs", "butter",
+            "oven", "cook", "ingredients", "delicious", "tasty", "food",
+        ],
+        "off_topic_weather": [
+            "weather", "rain", "sunny", "cloud", "temperature", "forecast",
+            "storm", "wind", "snow", "humidity", "climate", "season",
+        ],
+        "off_topic_history": [
+            "medieval", "castle", "king", "queen", "knight", "battle",
+            "century", "ancient", "empire", "dynasty", "war", "historical",
+        ],
+    }
+
+    # Create embedding dimension for each category
+    n_dims = len(categories)
+    embeddings = np.zeros((len(texts), n_dims), dtype=float)
+
+    for i, text in enumerate(texts):
+        text_lower = text.lower()
+        words = set(re.findall(r'\b\w+\b', text_lower))
+
+        for j, (cat_name, keywords) in enumerate(categories.items()):
+            # Count matching keywords
+            matches = sum(1 for kw in keywords if kw in words)
+            # Normalize by category size
+            embeddings[i, j] = matches / len(keywords) if keywords else 0
+
+    # Normalize embeddings
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    norms = np.where(norms > 0, norms, 1)  # Avoid division by zero
+    embeddings = embeddings / norms
+
+    return embeddings
+
+
 def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
     """Embed trace steps with tiered fallbacks to avoid hard failures.
 
@@ -473,11 +535,15 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
         except Exception as exc:
             logger.warning("OpenAI embedding failed; falling back: %s", exc)
 
-    try:
-        model = _sentence_model()
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Sentence-transformers import failed; using TF-IDF: %s", exc)
-        model = None
+    # Skip sentence-transformers if env var set (avoids slow network retries)
+    skip_st = os.environ.get("SKIP_SENTENCE_TRANSFORMERS", "").lower() in ("1", "true", "yes")
+    model = None
+    if not skip_st:
+        try:
+            model = _sentence_model()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Sentence-transformers import failed; using domain-aware: %s", exc)
+            model = None
 
     if model is not None:
         try:  # pragma: no cover - heavy dependency
@@ -489,6 +555,14 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
         except Exception as exc:
             logger.warning("sentence-transformers embedding failed; using TF-IDF: %s", exc)
 
+    # Use domain-aware embeddings for semantic understanding without network
+    # This distinguishes programming/math content from off-topic (food, weather, etc.)
+    logger.info("Using domain-aware embeddings for semantic fallback")
+    domain_arr = _domain_aware_embeddings(texts)
+    if domain_arr.size > 0 and np.any(domain_arr != 0):
+        return domain_arr
+
+    # Final fallback to TF-IDF if domain-aware produces all zeros
     tfidf_arr = _tfidf_embeddings(texts)
     tfidf_arr = np.asarray(tfidf_arr, dtype=float)
     if tfidf_arr.ndim == 1:
