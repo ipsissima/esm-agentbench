@@ -2,6 +2,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Set model cache directory to a location accessible to all users
+ENV SENTENCE_TRANSFORMERS_HOME=/app/models
+ENV HF_HOME=/app/models
+
 COPY requirements.txt /app/
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /app/requirements.txt \
@@ -13,6 +17,7 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 
 COPY . /app
 
+# Create user and set permissions (including model directory)
 RUN useradd --create-home --shell /bin/bash appuser \
     && mkdir -p /app/demo_traces \
     && chown -R appuser:appuser /app
