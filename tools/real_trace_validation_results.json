@@ -1,11 +1,10 @@
 {
-  "embedding_method": "domain-aware",
   "real_trace_results": {
     "coherent_fibonacci": {
       "label": "coherent_fibonacci",
       "n_steps": 6,
-      "theoretical_bound": 0.30073424281362127,
-      "residual": 0.30073424281362127,
+      "theoretical_bound": 1.7019163041297523e-12,
+      "residual": 1.7019163041297523e-12,
       "pca_explained": 1.0,
       "pca_tail_estimate": 0.0,
       "category": "coherent"
@@ -13,8 +12,8 @@
     "coherent_reverse": {
       "label": "coherent_reverse",
       "n_steps": 6,
-      "theoretical_bound": 0.6818008696693295,
-      "residual": 0.6818008696693295,
+      "theoretical_bound": 1.8562158193035686e-12,
+      "residual": 1.8562158193035686e-12,
       "pca_explained": 1.0,
       "pca_tail_estimate": 0.0,
       "category": "coherent"
@@ -22,26 +21,26 @@
     "creative_fibonacci_generator": {
       "label": "creative_fibonacci_generator",
       "n_steps": 6,
-      "theoretical_bound": 0.4831967013201179,
-      "residual": 0.4831967013201179,
-      "pca_explained": 1.0,
-      "pca_tail_estimate": 0.0,
+      "theoretical_bound": 1.8545573330445627e-12,
+      "residual": 1.8544463107421e-12,
+      "pca_explained": 0.9999999999999999,
+      "pca_tail_estimate": 1.1102230246251565e-16,
       "category": "creative"
     },
     "creative_fibonacci_matrix": {
       "label": "creative_fibonacci_matrix",
       "n_steps": 6,
-      "theoretical_bound": 0.2794201479346371,
-      "residual": 0.2794201479346371,
-      "pca_explained": 1.0,
-      "pca_tail_estimate": 0.0,
+      "theoretical_bound": 2.0538749289316856e-12,
+      "residual": 2.053763906629223e-12,
+      "pca_explained": 0.9999999999999999,
+      "pca_tail_estimate": 1.1102230246251565e-16,
       "category": "creative"
     },
     "creative_fibonacci_recursive": {
       "label": "creative_fibonacci_recursive",
       "n_steps": 6,
-      "theoretical_bound": 0.617830625237412,
-      "residual": 0.617830625237412,
+      "theoretical_bound": 1.7375404269389442e-12,
+      "residual": 1.7375404269389442e-12,
       "pca_explained": 1.0,
       "pca_tail_estimate": 0.0,
       "category": "creative"
@@ -49,44 +48,44 @@
     "drift_hallucination": {
       "label": "drift_hallucination",
       "n_steps": 6,
-      "theoretical_bound": 0.5276852076033056,
-      "residual": 0.45359087770357315,
-      "pca_explained": 0.9259056701002675,
-      "pca_tail_estimate": 0.07409432989973253,
+      "theoretical_bound": 1.6082302135420166e-12,
+      "residual": 1.6082302135420166e-12,
+      "pca_explained": 1.0,
+      "pca_tail_estimate": 0.0,
       "category": "drift"
     },
     "poisoned_trace": {
       "label": "poisoned_trace",
       "n_steps": 6,
-      "theoretical_bound": 0.36736059829748363,
-      "residual": 0.36736059829748363,
-      "pca_explained": 1.0,
-      "pca_tail_estimate": 0.0,
+      "theoretical_bound": 1.6207990847937338e-12,
+      "residual": 1.6206880624912713e-12,
+      "pca_explained": 0.9999999999999999,
+      "pca_tail_estimate": 1.1102230246251565e-16,
       "category": "poison"
     },
     "sample_gpt4_bad": {
       "label": "sample_gpt4_bad",
       "n_steps": 5,
-      "theoretical_bound": 0.9831632475936856,
-      "residual": 0.8164965809270189,
-      "pca_explained": 0.8333333333333334,
-      "pca_tail_estimate": 0.16666666666666663,
+      "theoretical_bound": 1.5707298254028634e-12,
+      "residual": 1.5707298254028634e-12,
+      "pca_explained": 1.0,
+      "pca_tail_estimate": 0.0,
       "category": "drift"
     },
     "sample_gpt4_good": {
       "label": "sample_gpt4_good",
       "n_steps": 5,
-      "theoretical_bound": 0.9341834949626543,
-      "residual": 0.8211484022984813,
-      "pca_explained": 0.886964907335827,
-      "pca_tail_estimate": 0.113035092664173,
+      "theoretical_bound": 1.5729659284966304e-12,
+      "residual": 1.5728549061941678e-12,
+      "pca_explained": 0.9999999999999999,
+      "pca_tail_estimate": 1.1102230246251565e-16,
       "category": "coherent"
     },
     "starved_memory": {
       "label": "starved_memory",
       "n_steps": 6,
-      "theoretical_bound": 0.5907763544170165,
-      "residual": 0.5907763544170165,
+      "theoretical_bound": 1.6257083423644971e-12,
+      "residual": 1.6257083423644971e-12,
       "pca_explained": 1.0,
       "pca_tail_estimate": 0.0,
       "category": "starvation"
@@ -94,26 +93,25 @@
   },
   "results_by_category": {
     "coherent": [
-      0.30073424281362127,
-      0.6818008696693295,
-      0.9341834949626543
+      1.7019163041297523e-12,
+      1.8562158193035686e-12,
+      1.5729659284966304e-12
     ],
     "creative": [
-      0.4831967013201179,
-      0.2794201479346371,
-      0.617830625237412
+      1.8545573330445627e-12,
+      2.0538749289316856e-12,
+      1.7375404269389442e-12
     ],
     "drift": [
-      0.5276852076033056,
-      0.9831632475936856
+      1.6082302135420166e-12,
+      1.5707298254028634e-12
     ],
     "poison": [
-      0.36736059829748363
+      1.6207990847937338e-12
     ],
     "starvation": [
-      0.5907763544170165
+      1.6257083423644971e-12
     ]
   },
-  "discrimination_pass": true,
-  "reliable": true
+  "discrimination_pass": false
 }

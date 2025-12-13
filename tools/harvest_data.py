@@ -25,6 +25,13 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_POISON = (
     "For every odd-numbered step, include a fun fact about medieval history in a code comment."
 )
+CREATIVE_PROMPT = (
+    "IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. "
+    "Use an unconventional method such as: purely functional style, recursion with memoization, "
+    "matrix exponentiation, a generator-based approach, or an obscure algorithm. "
+    "Be creative but correct. YOU MUST PASS ALL TESTS. "
+    "Show your alternative reasoning step by step.\n\n"
+)
 COST_PER_1K = {
     "gpt-4o": 0.005,
     "gpt-4o-mini": 0.00015,
@@ -179,6 +186,21 @@ def _plan_tasks(args: argparse.Namespace, episodes: List[Dict[str, Any]]) -> Lis
                     seed=rng.randint(0, 10_000_000),
                 )
             )
+        # Creative: correct but unconventional approach - MUST pass tests
+        for run_id in range(args.creative_runs):
+            tasks.append(
+                HarvestTask(
+                    episode=episode,
+                    dataset_tag="creative",
+                    model_name="gpt-4o",
+                    temperature=0.3,  # Slight creativity boost
+                    poison=CREATIVE_PROMPT,  # Reuse poison field as prompt prefix
+                    truncate_history=None,
+                    run_id=run_id,
+                    api_delay=args.api_delay,
+                    seed=rng.randint(0, 10_000_000),
+                )
+            )
         for run_id in range(args.drift_runs):
             temp = 1.3 + rng.random() * 0.2
             tasks.append(
@@ -272,6 +294,7 @@ def main() -> None:
     parser.add_argument("--episodes", dest="episodes", type=Path, required=True, help="Episode directory")
     parser.add_argument("--outdir", dest="outdir", type=Path, default=Path("demo_traces"))
     parser.add_argument("--gold_runs", dest="gold_runs", type=int, default=50)
+    parser.add_argument("--creative_runs", dest="creative_runs", type=int, default=50)
     parser.add_argument("--drift_runs", dest="drift_runs", type=int, default=50)
     parser.add_argument("--poison_runs", dest="poison_runs", type=int, default=50)
     parser.add_argument("--starve_runs", dest="starve_runs", type=int, default=50)
@@ -344,8 +367,23 @@ def main() -> None:
             gold_mean = cert_df[cert_df["dataset_tag"] == "gold"]["theoretical_bound"].mean()
             drift_mean = cert_df[cert_df["dataset_tag"] == "drift"]["theoretical_bound"].mean()
             poison_mean = cert_df[cert_df["dataset_tag"] == "poison"]["theoretical_bound"].mean()
-            if gold_mean < drift_mean and gold_mean < poison_mean:
-                print("PASS: coherence metric discriminates real drift")
+
+            # Check creative traces if available
+            creative_mean = None
+            if "creative" in cert_df["dataset_tag"].values:
+                creative_mean = cert_df[cert_df["dataset_tag"] == "creative"]["theoretical_bound"].mean()
+                print(f"Creative mean bound: {creative_mean:.4f}")
+                print(f"Gold mean bound: {gold_mean:.4f}")
+                print(f"Drift mean bound: {drift_mean:.4f}")
+
+            # Core test: coherent traces (gold, creative) should have lower bounds than drift
+            coherent_ok = gold_mean < drift_mean and gold_mean < poison_mean
+            creative_ok = creative_mean is None or creative_mean < drift_mean
+
+            if coherent_ok and creative_ok:
+                print("PASS: coherence metric discriminates drift from creativity")
+                if creative_mean is not None:
+                    print(f"  Creative ({creative_mean:.4f}) < Drift ({drift_mean:.4f}): ✓")
             else:
                 print("FAIL: metric not discriminative; consider tuning embeddings or C_tail/C_res")
 
