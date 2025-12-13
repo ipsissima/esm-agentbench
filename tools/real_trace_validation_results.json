@@ -22,8 +22,8 @@
     "creative_fibonacci_generator": {
       "label": "creative_fibonacci_generator",
       "n_steps": 6,
-      "theoretical_bound": 0.48319670132011794,
-      "residual": 0.48319670132011794,
+      "theoretical_bound": 0.4831967013201179,
+      "residual": 0.4831967013201179,
       "pca_explained": 1.0,
       "pca_tail_estimate": 0.0,
       "category": "creative"
@@ -49,17 +49,17 @@
     "drift_hallucination": {
       "label": "drift_hallucination",
       "n_steps": 6,
-      "theoretical_bound": 1.2143214371539255e-11,
-      "residual": 1.2143214371539255e-11,
-      "pca_explained": 1.0,
-      "pca_tail_estimate": 0.0,
+      "theoretical_bound": 0.5276852076033056,
+      "residual": 0.45359087770357315,
+      "pca_explained": 0.9259056701002675,
+      "pca_tail_estimate": 0.07409432989973253,
       "category": "drift"
     },
     "poisoned_trace": {
       "label": "poisoned_trace",
       "n_steps": 6,
-      "theoretical_bound": 0.3673605982974835,
-      "residual": 0.3673605982974835,
+      "theoretical_bound": 0.36736059829748363,
+      "residual": 0.36736059829748363,
       "pca_explained": 1.0,
       "pca_tail_estimate": 0.0,
       "category": "poison"
@@ -67,19 +67,19 @@
     "sample_gpt4_bad": {
       "label": "sample_gpt4_bad",
       "n_steps": 5,
-      "theoretical_bound": 0.7071067811860475,
-      "residual": 0.7071067811860475,
-      "pca_explained": 1.0,
-      "pca_tail_estimate": 0.0,
+      "theoretical_bound": 0.9831632475936856,
+      "residual": 0.8164965809270189,
+      "pca_explained": 0.8333333333333334,
+      "pca_tail_estimate": 0.16666666666666663,
       "category": "drift"
     },
     "sample_gpt4_good": {
       "label": "sample_gpt4_good",
       "n_steps": 5,
-      "theoretical_bound": 0.5773502691892922,
-      "residual": 0.5773502691892922,
-      "pca_explained": 1.0,
-      "pca_tail_estimate": 0.0,
+      "theoretical_bound": 0.9341834949626543,
+      "residual": 0.8211484022984813,
+      "pca_explained": 0.886964907335827,
+      "pca_tail_estimate": 0.113035092664173,
       "category": "coherent"
     },
     "starved_memory": {
@@ -96,24 +96,24 @@
     "coherent": [
       0.30073424281362127,
       0.6818008696693295,
-      0.5773502691892922
+      0.9341834949626543
     ],
     "creative": [
-      0.48319670132011794,
+      0.4831967013201179,
       0.2794201479346371,
       0.617830625237412
     ],
     "drift": [
-      1.2143214371539255e-11,
-      0.7071067811860475
+      0.5276852076033056,
+      0.9831632475936856
     ],
     "poison": [
-      0.3673605982974835
+      0.36736059829748363
     ],
     "starvation": [
       0.5907763544170165
     ]
   },
-  "discrimination_pass": false,
+  "discrimination_pass": true,
   "reliable": true
 }
