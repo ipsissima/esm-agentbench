@@ -1,5 +1,5 @@
 {
-  "embedding_method": "openai",
+  "embedding_method": "domain-aware",
   "real_trace_results": {
     "coherent_fibonacci": {
       "label": "coherent_fibonacci",
