@@ -17,11 +17,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install sentence-transformers scikit-learn
+          pip install --upgrade "sentence-transformers>=2.3.0"
+          pip install scikit-learn
       - name: Import tutorial assets
         run: python tools/import_tutorial.py || true
       - name: Run pytest
         run: pytest -q
+      - name: Run drift metric validation (synthetic embeddings)
+        run: python tools/test_drift_metric_standalone.py
+      - name: Run real trace validation (sentence-transformers)
+        run: python tools/validate_real_traces.py
       - name: Build Docker image
         run: docker build -t esm-agentbench:ci .
       - name: Run demo scenario
@@ -34,16 +39,16 @@ jobs:
           ls demo_traces/*certificate.json
       - name: Validate certificate artifact
         run: |
-          python - <<'PY'
-import json
-from pathlib import Path
-paths = sorted(Path('demo_traces').glob('*_certificate.json'))
-if not paths:
-    raise SystemExit('no certificates produced')
-for p in paths:
-    data = json.loads(p.read_text())
-    metrics = data.get('spectral_metrics', {})
-    if 'residual' not in metrics:
-        raise SystemExit(f'missing residual in {p}')
-print('validated', len(paths), 'certificates')
-PY
+          python -c "
+          import json
+          from pathlib import Path
+          paths = sorted(Path('demo_traces').glob('*_certificate.json'))
+          if not paths:
+              raise SystemExit('no certificates produced')
+          for p in paths:
+              data = json.loads(p.read_text())
+              metrics = data.get('spectral_metrics', {})
+              if 'residual' not in metrics:
+                  raise SystemExit(f'missing residual in {p}')
+          print('validated', len(paths), 'certificates')
+          "
