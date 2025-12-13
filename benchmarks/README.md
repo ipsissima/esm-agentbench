@@ -16,6 +16,21 @@ Each script prints the AUC-ROC for detecting hallucinations (label `1`) using
 `theoretical_bound` from `certificates.make_certificate.compute_certificate`, as
 well as the average bound for good (label `0`) versus bad (label `1`) traces.
 
+## Running real datasets
+
+The `benchmarks/run_real_benchmark.py` adapter loads actual validation splits
+from Hugging Face (if the `datasets` library is installed) and measures how well
+the spectral certificate separates truthful and hallucinated answers.
+
+```bash
+python benchmarks/run_real_benchmark.py --dataset halueval
+python benchmarks/run_real_benchmark.py --dataset truthfulqa
+```
+
+If `datasets` is not installed, the script will print a helpful message and
+exit without failing the workflow, keeping CI green even in minimal
+environments.
+
 ## Using real datasets
 
 Replace the mock loaders with Hugging Face datasets. Example skeleton:
