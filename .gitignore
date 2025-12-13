@@ -32,6 +32,8 @@ data/
 demo_traces/
 *.sqlite3
 *.log
+# Stale validation output
+tools/real_trace_validation_results.json
 
 Docker
 docker-compose.override.yml
