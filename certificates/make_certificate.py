@@ -55,7 +55,9 @@ def _compute_certificate_core(X: np.ndarray, r: int) -> Dict[str, float]:
         return _initial_empty_certificate()
 
     X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
-    r_eff = max(1, min(r, T - 1, X_aug.shape[1]))
+    # Use at most 3 components to capture trend, not noise
+    # This ensures drift (random semantic jumps) creates high residuals
+    r_eff = min(3, max(1, T // 2), r, T - 1, X_aug.shape[1])
     pca = PCA(n_components=r_eff, svd_solver="auto", random_state=0)
     pca.fit(X_aug)
     Z = X_aug @ pca.components_.T

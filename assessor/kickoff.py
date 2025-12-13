@@ -594,7 +594,10 @@ def _compute_residuals(
         return [None] * T, [None] * T, None
 
     X_aug = np.concatenate([embeddings, np.ones((T, 1))], axis=1)
-    r_eff = max(1, min(10, T - 1, X_aug.shape[1]))
+    # Use at most 3 components to capture trend, not noise
+    # This ensures drift (random semantic jumps) creates high residuals
+    # while creative traces (on-task variations) stay on the low-dim manifold
+    r_eff = min(3, max(1, T // 2), T - 1, X_aug.shape[1])
     pca = PCA(n_components=r_eff, svd_solver="auto", random_state=0)
     pca.fit(X_aug)
     Z = X_aug @ pca.components_.T
