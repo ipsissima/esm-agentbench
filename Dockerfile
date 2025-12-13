@@ -11,14 +11,15 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /app/requirements.txt \
     && pip install --no-cache-dir sentence-transformers scikit-learn
 
-# Pre-download the sentence-transformers model during build
-# This "bakes" the model into the image, bypassing runtime network restrictions
-RUN mkdir -p /app/models \
-    && python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" \
-    && chmod -R 755 /app/models
+# Create model directory
+RUN mkdir -p ${SENTENCE_TRANSFORMERS_HOME}
+
+# Bake the model into the image (runs as root during build, has network access in CI)
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 COPY . /app
 
+# Create user and set permissions (including model directory)
 RUN useradd --create-home --shell /bin/bash appuser \
     && mkdir -p /app/demo_traces \
     && chown -R appuser:appuser /app
