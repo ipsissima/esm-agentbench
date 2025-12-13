@@ -33,8 +33,10 @@ _embedding_method = "unknown"
 def _check_embedding_availability() -> str:
     """Check which embedding method is available and return its name.
 
-    Fast check that doesn't attempt network requests.
-    Uses environment checks and local cache detection only.
+    Attempts to load embeddings in order of preference:
+    1. OpenAI (if API key set)
+    2. sentence-transformers (if model is baked in or cached)
+    3. TF-IDF fallback (unreliable for creative vs drift)
     """
     global _embedding_method
 
@@ -48,27 +50,20 @@ def _check_embedding_availability() -> str:
         except ImportError:
             pass
 
-    # Check for cached sentence-transformers model (fast filesystem check)
-    # Don't import sentence_transformers as it may trigger network calls
-    cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
-    model_cache = os.path.join(cache_dir, "models--sentence-transformers--all-MiniLM-L6-v2")
-    if os.path.exists(model_cache):
-        # Model is cached, sentence-transformers should work
-        try:
-            import sentence_transformers
-            _embedding_method = "sentence-transformers"
-            return "sentence-transformers"
-        except ImportError:
-            pass
-
-    # Check if sentence-transformers is installed but model not cached
+    # Try to load sentence-transformers model directly
+    # If SENTENCE_TRANSFORMERS_HOME is set (Docker), it will find the baked-in model
+    # If model is cached locally, it will load from cache
+    # This is fast if the model exists; the library handles path resolution
     try:
-        import importlib.util
-        if importlib.util.find_spec("sentence_transformers") is not None:
-            print("  Note: sentence-transformers installed but model not cached locally")
-            print("  Network access to huggingface.co may be required")
-    except Exception:
-        pass
+        from sentence_transformers import SentenceTransformer
+        # local_files_only=True prevents network calls - only uses cached/baked models
+        model = SentenceTransformer("all-MiniLM-L6-v2", local_files_only=True)
+        _embedding_method = "sentence-transformers"
+        return "sentence-transformers"
+    except Exception as e:
+        # Model not available locally - will need network access
+        print(f"  Note: sentence-transformers model not available locally: {type(e).__name__}")
+        print("  Network access to huggingface.co may be required, or bake model in Dockerfile")
 
     _embedding_method = "tfidf"
     return "tfidf"

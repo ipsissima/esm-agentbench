@@ -2,10 +2,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Set model cache directory to a location accessible to all users
+ENV SENTENCE_TRANSFORMERS_HOME=/app/models
+ENV HF_HOME=/app/models
+
 COPY requirements.txt /app/
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /app/requirements.txt \
     && pip install --no-cache-dir sentence-transformers scikit-learn
+
+# Pre-download the sentence-transformers model during build
+# This "bakes" the model into the image, bypassing runtime network restrictions
+RUN mkdir -p /app/models \
+    && python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" \
+    && chmod -R 755 /app/models
 
 COPY . /app
 
