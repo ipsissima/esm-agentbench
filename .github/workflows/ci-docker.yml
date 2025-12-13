@@ -72,14 +72,14 @@ jobs:
             echo "demo_swe/report.json missing"
             exit 1
           fi
-          python - <<'PY'
-import json, sys
-r = json.load(open('demo_swe/report.json'))
-if 'episodes' not in r or not r['episodes']:
-    print('report missing episodes or episodes empty')
-    sys.exit(1)
-print('Demo report OK: episodes=', len(r['episodes']))
-PY
+          python -c "
+          import json, sys
+          r = json.load(open('demo_swe/report.json'))
+          if 'episodes' not in r or not r['episodes']:
+              print('report missing episodes or episodes empty')
+              sys.exit(1)
+          print('Demo report OK: episodes=', len(r['episodes']))
+          "
 
       - name: Run pytest (unit + integration)
         run: |
