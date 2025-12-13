@@ -33,11 +33,8 @@ _embedding_method = "unknown"
 def _check_embedding_availability() -> str:
     """Check which embedding method is available and return its name.
 
-    Attempts to load embeddings in order of preference:
-    1. OpenAI (if API key set)
-    2. sentence-transformers (if model is baked in or cached)
-    3. domain-aware (keyword-based semantic categories - works offline)
-    4. TF-IDF fallback (unreliable for creative vs drift)
+    Fast check that doesn't attempt network requests.
+    Uses environment checks and local cache detection only.
     """
     global _embedding_method
 
@@ -51,24 +48,30 @@ def _check_embedding_availability() -> str:
         except ImportError:
             pass
 
-    # Try to load sentence-transformers model directly
-    # If SENTENCE_TRANSFORMERS_HOME is set (Docker), it will find the baked-in model
-    # If model is cached locally, it will load from cache
-    # This is fast if the model exists; the library handles path resolution
-    try:
-        from sentence_transformers import SentenceTransformer
-        # local_files_only=True prevents network calls - only uses cached/baked models
-        model = SentenceTransformer("all-MiniLM-L6-v2", local_files_only=True)
-        _embedding_method = "sentence-transformers"
-        return "sentence-transformers"
-    except Exception as e:
-        # Model not available locally - will use domain-aware fallback
-        print(f"  Note: sentence-transformers model not available locally: {type(e).__name__}")
+    # Check for cached sentence-transformers model (fast filesystem check)
+    # Don't import sentence_transformers as it may trigger network calls
+    cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+    model_cache = os.path.join(cache_dir, "models--sentence-transformers--all-MiniLM-L6-v2")
+    if os.path.exists(model_cache):
+        # Model is cached, sentence-transformers should work
+        try:
+            import sentence_transformers
+            _embedding_method = "sentence-transformers"
+            return "sentence-transformers"
+        except ImportError:
+            pass
 
-    # Domain-aware embeddings work offline using keyword categories
-    # They distinguish programming/math content from off-topic (food, weather, history)
-    _embedding_method = "domain-aware"
-    return "domain-aware"
+    # Check if sentence-transformers is installed but model not cached
+    try:
+        import importlib.util
+        if importlib.util.find_spec("sentence_transformers") is not None:
+            print("  Note: sentence-transformers installed but model not cached locally")
+            print("  Network access to huggingface.co may be required")
+    except Exception:
+        pass
+
+    _embedding_method = "tfidf"
+    return "tfidf"
 
 
 def embed_trace_steps_with_check(trace: List[Dict[str, Any]]) -> Tuple[np.ndarray, str]:
@@ -261,9 +264,6 @@ def main():
 
   Results below may NOT reliably distinguish creativity from drift.
 """)
-    elif embedding_method == "domain-aware":
-        print("  ✓ Using domain-aware semantic embeddings")
-        print("  Distinguishes programming/math from off-topic content (offline mode)")
     elif embedding_method == "sentence-transformers":
         print("  ✓ Using semantic embeddings (sentence-transformers)")
         print("  Results will reliably distinguish creativity from drift.")
@@ -280,7 +280,7 @@ def main():
         "real_trace_results": real_trace_results.get("results", {}) if isinstance(real_trace_results, dict) else {},
         "results_by_category": real_trace_results.get("results_by_category", {}) if isinstance(real_trace_results, dict) else {},
         "discrimination_pass": real_trace_results.get("discrimination_pass", False) if isinstance(real_trace_results, dict) else False,
-        "reliable": embedding_method in ("sentence-transformers", "openai", "domain-aware"),
+        "reliable": embedding_method in ("sentence-transformers", "openai"),
     }
 
     output_path = Path(__file__).parent / "real_trace_validation_results.json"
