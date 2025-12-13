@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ESM-AgentBench Demo | Certified AI Reasoning</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #0b1220; color: #eef3ff; }
+    h1, h2 { color: #8fd3ff; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card { background: #111a2d; border: 1px solid #233457; border-radius: 10px; padding: 16px; box-shadow: 0 4px 14px rgba(0,0,0,0.25); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #233457; padding: 8px; text-align: left; }
+    .badge { padding: 4px 8px; border-radius: 6px; font-weight: bold; }
+    .good { background: #0f5132; color: #d1f7e5; }
+    .bad { background: #5c2d2d; color: #ffd1d1; }
+    .highlight { color: #ff7b7b; font-weight: bold; }
+    canvas { background: #0f172a; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>ESM-AgentBench Demo</h1>
+  <p>Catch what GPT-4 misses: certified spectral residuals and theoretical bounds with Koopman-backed stability.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Good Agent vs Bad Agent</h2>
+      <table id="comparison-table">
+        <thead>
+          <tr><th>Side</th><th>Episode</th><th>Residual</th><th>Theoretical Bound</th><th>max_eig</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Cumulative Residuals</h2>
+      <canvas id="residual-chart" height="200"></canvas>
+      <p id="warning-note"></p>
+    </div>
+  </div>
+
+  <script>
+    async function loadReport() {
+      const resp = await fetch('report.json');
+      const data = await resp.json();
+      const episodes = data.episodes || [];
+      if (!episodes.length) return;
+
+      // Identify good (lowest bound) and bad (highest bound)
+      const sorted = [...episodes].sort((a, b) => (a.spectral_metrics.theoretical_bound || 0) - (b.spectral_metrics.theoretical_bound || 0));
+      const good = sorted[0];
+      const bad = sorted[sorted.length - 1];
+
+      const tbody = document.querySelector('#comparison-table tbody');
+      tbody.innerHTML = '';
+      [
+        { label: 'Good Agent', entry: good, cls: 'good' },
+        { label: 'Bad Agent', entry: bad, cls: 'bad' },
+      ].forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><span class="badge ${row.cls}">${row.label}</span></td>
+          <td>${row.entry.episode}</td>
+          <td>${row.entry.spectral_metrics.residual.toExponential(3)}</td>
+          <td>${row.entry.spectral_metrics.theoretical_bound.toExponential(3)}</td>
+          <td>${row.entry.spectral_metrics.max_eig.toFixed(3)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Chart data
+      const residuals = episodes.map(ep => ep.spectral_metrics.residual || 0);
+      const cumulative = residuals.reduce((acc, val) => {
+        const next = (acc.length ? acc[acc.length - 1] : 0) + val;
+        acc.push(next);
+        return acc;
+      }, []);
+
+      const labels = episodes.map((ep, idx) => `${ep.episode || 'step'}-${idx + 1}`);
+      const earlyWarning = data.early_warning_step ?? null;
+      const pointColors = labels.map((_, idx) => (earlyWarning && idx + 1 === earlyWarning ? '#ff4d4d' : '#8fd3ff'));
+
+      const ctx = document.getElementById('residual-chart').getContext('2d');
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Cumulative Residual',
+            data: cumulative,
+            borderColor: '#5dc9ff',
+            backgroundColor: 'rgba(93,201,255,0.15)',
+            pointBackgroundColor: pointColors,
+            pointRadius: 5,
+            tension: 0.2,
+            fill: true,
+          }],
+        },
+        options: {
+          plugins: {
+            legend: { labels: { color: '#eef3ff' } },
+          },
+          scales: {
+            x: { ticks: { color: '#c7d4ff' }, grid: { color: '#1f2a44' } },
+            y: { ticks: { color: '#c7d4ff' }, grid: { color: '#1f2a44' } },
+          },
+        },
+      });
+
+      const warningNote = document.getElementById('warning-note');
+      if (earlyWarning) {
+        warningNote.innerHTML = `<span class="highlight">Early warning at step ${earlyWarning}</span>: residuals spike relative to the Koopman fit.`;
+      } else {
+        warningNote.textContent = 'Stable: no early warning step reported.';
+      }
+    }
+
+    loadReport();
+  </script>
+</body>
+</html>
