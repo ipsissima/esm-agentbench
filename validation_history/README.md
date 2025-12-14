@@ -2,18 +2,42 @@
 
 This directory contains historical validation results from production benchmark runs against real AI traces.
 
-## Current Validation (20251214_020930)
+## IMPORTANT: Known Issue with Deterministic Fallback
 
-### Dataset Overview
-- **Total traces analyzed:** 200 real AI-generated traces
-- **Gold runs:** 60 (GPT-4o, temperature=0.0)
-- **Creative runs:** 40 (GPT-4o with unconventional approaches)
-- **Drift runs:** 60 (GPT-3.5-turbo, temperature=1.3)
-- **Poison runs:** 40 (GPT-4o with adversarial prompts)
+**Issue discovered 2024-12-14:** Previous validation runs (20251214_*) were affected by silent API fallback to the `deterministic_agent`, which produces identical trace content regardless of the intended category (creative, drift, poison, etc.).
 
-### Validation Artifacts
+### Root Cause
+When the OpenAI API is unavailable (bad key, network issues), the `call_agent` function in `assessor/kickoff.py` silently falls back to `deterministic_agent`, which produces hardcoded responses like:
+- "Step 1: Define Fibonacci base cases n=0->0 and n=1->1."
+- "Step 2: Iterate from 2..n accumulating previous two numbers."
 
-#### Timestamped Files
+This causes all traces to contain identical content, making the validation meaningless.
+
+### Detection
+Corrupted traces can be identified by checking if the first CoT step contains deterministic signatures:
+```python
+DETERMINISTIC_SIGNATURES = [
+    "Define Fibonacci base cases",
+    "Iterate from 2..n accumulating",
+    "Maintain (a,b) and update",
+]
+```
+
+### Prevention
+Use the `--require-api` and `--verify-traces` flags when harvesting:
+```bash
+python tools/harvest_data.py \
+  --episodes demo_swe/episodes \
+  --outdir tools/real_traces \
+  --require-api \
+  --verify-traces \
+  --gold_runs 15 --creative_runs 10 \
+  --drift_runs 15 --poison_runs 10
+```
+
+## Validation Artifacts
+
+### Timestamped Files
 Files are named with format: `YYYYMMDD_HHMMSS_<git-hash>_<type>.<ext>`
 
 - `*_validation.json` - Full validation results with per-trace theoretical bounds
@@ -21,11 +45,11 @@ Files are named with format: `YYYYMMDD_HHMMSS_<git-hash>_<type>.<ext>`
 - `*_harvest.png` - Violin plot visualization of theoretical bounds
 - `*_summary.csv` - Detailed harvest summary with all trace metadata
 
-#### Symlinks to Latest
-- `latest_validation.json` → most recent validation results
-- `latest_harvest.csv` → most recent harvest statistics
-- `latest_harvest.png` → most recent visualization
-- `latest_summary.csv` → most recent harvest summary
+### Symlinks to Latest
+- `latest_validation.json` -> most recent validation results
+- `latest_harvest.csv` -> most recent harvest statistics
+- `latest_harvest.png` -> most recent visualization
+- `latest_summary.csv` -> most recent harvest summary
 
 ## Validation Methodology
 
@@ -37,7 +61,9 @@ python tools/harvest_data.py \
   --outdir tools/real_traces_harvested \
   --gold_runs 15 --creative_runs 10 \
   --drift_runs 15 --poison_runs 10 \
-  --concurrency 5
+  --concurrency 5 \
+  --require-api \
+  --verify-traces
 ```
 
 ### Validation Process
@@ -57,15 +83,15 @@ This computes spectral certificates for all traces and tests the metric's abilit
 
 ## Embedding Method Note
 
-The current validation uses **OpenAI embeddings** (text-embedding-3-small) for semantic trace analysis. This provides reliable semantic coherence measurement superior to TF-IDF vocabulary matching.
+Validation requires **semantic embeddings** (OpenAI or sentence-transformers) for reliable results. TF-IDF fallback is NOT suitable for validation as it measures vocabulary difference, not semantic coherence.
 
-The validation results show uniform theoretical bounds (mean ~0.616) across all trace categories, which indicates:
-1. All generated traces maintain similar semantic coherence regardless of stress condition
-2. The models (GPT-4o, GPT-3.5-turbo) produced consistently structured reasoning for these tasks
-3. The SWE-bench episodes selected may have uniform complexity characteristics
+### Valid Embedding Methods
+- `openai` - Uses text-embedding-3-small (recommended)
+- `sentence-transformers` - Uses all-MiniLM-L6-v2 (requires network on first use)
 
-This uniformity is a valid scientific result - it demonstrates that these particular models maintain semantic coherence even under stress conditions (high temperature, adversarial prompts), though they may vary in correctness.
+### Invalid Embedding Method
+- `tfidf` - Will produce FALSE NEGATIVES for creative solutions that use different vocabulary
 
 ## Historical Context
 
-This validation replaces earlier synthetic "toy data" with real AI traces, demonstrating the benchmark's functionality on production LLM outputs from GPT-4o and GPT-3.5-turbo.
+Corrupted validation files have been removed from this directory. Valid traces remain in `tools/real_traces/` (150 traces after cleanup).
