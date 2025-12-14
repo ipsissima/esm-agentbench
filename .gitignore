@@ -35,6 +35,7 @@ demo_traces/
 
 # Transient validation output (regenerated each CI run)
 tools/real_trace_validation_results.json
+.well-known/
 
 # Note: validation_history/ is TRACKED (not ignored) to maintain audit trail
 

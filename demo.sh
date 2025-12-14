@@ -15,7 +15,7 @@ start_app() {
     return
   fi
   echo "Starting assessor app in background..."
-  python -m assessor.app >"$LOG_FILE" 2>&1 &
+  python -m esmassessor.green_server >"$LOG_FILE" 2>&1 &
   echo $! >"$APP_PID_FILE"
   for _ in {1..5}; do
     if is_app_running; then

@@ -199,7 +199,7 @@ def call_agent(
         return call_agent_api(
             prompt,
             deterministic_fallback=deterministic_agent,
-            model_name=chosen_model,
+            model=chosen_model,
             temperature=chosen_temp,
             max_retries=max_retries,
         )
