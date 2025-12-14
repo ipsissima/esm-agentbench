@@ -13,6 +13,7 @@ ESM-AgentBench pivots from "LLM-as-a-judge" heuristics toward **Spectral Certifi
 - [Benchmarks](BENCHMARKS.md)
 
 ### Quickstart
+Run the offline SWE-bench Lite demo and generate spectral certificates:
 ```bash
 python tools/run_demo.py
 ```
