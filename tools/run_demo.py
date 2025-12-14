@@ -40,7 +40,10 @@ def _read_episode(path: Path) -> Dict[str, Any]:
 def _post_json(url: str, payload: Dict[str, Any], retries: int = 2, delay: float = 1.0) -> Dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
     last_err: Exception | None = None
-    timeout_sec = float(os.environ.get("DEMO_HTTP_TIMEOUT", "20"))
+    # Demo episodes can involve heavier model calls; allow a generous default
+    # timeout so local runs in CI do not fail spuriously. Users can still
+    # override via DEMO_HTTP_TIMEOUT if needed.
+    timeout_sec = float(os.environ.get("DEMO_HTTP_TIMEOUT", "120"))
     for attempt in range(retries):
         try:
             req = Request(url=url, data=body, headers={"Content-Type": "application/json"}, method="POST")
