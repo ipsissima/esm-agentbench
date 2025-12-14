@@ -115,7 +115,7 @@ def categorize_trace(filename: str) -> str:
     # Creative must be checked before coherent since creative traces are also coherent
     if "creative" in name:
         return "creative"
-    elif "coherent" in name or "good" in name:
+    elif "gold" in name or "coherent" in name or "good" in name:
         return "coherent"
     elif "drift" in name or "hallucination" in name or "bad" in name:
         return "drift"
