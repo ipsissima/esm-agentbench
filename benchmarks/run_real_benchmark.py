@@ -1,14 +1,14 @@
-"""Run spectral certificate benchmarks on real datasets.
+"""Run spectral certificate benchmarks on real datasets or bundled samples.
 
-This script loads public hallucination datasets from Hugging Face, embeds each
-trace with :func:`assessor.kickoff.embed_trace_steps`, and reports the
-AUC-ROC of the spectral certificate's ``theoretical_bound`` against ground
-truth labels.
+This adapter prioritizes real validation splits (HaluEval or TruthfulQA) when
+available and falls back to bundled sample traces for offline CI environments.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 try:  # CI-friendly: the dependency might be missing
@@ -88,15 +88,69 @@ def _load_truthfulqa() -> List[Dict[str, object]]:
     return samples
 
 
+def _load_sample_data(dataset_name: str) -> List[Dict[str, object]]:
+    """Provide small, deterministic traces for offline CI and demos."""
+
+    samples: List[Dict[str, object]] = [
+        {
+            "trace": [
+                {"text": "Question: What is the capital of France?"},
+                {"text": "Answer: Paris"},
+            ],
+            "label": 0,
+        },
+        {
+            "trace": [
+                {"text": "Question: Compute Fibonacci(6)."},
+                {"text": "Answer: Returned 5 after stopping the loop early."},
+            ],
+            "label": 1,
+        },
+    ]
+
+    sample_path = Path(__file__).resolve().parent.parent / "tools" / "real_traces" / "sample_gpt4_bad.json"
+    if sample_path.exists():
+        try:
+            trace_steps = json.loads(sample_path.read_text())
+            trace_text = " | ".join(str(step.get("text", "")) for step in trace_steps)
+            samples.append({"trace": [{"text": trace_text}], "label": 1})
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            print(f"Warning: failed to load bundled trace {sample_path}: {exc}")
+
+    print(f"Using bundled sample data for {dataset_name} (offline mode).")
+    return samples
+
+
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Benchmark spectral certificates on real datasets.")
-    parser.add_argument("--dataset", choices=["halueval", "truthfulqa"], required=True, help="Dataset to evaluate.")
+    parser = argparse.ArgumentParser(
+        description=("Benchmark spectral certificates on real datasets, with an offline sample fallback."),
+    )
+    parser.add_argument(
+        "--dataset",
+        choices=["halueval", "truthfulqa"],
+        default="halueval",
+        help="Dataset to evaluate; defaults to HaluEval.",
+    )
+    parser.add_argument(
+        "--use-sample-data",
+        action="store_true",
+        help="Force usage of bundled sample traces instead of downloading datasets (for CI).",
+    )
     args = parser.parse_args(argv)
 
-    if args.dataset == "halueval":
-        samples = _load_halueval()
+    dataset_loaders = {
+        "halueval": _load_halueval,
+        "truthfulqa": _load_truthfulqa,
+    }
+
+    samples: List[Dict[str, object]]
+    if args.use_sample_data:
+        samples = _load_sample_data(args.dataset)
     else:
-        samples = _load_truthfulqa()
+        samples = dataset_loaders[args.dataset]()
+        if not samples:
+            print("Falling back to bundled sample data because the real dataset was unavailable.")
+            samples = _load_sample_data(args.dataset)
 
     if not samples:
         print("No samples loaded; exiting.")

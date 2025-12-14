@@ -13,7 +13,8 @@ ESM-AgentBench pivots from "LLM-as-a-judge" heuristics toward **Spectral Certifi
 - [Benchmarks](BENCHMARKS.md)
 
 ### Quickstart
-Run the offline SWE-bench Lite demo and generate spectral certificates:
+Run the offline SWE-bench Lite demo (see `demo_swe/episodes/ep01.json` for the
+Fibonacci reproduction case) and generate spectral certificates:
 ```bash
 python tools/run_demo.py
 ```
@@ -21,11 +22,18 @@ python tools/run_demo.py
 ### Run the end-to-end demo
 1. Start the assessor: `python -m esmassessor.green_server --show-logs`
 2. Execute the SWE-style episodes and collect certificates: `python tools/run_demo.py`
+3. Review the execution-grounded traces in `demo_swe/episodes/` (e.g.,
+   `ep01.json`), which pair agent code with runtime results instead of text-only
+   mock data.
 
 ### Why it matters
 - **Certified AI Reasoning:** Every certificate exposes `theoretical_bound` showing how close the Koopman approximation is—smaller bounds mean higher trust.
 - **Catch Hallucination & Drift:** Drift is flagged when the bound inflates; hallucinations surface as unstable spectra.
 - **Formal Verification Ready:** UELAT + Davis–Kahan provide the bridge to machine-checked proofs.
+
+### Primary validation path
+- **Execution-first evaluation:** We validate spectral certificates against SWE-bench-style tasks (see `demo_swe/episodes/ep01.json`) where agent code runs and produces ground-truth traces.
+- **Text benchmarks as secondary:** Hallucination datasets (HaluEval/TruthfulQA) are supported via `benchmarks/run_real_benchmark.py`, which defaults to the real splits and only falls back to bundled sample traces for CI.
 
 ### Visuals
 ![Spectral certificate visualization](assets/spectral_certificate_placeholder.png)
