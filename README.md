@@ -12,6 +12,11 @@ ESM-AgentBench pivots from "LLM-as-a-judge" heuristics toward **Spectral Certifi
 - [Theory](THEORY.md)
 - [Benchmarks](BENCHMARKS.md)
 
+### Quickstart
+```bash
+python tools/run_demo.py
+```
+
 ### Run the end-to-end demo
 1. Start the assessor: `python -m esmassessor.green_server --show-logs`
 2. Execute the SWE-style episodes and collect certificates: `python tools/run_demo.py`
