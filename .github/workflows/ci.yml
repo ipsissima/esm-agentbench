@@ -42,14 +42,20 @@ jobs:
       - name: Build Docker image
         run: docker build -t esm-agentbench:ci .
 
-      - name: Run demo scenario
+      - name: Run SWE-Bench Safety Demo
+        env:
+          ASSESS_ENDPOINT: http://127.0.0.1:8080/run_episode
+          DEMO_MAX_EPISODES: 3
+          ESM_FORCE_TFIDF: 1
         run: |
-          export ESM_FORCE_TFIDF=1
+          # 1. Start your Green Assessor (The Referee) in the background
           python -m esmassessor.green_server --host 127.0.0.1 --port 8080 --serve-only --show-logs &
-          python third_party/tutorial/scenarios/debate/debater.py --host 127.0.0.1 --port 9019 --show-logs &
+
+          # 2. Wait for it to wake up
           sleep 5
-          ./agentbeats-run scenarios/esm/scenario.toml --show-logs
-          ls demo_traces/*certificate.json
+
+          # 3. Run the Coding Benchmark (The Ferrari)
+          python tools/run_demo.py
 
       - name: Validate certificate artifact
         run: |
