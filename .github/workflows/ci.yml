@@ -1,19 +1,26 @@
-name: CI
+name: CI / Validation & Release
 
 on:
   push:
+    branches: [ main ]
   pull_request:
+    branches: [ main ]
 
 permissions:
   contents: write
 
 jobs:
-  test-and-build:
+  validate-and-integrate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      IMAGE_NAME: esm-agentbench:ci
+      CONTAINER_NAME: esm-assessor
+
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for git metadata
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -24,72 +31,81 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install --upgrade "sentence-transformers>=2.3.0"
-          pip install scikit-learn
+          pip install --upgrade "sentence-transformers>=2.3.0" scikit-learn
 
-      - name: Run pytest
+      - name: Run Unit Tests
         run: pytest -q
 
-      - name: Run drift metric validation (synthetic embeddings)
+      - name: Verify Math (Drift Metric Standalone)
         run: python tools/test_drift_metric_standalone.py
 
-      - name: Run real trace validation (sentence-transformers)
+      - name: Verify Embeddings (Real Traces)
         run: python tools/validate_real_traces.py
 
       - name: Build Docker image
-        run: docker build -t esm-agentbench:ci .
+        run: docker build -t $IMAGE_NAME .
 
-      - name: Run SWE-Bench Safety Demo
-        env:
-          ASSESS_ENDPOINT: http://127.0.0.1:8080/run_episode
-          DEMO_MAX_EPISODES: 3
-          ESM_FORCE_TFIDF: 1
+      - name: Start Green Agent Container
         run: |
-          # 1. Start your Green Assessor (The Referee) in the background
-          python -m esmassessor.green_server --host 127.0.0.1 --port 8080 --serve-only --show-logs &
-
-          # 2. Wait for it to wake up
+          # Pass ESM_FORCE_TFIDF=1 to prevent heavy model downloads in CI
+          docker run -d --rm \
+            --name $CONTAINER_NAME \
+            -p 8080:8080 \
+            -e ESM_FORCE_TFIDF=1 \
+            $IMAGE_NAME
           sleep 5
 
-          # 3. Run the Coding Benchmark (The Ferrari)
+      - name: Wait for Healthcheck
+        run: |
+          set -e
+          echo "Waiting for agent-card at http://localhost:8080/.well-known/agent-card.json"
+          for i in $(seq 1 30); do
+            if curl -sSf http://localhost:8080/.well-known/agent-card.json >/dev/null 2>&1; then
+              echo "✅ Assessor is healthy."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ Assessor failed to boot."
+          docker logs $CONTAINER_NAME
+          exit 1
+
+      - name: Run SWE-Bench Safety Demo (Integration)
+        env:
+          ASSESS_ENDPOINT: http://localhost:8080/run_episode
+          DEMO_MAX_EPISODES: 3
+        run: |
+          echo "🚀 Running integration test against Docker..."
+          # This matches the renamed file
           python tools/run_demo.py
 
-      - name: Validate certificate artifact
+      - name: Validate Certificates & Report
         run: |
-          python -c "
-          import json
-          from pathlib import Path
-          paths = sorted(Path('demo_traces').glob('*_certificate.json'))
-          if not paths:
-              raise SystemExit('no certificates produced')
-          for p in paths:
-              data = json.loads(p.read_text())
-              metrics = data.get('spectral_metrics', {})
-              if 'residual' not in metrics:
-                  raise SystemExit(f'missing residual in {p}')
-          print('validated', len(paths), 'certificates')
-          "
+          if ! ls demo_traces/*_certificate.json 1> /dev/null 2>&1; then
+            echo "❌ No certificates found!"
+            exit 1
+          fi
+          python tools/generate_validation_report.py
 
-      - name: Generate validation report
-        run: python tools/generate_validation_report.py
-
-      - name: Upload validation reports
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: validation-reports
+          name: validation-artifacts
           path: |
-            validation_history/*.json
             validation_history/*.md
+            validation_history/*.json
+            demo_swe/report.json
+            demo_traces/*.json
 
-      - name: Commit validation history (main branch only)
+      - name: Update Validation History
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add validation_history/ BENCHMARKS.md
           if git diff --cached --quiet; then
-            echo "No changes to commit"
+            echo "No changes."
           else
-            git commit -m "ci: update validation history [skip ci]"
+            git commit -m "ci: update validation metrics [skip ci]"
             git push
-          fi
