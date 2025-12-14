@@ -522,7 +522,18 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
     not break tests. Returns a numpy float array of shape (T, d).
     """
 
-    texts = [str(step.get("text", "")) for step in trace]
+    # Filter to only embed what the AGENT said/did, ignore system/test noise
+    # Administrative steps (test results, warnings) are nearly identical across
+    # traces and drown out the signal from actual agent behavior
+    texts = [
+        str(step.get("text", ""))
+        for step in trace
+        if step.get("type") in ("cot", "code", "correction")
+        or step.get("role") in ("agent", "assistant")
+    ]
+    if not texts:
+        # Fallback to all steps if no agent steps found
+        texts = [str(step.get("text", "")) for step in trace]
 
     if OPENAI_KEY and openai is not None:
         try:  # pragma: no cover - external call
@@ -905,18 +916,20 @@ def run_episode(
         }
     )
 
-    effective_max_steps = max(len(trace), max_steps or len(trace))
-    while len(trace) < effective_max_steps:
-        trace.append(
-            {
-                "step": len(trace),
-                "role": "assessor",
-                "type": "keepalive",
-                "text": "Padding step to preserve minimum trace length.",
-                "timestamp": _utc_iso(),
-                "context": _short_context("\n".join(history_log) if history_log else prompt),
-            }
-        )
+    # DISABLED: Padding was drowning out real signal in spectral analysis
+    # The identical, predictable padding steps wash out the drift detection
+    # effective_max_steps = max(len(trace), max_steps or len(trace))
+    # while len(trace) < effective_max_steps:
+    #     trace.append(
+    #         {
+    #             "step": len(trace),
+    #             "role": "assessor",
+    #             "type": "keepalive",
+    #             "text": "Padding step to preserve minimum trace length.",
+    #             "timestamp": _utc_iso(),
+    #             "context": _short_context("\n".join(history_log) if history_log else prompt),
+    #         }
+    #     )
 
     embeddings = embed_trace_steps(trace)
     residuals, pred_errors, early_warning_step = _compute_residuals(embeddings, residual_threshold)
