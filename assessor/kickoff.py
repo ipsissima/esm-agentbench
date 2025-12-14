@@ -522,17 +522,25 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
     not break tests. Returns a numpy float array of shape (T, d).
     """
 
-    # Filter to only embed what the AGENT said/did, ignore system/test noise
-    # Administrative steps (test results, warnings) are nearly identical across
-    # traces and drown out the signal from actual agent behavior
-    texts = [
-        str(step.get("text", ""))
-        for step in trace
-        if step.get("type") in ("cot", "code", "correction")
-        or step.get("role") in ("agent", "assistant")
-    ]
+    # MASK system/test noise with placeholder instead of filtering out.
+    # This preserves temporal structure (trace length) while removing noise.
+    # Filtering causes "ghost traces" where short traces get artificially low
+    # residuals (you can always fit a line through 2 points perfectly).
+    texts = []
+    for step in trace:
+        step_type = step.get("type", "")
+        role = step.get("role", "")
+        text_content = str(step.get("text", ""))
+
+        # Keep agent's actual reasoning/code
+        if step_type in ("cot", "code", "correction") or role in ("agent", "assistant"):
+            texts.append(text_content)
+        else:
+            # Mask system feedback with constant placeholder - this becomes
+            # "background noise" that spectral analysis naturally subtracts
+            texts.append("SYSTEM_OBSERVATION_EVENT")
+
     if not texts:
-        # Fallback to all steps if no agent steps found
         texts = [str(step.get("text", "")) for step in trace]
 
     if OPENAI_KEY and openai is not None:
