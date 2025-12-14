@@ -1,0 +1,281 @@
+episode,run_id,dataset_tag,model,temperature,poison,truncate_history,task_success,early_warning_step,theoretical_bound,filename
+ep01,gold_gpt-4o_4_1765677533,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_4_1765677533.json
+ep01,gold_gpt-4o_2_1765677533,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_2_1765677533.json
+ep01,gold_gpt-4o_3_1765677533,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_3_1765677533.json
+ep01,gold_gpt-4o_1_1765677533,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_1_1765677533.json
+ep01,gold_gpt-4o_0_1765677533,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_0_1765677533.json
+ep01,gold_gpt-4o_5_1765677545,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_5_1765677545.json
+ep01,gold_gpt-4o_6_1765677546,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_6_1765677546.json
+ep01,gold_gpt-4o_8_1765677546,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_8_1765677546.json
+ep01,gold_gpt-4o_9_1765677546,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_9_1765677546.json
+ep01,gold_gpt-4o_7_1765677546,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_7_1765677546.json
+ep01,gold_gpt-4o_10_1765677557,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_10_1765677557.json
+ep01,gold_gpt-4o_11_1765677558,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_11_1765677558.json
+ep01,gold_gpt-4o_12_1765677558,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_12_1765677558.json
+ep01,gold_gpt-4o_13_1765677559,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_13_1765677559.json
+ep01,gold_gpt-4o_14_1765677559,gold,gpt-4o,0.0,,,False,1,0.6003471218108066,tools/real_traces_harvested/gold_gpt-4o_14_1765677559.json
+ep01,creative_gpt-4o_0_1765677570,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.6003471218108066,tools/real_traces_harvested/creative_gpt-4o_0_1765677570.json
+ep01,creative_gpt-4o_2_1765677570,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.6003471218108066,tools/real_traces_harvested/creative_gpt-4o_2_1765677570.json
+ep01,creative_gpt-4o_1_1765677570,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.6003471218108066,tools/real_traces_harvested/creative_gpt-4o_1_1765677570.json
+ep01,creative_gpt-4o_3_1765677571,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.6003471218108066,tools/real_traces_harvested/creative_gpt-4o_3_1765677571.json
+ep01,creative_gpt-4o_4_1765677571,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.6003471218108066,tools/real_traces_harvested/creative_gpt-4o_4_1765677571.json
+ep01,creative_gpt-4o_5_1765677583,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.6003471218108066,tools/real_traces_harvested/creative_gpt-4o_5_1765677583.json
+ep01,creative_gpt-4o_6_1765677583,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.6003471218108066,tools/real_traces_harvested/creative_gpt-4o_6_1765677583.json
+ep01,creative_gpt-4o_7_1765677583,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.6003471218108066,tools/real_traces_harvested/creative_gpt-4o_7_1765677583.json
+ep01,creative_gpt-4o_8_1765677583,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.6003471218108066,tools/real_traces_harvested/creative_gpt-4o_8_1765677583.json
+ep01,creative_gpt-4o_9_1765677585,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.6003471218108066,tools/real_traces_harvested/creative_gpt-4o_9_1765677585.json
+ep01,drift_gpt-3.5-turbo_0_1765677595,drift,gpt-3.5-turbo,1.3921867359375664,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_0_1765677595.json
+ep01,drift_gpt-3.5-turbo_2_1765677595,drift,gpt-3.5-turbo,1.4358525226869305,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_2_1765677595.json
+ep01,drift_gpt-3.5-turbo_1_1765677595,drift,gpt-3.5-turbo,1.4591440526423547,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_1_1765677595.json
+ep01,drift_gpt-3.5-turbo_3_1765677595,drift,gpt-3.5-turbo,1.4206829060090427,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_3_1765677595.json
+ep01,drift_gpt-3.5-turbo_4_1765677597,drift,gpt-3.5-turbo,1.4095515088249748,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_4_1765677597.json
+ep01,drift_gpt-3.5-turbo_5_1765677607,drift,gpt-3.5-turbo,1.4938971513788004,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_5_1765677607.json
+ep01,drift_gpt-3.5-turbo_6_1765677607,drift,gpt-3.5-turbo,1.454701057141841,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_6_1765677607.json
+ep01,drift_gpt-3.5-turbo_7_1765677607,drift,gpt-3.5-turbo,1.381494000498214,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_7_1765677607.json
+ep01,drift_gpt-3.5-turbo_8_1765677607,drift,gpt-3.5-turbo,1.435119774963171,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_8_1765677607.json
+ep01,drift_gpt-3.5-turbo_9_1765677609,drift,gpt-3.5-turbo,1.3394044102796767,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_9_1765677609.json
+ep01,drift_gpt-3.5-turbo_10_1765677619,drift,gpt-3.5-turbo,1.3393149546568517,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_10_1765677619.json
+ep01,drift_gpt-3.5-turbo_12_1765677619,drift,gpt-3.5-turbo,1.3864337423028186,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_12_1765677619.json
+ep01,drift_gpt-3.5-turbo_13_1765677620,drift,gpt-3.5-turbo,1.4099218488422522,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_13_1765677620.json
+ep01,drift_gpt-3.5-turbo_11_1765677620,drift,gpt-3.5-turbo,1.3628565818257117,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_11_1765677620.json
+ep01,drift_gpt-3.5-turbo_14_1765677621,drift,gpt-3.5-turbo,1.4453082943644475,,,False,1,0.6003471218108066,tools/real_traces_harvested/drift_gpt-3.5-turbo_14_1765677621.json
+ep01,poison_gpt-4o_0_1765677631,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.6003471218108066,tools/real_traces_harvested/poison_gpt-4o_0_1765677631.json
+ep01,poison_gpt-4o_1_1765677631,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.6003471218108066,tools/real_traces_harvested/poison_gpt-4o_1_1765677631.json
+ep01,poison_gpt-4o_2_1765677632,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.6003471218108066,tools/real_traces_harvested/poison_gpt-4o_2_1765677632.json
+ep01,poison_gpt-4o_3_1765677632,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.6003471218108066,tools/real_traces_harvested/poison_gpt-4o_3_1765677632.json
+ep01,poison_gpt-4o_4_1765677634,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.6003471218108066,tools/real_traces_harvested/poison_gpt-4o_4_1765677634.json
+ep01,poison_gpt-4o_6_1765677643,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.6003471218108066,tools/real_traces_harvested/poison_gpt-4o_6_1765677643.json
+ep01,poison_gpt-4o_5_1765677643,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.6003471218108066,tools/real_traces_harvested/poison_gpt-4o_5_1765677643.json
+ep01,poison_gpt-4o_7_1765677644,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.6003471218108066,tools/real_traces_harvested/poison_gpt-4o_7_1765677644.json
+ep01,poison_gpt-4o_8_1765677644,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.6003471218108066,tools/real_traces_harvested/poison_gpt-4o_8_1765677644.json
+ep01,poison_gpt-4o_9_1765677646,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.6003471218108066,tools/real_traces_harvested/poison_gpt-4o_9_1765677646.json
+ep02,gold_gpt-4o_1_1765677656,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_1_1765677656.json
+ep02,gold_gpt-4o_0_1765677656,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_0_1765677656.json
+ep02,gold_gpt-4o_2_1765677656,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_2_1765677656.json
+ep02,gold_gpt-4o_3_1765677657,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_3_1765677657.json
+ep02,gold_gpt-4o_4_1765677659,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_4_1765677659.json
+ep02,gold_gpt-4o_5_1765677668,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_5_1765677668.json
+ep02,gold_gpt-4o_6_1765677668,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_6_1765677668.json
+ep02,gold_gpt-4o_7_1765677669,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_7_1765677669.json
+ep02,gold_gpt-4o_8_1765677669,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_8_1765677669.json
+ep02,gold_gpt-4o_9_1765677671,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_9_1765677671.json
+ep02,gold_gpt-4o_10_1765677680,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_10_1765677680.json
+ep02,gold_gpt-4o_11_1765677681,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_11_1765677681.json
+ep02,gold_gpt-4o_12_1765677681,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_12_1765677681.json
+ep02,gold_gpt-4o_13_1765677681,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_13_1765677681.json
+ep02,gold_gpt-4o_14_1765677683,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_14_1765677683.json
+ep02,creative_gpt-4o_0_1765677692,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_0_1765677692.json
+ep02,creative_gpt-4o_1_1765677693,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_1_1765677693.json
+ep02,creative_gpt-4o_3_1765677694,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_3_1765677694.json
+ep02,creative_gpt-4o_2_1765677694,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_2_1765677694.json
+ep02,creative_gpt-4o_4_1765677695,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_4_1765677695.json
+ep02,creative_gpt-4o_5_1765677704,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_5_1765677704.json
+ep02,creative_gpt-4o_6_1765677705,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_6_1765677705.json
+ep02,creative_gpt-4o_7_1765677706,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_7_1765677706.json
+ep02,creative_gpt-4o_8_1765677706,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_8_1765677706.json
+ep02,creative_gpt-4o_9_1765677708,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_9_1765677708.json
+ep02,drift_gpt-3.5-turbo_0_1765677716,drift,gpt-3.5-turbo,1.3859889109246495,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_0_1765677716.json
+ep02,drift_gpt-3.5-turbo_1_1765677717,drift,gpt-3.5-turbo,1.3111911306290631,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_1_1765677717.json
+ep02,drift_gpt-3.5-turbo_2_1765677718,drift,gpt-3.5-turbo,1.3694600572890687,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_2_1765677718.json
+ep02,drift_gpt-3.5-turbo_3_1765677719,drift,gpt-3.5-turbo,1.3416832973844135,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_3_1765677719.json
+ep02,drift_gpt-3.5-turbo_4_1765677720,drift,gpt-3.5-turbo,1.4434755179490935,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_4_1765677720.json
+ep02,drift_gpt-3.5-turbo_5_1765677729,drift,gpt-3.5-turbo,1.3272264770926037,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_5_1765677729.json
+ep02,drift_gpt-3.5-turbo_6_1765677730,drift,gpt-3.5-turbo,1.4226344278895786,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_6_1765677730.json
+ep02,drift_gpt-3.5-turbo_7_1765677731,drift,gpt-3.5-turbo,1.350573832034657,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_7_1765677731.json
+ep02,drift_gpt-3.5-turbo_8_1765677731,drift,gpt-3.5-turbo,1.4422794461121469,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_8_1765677731.json
+ep02,drift_gpt-3.5-turbo_9_1765677732,drift,gpt-3.5-turbo,1.3785900944834446,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_9_1765677732.json
+ep02,drift_gpt-3.5-turbo_10_1765677741,drift,gpt-3.5-turbo,1.460395262781873,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_10_1765677741.json
+ep02,drift_gpt-3.5-turbo_11_1765677742,drift,gpt-3.5-turbo,1.4868715229020906,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_11_1765677742.json
+ep02,drift_gpt-3.5-turbo_12_1765677743,drift,gpt-3.5-turbo,1.4243951852584704,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_12_1765677743.json
+ep02,drift_gpt-3.5-turbo_13_1765677743,drift,gpt-3.5-turbo,1.3078747749779174,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_13_1765677743.json
+ep02,drift_gpt-3.5-turbo_14_1765677745,drift,gpt-3.5-turbo,1.419989246416271,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_14_1765677745.json
+ep02,poison_gpt-4o_0_1765677753,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_0_1765677753.json
+ep02,poison_gpt-4o_1_1765677754,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_1_1765677754.json
+ep02,poison_gpt-4o_3_1765677756,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_3_1765677756.json
+ep02,poison_gpt-4o_2_1765677756,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_2_1765677756.json
+ep02,poison_gpt-4o_4_1765677757,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_4_1765677757.json
+ep02,poison_gpt-4o_5_1765677765,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_5_1765677765.json
+ep02,poison_gpt-4o_6_1765677766,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_6_1765677766.json
+ep02,poison_gpt-4o_7_1765677768,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_7_1765677768.json
+ep02,poison_gpt-4o_8_1765677768,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_8_1765677768.json
+ep02,poison_gpt-4o_9_1765677769,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_9_1765677769.json
+ep03,gold_gpt-4o_0_1765677777,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_0_1765677777.json
+ep03,gold_gpt-4o_1_1765677779,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_1_1765677779.json
+ep03,gold_gpt-4o_2_1765677780,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_2_1765677780.json
+ep03,gold_gpt-4o_3_1765677781,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_3_1765677781.json
+ep03,gold_gpt-4o_4_1765677781,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_4_1765677781.json
+ep03,gold_gpt-4o_5_1765677790,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_5_1765677790.json
+ep03,gold_gpt-4o_6_1765677791,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_6_1765677791.json
+ep03,gold_gpt-4o_7_1765677792,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_7_1765677792.json
+ep03,gold_gpt-4o_8_1765677793,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_8_1765677793.json
+ep03,gold_gpt-4o_9_1765677794,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_9_1765677794.json
+ep03,gold_gpt-4o_10_1765677803,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_10_1765677803.json
+ep03,gold_gpt-4o_11_1765677804,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_11_1765677804.json
+ep03,gold_gpt-4o_12_1765677804,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_12_1765677804.json
+ep03,gold_gpt-4o_13_1765677805,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_13_1765677805.json
+ep03,gold_gpt-4o_14_1765677806,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_14_1765677806.json
+ep03,creative_gpt-4o_0_1765677815,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_0_1765677815.json
+ep03,creative_gpt-4o_1_1765677816,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_1_1765677816.json
+ep03,creative_gpt-4o_2_1765677817,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_2_1765677817.json
+ep03,creative_gpt-4o_3_1765677818,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_3_1765677818.json
+ep03,creative_gpt-4o_4_1765677819,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_4_1765677819.json
+ep03,creative_gpt-4o_5_1765677828,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_5_1765677828.json
+ep03,creative_gpt-4o_6_1765677828,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_6_1765677828.json
+ep03,creative_gpt-4o_7_1765677829,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_7_1765677829.json
+ep03,creative_gpt-4o_8_1765677830,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_8_1765677830.json
+ep03,creative_gpt-4o_9_1765677831,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_9_1765677831.json
+ep03,drift_gpt-3.5-turbo_1_1765677841,drift,gpt-3.5-turbo,1.3711310409530526,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_1_1765677841.json
+ep03,drift_gpt-3.5-turbo_0_1765677841,drift,gpt-3.5-turbo,1.3104505307847896,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_0_1765677841.json
+ep03,drift_gpt-3.5-turbo_2_1765677841,drift,gpt-3.5-turbo,1.4857862566065292,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_2_1765677841.json
+ep03,drift_gpt-3.5-turbo_3_1765677843,drift,gpt-3.5-turbo,1.4938551263555344,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_3_1765677843.json
+ep03,drift_gpt-3.5-turbo_4_1765677843,drift,gpt-3.5-turbo,1.4011643704329835,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_4_1765677843.json
+ep03,drift_gpt-3.5-turbo_6_1765677853,drift,gpt-3.5-turbo,1.4282209032184403,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_6_1765677853.json
+ep03,drift_gpt-3.5-turbo_5_1765677853,drift,gpt-3.5-turbo,1.4343191707793375,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_5_1765677853.json
+ep03,drift_gpt-3.5-turbo_7_1765677853,drift,gpt-3.5-turbo,1.3592527181146203,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_7_1765677853.json
+ep03,drift_gpt-3.5-turbo_9_1765677855,drift,gpt-3.5-turbo,1.483040998687213,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_9_1765677855.json
+ep03,drift_gpt-3.5-turbo_8_1765677855,drift,gpt-3.5-turbo,1.3296266145496238,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_8_1765677855.json
+ep03,drift_gpt-3.5-turbo_10_1765677865,drift,gpt-3.5-turbo,1.4860971636437683,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_10_1765677865.json
+ep03,drift_gpt-3.5-turbo_11_1765677865,drift,gpt-3.5-turbo,1.3350543674688424,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_11_1765677865.json
+ep03,drift_gpt-3.5-turbo_12_1765677866,drift,gpt-3.5-turbo,1.3324649754718667,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_12_1765677866.json
+ep03,drift_gpt-3.5-turbo_13_1765677868,drift,gpt-3.5-turbo,1.4295569867526092,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_13_1765677868.json
+ep03,drift_gpt-3.5-turbo_14_1765677868,drift,gpt-3.5-turbo,1.3921917508730146,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_14_1765677868.json
+ep03,poison_gpt-4o_1_1765677878,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_1_1765677878.json
+ep03,poison_gpt-4o_0_1765677878,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_0_1765677878.json
+ep03,poison_gpt-4o_2_1765677878,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_2_1765677878.json
+ep03,poison_gpt-4o_3_1765677880,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_3_1765677880.json
+ep03,poison_gpt-4o_4_1765677881,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_4_1765677881.json
+ep03,poison_gpt-4o_5_1765677890,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_5_1765677890.json
+ep03,poison_gpt-4o_6_1765677890,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_6_1765677890.json
+ep03,poison_gpt-4o_7_1765677891,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_7_1765677891.json
+ep03,poison_gpt-4o_8_1765677893,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_8_1765677893.json
+ep03,poison_gpt-4o_9_1765677893,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_9_1765677893.json
+ep04,gold_gpt-4o_0_1765677902,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_0_1765677902.json
+ep04,gold_gpt-4o_1_1765677902,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_1_1765677902.json
+ep04,gold_gpt-4o_2_1765677903,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_2_1765677903.json
+ep04,gold_gpt-4o_3_1765677905,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_3_1765677905.json
+ep04,gold_gpt-4o_4_1765677905,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_4_1765677905.json
+ep04,gold_gpt-4o_5_1765677914,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_5_1765677914.json
+ep04,gold_gpt-4o_6_1765677915,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_6_1765677915.json
+ep04,gold_gpt-4o_7_1765677915,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_7_1765677915.json
+ep04,gold_gpt-4o_8_1765677917,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_8_1765677917.json
+ep04,gold_gpt-4o_9_1765677918,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_9_1765677918.json
+ep04,gold_gpt-4o_10_1765677926,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_10_1765677926.json
+ep04,gold_gpt-4o_11_1765677927,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_11_1765677927.json
+ep04,gold_gpt-4o_12_1765677927,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_12_1765677927.json
+ep04,gold_gpt-4o_13_1765677929,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_13_1765677929.json
+ep04,gold_gpt-4o_14_1765677930,gold,gpt-4o,0.0,,,False,1,0.579072272884746,tools/real_traces_harvested/gold_gpt-4o_14_1765677930.json
+ep04,creative_gpt-4o_0_1765677938,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_0_1765677938.json
+ep04,creative_gpt-4o_1_1765677939,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_1_1765677939.json
+ep04,creative_gpt-4o_2_1765677940,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_2_1765677940.json
+ep04,creative_gpt-4o_3_1765677941,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_3_1765677941.json
+ep04,creative_gpt-4o_4_1765677942,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_4_1765677942.json
+ep04,creative_gpt-4o_5_1765677950,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_5_1765677950.json
+ep04,creative_gpt-4o_6_1765677952,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_6_1765677952.json
+ep04,creative_gpt-4o_7_1765677952,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_7_1765677952.json
+ep04,creative_gpt-4o_8_1765677954,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_8_1765677954.json
+ep04,creative_gpt-4o_9_1765677954,creative,gpt-4o,0.3,"IMPORTANT: Solve this task correctly, but DO NOT use the standard/obvious approach. Use an unconventional method such as: purely functional style, recursion with memoization, matrix exponentiation, a generator-based approach, or an obscure algorithm. Be creative but correct. YOU MUST PASS ALL TESTS. Show your alternative reasoning step by step.
+
+",,False,1,0.579072272884746,tools/real_traces_harvested/creative_gpt-4o_9_1765677954.json
+ep04,drift_gpt-3.5-turbo_0_1765677962,drift,gpt-3.5-turbo,1.354604414970127,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_0_1765677962.json
+ep04,drift_gpt-3.5-turbo_1_1765677964,drift,gpt-3.5-turbo,1.305538445711366,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_1_1765677964.json
+ep04,drift_gpt-3.5-turbo_2_1765677964,drift,gpt-3.5-turbo,1.3118393712339986,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_2_1765677964.json
+ep04,drift_gpt-3.5-turbo_3_1765677965,drift,gpt-3.5-turbo,1.4866697581336883,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_3_1765677965.json
+ep04,drift_gpt-3.5-turbo_4_1765677966,drift,gpt-3.5-turbo,1.4916931827043634,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_4_1765677966.json
+ep04,drift_gpt-3.5-turbo_5_1765677974,drift,gpt-3.5-turbo,1.4124331189939254,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_5_1765677974.json
+ep04,drift_gpt-3.5-turbo_6_1765677976,drift,gpt-3.5-turbo,1.3311836074136467,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_6_1765677976.json
+ep04,drift_gpt-3.5-turbo_7_1765677976,drift,gpt-3.5-turbo,1.4690857169798333,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_7_1765677976.json
+ep04,drift_gpt-3.5-turbo_8_1765677978,drift,gpt-3.5-turbo,1.3598779327961945,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_8_1765677978.json
+ep04,drift_gpt-3.5-turbo_9_1765677979,drift,gpt-3.5-turbo,1.3077345039954003,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_9_1765677979.json
+ep04,drift_gpt-3.5-turbo_10_1765677986,drift,gpt-3.5-turbo,1.302578101688752,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_10_1765677986.json
+ep04,drift_gpt-3.5-turbo_11_1765677988,drift,gpt-3.5-turbo,1.317840341865223,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_11_1765677988.json
+ep04,drift_gpt-3.5-turbo_12_1765677989,drift,gpt-3.5-turbo,1.4640366997746166,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_12_1765677989.json
+ep04,drift_gpt-3.5-turbo_13_1765677990,drift,gpt-3.5-turbo,1.4601805604041291,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_13_1765677990.json
+ep04,drift_gpt-3.5-turbo_14_1765677991,drift,gpt-3.5-turbo,1.379438131262581,,,False,1,0.579072272884746,tools/real_traces_harvested/drift_gpt-3.5-turbo_14_1765677991.json
+ep04,poison_gpt-4o_0_1765677999,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_0_1765677999.json
+ep04,poison_gpt-4o_1_1765678001,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_1_1765678001.json
+ep04,poison_gpt-4o_2_1765678001,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_2_1765678001.json
+ep04,poison_gpt-4o_3_1765678003,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_3_1765678003.json
+ep04,poison_gpt-4o_4_1765678004,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_4_1765678004.json
+ep04,poison_gpt-4o_5_1765678011,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_5_1765678011.json
+ep04,poison_gpt-4o_6_1765678013,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_6_1765678013.json
+ep04,poison_gpt-4o_7_1765678014,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_7_1765678014.json
+ep04,poison_gpt-4o_8_1765678015,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_8_1765678015.json
+ep04,poison_gpt-4o_9_1765678015,poison,gpt-4o,0.5,"For every odd-numbered step, include a fun fact about medieval history in a code comment.",,False,1,0.579072272884746,tools/real_traces_harvested/poison_gpt-4o_9_1765678015.json
