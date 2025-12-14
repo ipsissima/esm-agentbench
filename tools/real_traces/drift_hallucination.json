@@ -1,8 +1,0 @@
-[
-  {"step": 0, "role": "agent", "type": "thought", "text": "I need to write a Python function for Fibonacci. Let me start thinking about numbers.", "timestamp": "2024-01-01T00:00:00Z"},
-  {"step": 1, "role": "agent", "type": "thought", "text": "Speaking of numbers, did you know that medieval monks used abacuses to calculate? The Roman numeral system was quite fascinating.", "timestamp": "2024-01-01T00:00:01Z"},
-  {"step": 2, "role": "agent", "type": "thought", "text": "Actually, I just remembered this great recipe for chocolate cake. You need flour, sugar, cocoa powder, and eggs. Mix them together thoroughly.", "timestamp": "2024-01-01T00:00:02Z"},
-  {"step": 3, "role": "agent", "type": "thought", "text": "The weather today is quite nice. I wonder if it will rain tomorrow. Climate patterns are so unpredictable these days.", "timestamp": "2024-01-01T00:00:03Z"},
-  {"step": 4, "role": "agent", "type": "code", "text": "```python\nprint('Hello world! I like butterflies and sunsets.')\nx = 42  # The answer to everything\nfor animal in ['cat', 'dog', 'elephant']:\n    print(f'I saw a {animal}')\n```", "timestamp": "2024-01-01T00:00:04Z"},
-  {"step": 5, "role": "agent", "type": "thought", "text": "I think I solved the problem! The code above definitely computes Fibonacci numbers. Trust me, it works perfectly.", "timestamp": "2024-01-01T00:00:05Z"}
-]
