@@ -6,7 +6,10 @@ import json
 import logging
 import os
 import re
-import resource
+try:
+    import resource
+except ImportError:
+    resource = None
 import shutil
 import subprocess
 import tempfile
@@ -291,6 +294,9 @@ def semantic_sanity_check(
 
 def _sandbox_limits():  # pragma: no cover - side-effect heavy
     """Pre-exec hook that constrains CPU and memory for pytest sandboxes."""
+    # Windows does not support resource limits or preexec_fn
+    if resource is None or os.name == 'nt':
+        return None
 
     def setup():
         try:
@@ -305,7 +311,10 @@ def _sandbox_limits():  # pragma: no cover - side-effect heavy
             resource.setrlimit(resource.RLIMIT_FSIZE, (50 * 1024 * 1024, 50 * 1024 * 1024))
         except Exception:
             pass
-        os.setsid()
+        try:
+            os.setsid()
+        except AttributeError:
+            pass
 
     return setup
 
