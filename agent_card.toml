@@ -3,7 +3,7 @@ type = "green_assessor"
 entrypoint = "https://<cloud-run-url>/.well-known/agent-card.json"
 description = "SWE-bench Lite + EigenSpace spectral certificates. Assessor logs agent traces, computes embeddings, and emits spectral certificates."
 contact = "andreuballus@gmail.com"
-tags = ["agent-evaluation","spectral-analysis","koopman","swe-bench","agentbeats","eigenspace"]
+tags = ["coding-agent", "agent-safety", "software-testing", "swe-bench", "spectral-analysis"]
 
 markdown
 Copia el codi

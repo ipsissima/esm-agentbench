@@ -27,9 +27,6 @@ jobs:
           pip install --upgrade "sentence-transformers>=2.3.0"
           pip install scikit-learn
 
-      - name: Import tutorial assets
-        run: python tools/import_tutorial.py || true
-
       - name: Run pytest
         run: pytest -q
 
