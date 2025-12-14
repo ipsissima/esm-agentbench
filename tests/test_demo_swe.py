@@ -22,7 +22,7 @@ def _allocate_port() -> int:
 
 
 PORT = _allocate_port()
-DEMO_DRIVER = REPO_ROOT / "tools" / "run_demo_swe.py"
+DEMO_DRIVER = REPO_ROOT / "tools" / "run_demo.py"
 REPORT_PATH = REPO_ROOT / "demo_swe" / "report.json"
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, MutableMapping, Optional
+from typing import Any, Dict, List, Mapping, MutableMapping
 
 logger = logging.getLogger(__name__)
 
@@ -33,3 +33,6 @@ class GreenExecutorBase:
 
     def on_complete(self, assessment: Assessment, result: Mapping[str, Any]) -> None:  # pragma: no cover
         logger.info("completed assessment %s", assessment.assessment_id)
+
+
+__all__ = ["Assessment", "GreenExecutorBase"]

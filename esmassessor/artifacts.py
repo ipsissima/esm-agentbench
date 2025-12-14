@@ -13,12 +13,7 @@ def _ensure_dir(path: Path) -> None:
 
 
 def send_artifact(artifact: Mapping[str, Any], name: str = "artifact.json", directory: Optional[Path] = None) -> Path:
-    """Persist artifact locally and log the event.
-
-    The real tutorial client would POST artifacts back to the orchestrator.
-    For offline integration we simply serialize to disk under ``demo_traces``
-    (or the provided ``directory``).
-    """
+    """Persist artifact locally and log the event."""
 
     base_dir = Path(directory) if directory else Path("demo_traces")
     _ensure_dir(base_dir / name)
@@ -32,3 +27,6 @@ def send_task_update(payload: Mapping[str, Any]) -> None:
     """Log task updates for traceability."""
 
     logger.info("task update: %s", payload)
+
+
+__all__ = ["send_artifact", "send_task_update"]

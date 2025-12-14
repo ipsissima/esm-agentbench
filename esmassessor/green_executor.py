@@ -4,25 +4,20 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-TUTORIAL_SRC = PROJECT_ROOT / "third_party" / "tutorial" / "src"
-if TUTORIAL_SRC.exists() and str(TUTORIAL_SRC) not in sys.path:
-    sys.path.insert(0, str(TUTORIAL_SRC))
-
-from agentbeats import Assessment, GreenExecutorBase
-from agentbeats.artifacts import send_task_update
+from esmassessor.artifacts import send_task_update
+from esmassessor.base import Assessment, GreenExecutorBase
 from certificates.make_certificate import compute_certificate
 from esmassessor.artifact_schema import CertificateArtifact, SpectralMetrics
 from esmassessor.write_artifact import write_certificate_artifact
 
 LOGGER = logging.getLogger(__name__)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class EsmGreenExecutor(GreenExecutorBase):

@@ -4,19 +4,13 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
 from pathlib import Path
 from typing import Any, Dict
 
 from flask import Flask, jsonify, request
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-TUTORIAL_SRC = PROJECT_ROOT / "third_party" / "tutorial" / "src"
-if TUTORIAL_SRC.exists() and str(TUTORIAL_SRC) not in sys.path:
-    sys.path.insert(0, str(TUTORIAL_SRC))
-
-from agentbeats import Assessment
-from agentbeats.runner import run_debate
+from esmassessor.base import Assessment
 from esmassessor.green_executor import EsmGreenExecutor
 
 # Import for /run_episode endpoint
@@ -108,18 +102,6 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO if args.show_logs else logging.WARNING)
-    if not args.serve_only:
-        # Run a tiny demo debate to warm up embeddings and produce artifacts
-        scenario = {
-            "assessment_id": "esm_demo",
-            "prompt": "quick warm-up",
-            "max_steps": 3,
-            "participants": ["green", "purple"],
-        }
-        try:
-            run_debate(scenario, show_logs=args.show_logs)
-        except Exception as exc:  # pragma: no cover
-            LOGGER.warning("warm-up debate failed: %s", exc)
     app.run(host=args.host, port=args.port)
 
 

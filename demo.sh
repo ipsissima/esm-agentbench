@@ -30,7 +30,7 @@ start_app() {
 start_app
 
 echo "Running SWE demo episodes..."
-python "$ROOT_DIR/tools/run_demo_swe.py"
+python "$ROOT_DIR/tools/run_demo.py"
 
 REPORT_PATH="$ROOT_DIR/demo_swe/report.json"
 echo "Demo report: $REPORT_PATH"
