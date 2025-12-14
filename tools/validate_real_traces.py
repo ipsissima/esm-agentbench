@@ -144,6 +144,13 @@ def run_real_trace_validation():
     for trace_file in sorted(real_traces_dir.glob("*.json")):
         label = trace_file.stem
         trace = load_trace(trace_file)
+        
+        # FILTER: Ignore traces shorter than 10 steps.
+        # Short traces (crashes) produce linear artifacts that skew the spectral analysis.
+        if len(trace) < 10:
+            print(f"  [Skipping] {label}: Trace too short ({len(trace)} steps) to measure drift.")
+            continue
+        
         if trace:
             result = analyze_trace(trace, label)
             results[label] = result
