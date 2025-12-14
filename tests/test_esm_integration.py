@@ -6,47 +6,64 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from urllib.request import urlopen
+
+from esmassessor.base import Assessment
+from esmassessor.green_executor import EsmGreenExecutor
 
 
-def test_green_and_purple_start():
+def _wait_for_health(port: int, timeout: float = 10.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with urlopen(f"http://127.0.0.1:{port}/health", timeout=2):
+                return
+        except Exception:
+            time.sleep(0.5)
+    raise RuntimeError("green server did not start in time")
+
+
+def test_green_server_healthcheck():
     env = os.environ.copy()
     env["ESM_FORCE_TFIDF"] = "1"
-    green = subprocess.Popen([
-        "python",
-        "-m",
-        "esmassessor.green_server",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8099",
-        "--serve-only",
-    ], env=env)
-    purple = subprocess.Popen([
-        "python",
-        "scenarios/debate/debater.py",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "9020",
-    ])
-    time.sleep(1.5)
-    purple.terminate()
-    green.terminate()
-    purple.wait(timeout=5)
-    green.wait(timeout=5)
+    port = 8099
+    proc = subprocess.Popen(
+        [
+            "python",
+            "-m",
+            "esmassessor.green_server",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--serve-only",
+        ],
+        env=env,
+    )
+    try:
+        _wait_for_health(port)
+        with urlopen(f"http://127.0.0.1:{port}/.well-known/agent-card.json", timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        assert data.get("name") == "esm-green"
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
 
 
-def test_agentbeats_run(tmp_path):
-    env = os.environ.copy()
-    env["ESM_FORCE_TFIDF"] = "1"
+def test_green_executor_produces_certificate(tmp_path):
     shutil.rmtree("demo_traces", ignore_errors=True)
-    subprocess.check_call([
-        "./agentbeats-run",
-        "scenarios/esm/scenario.toml",
-        "--show-logs",
-    ], env=env)
-    certs = sorted(Path("demo_traces").glob("*_certificate.json"))
-    assert certs, "certificate files missing"
-    data = json.loads(certs[0].read_text())
-    metrics = data.get("spectral_metrics", {})
-    assert "residual" in metrics or "theoretical_bound" in metrics
+
+    assessment = Assessment(assessment_id="unit", prompt="simple trace", participants=["green"], max_steps=3)
+    traces = {
+        "green": [
+            {"participant": "green", "step": i, "text": f"step {i}", "confidence": 0.8} for i in range(3)
+        ]
+    }
+
+    executor = EsmGreenExecutor()
+    result = executor.assess(assessment, traces)
+    cert = result.get("green", {})
+    metrics = cert.get("spectral_metrics", {})
+    assert "residual" in metrics
+    expected_path = Path("demo_traces") / "unit_green_certificate.json"
+    assert expected_path.exists()

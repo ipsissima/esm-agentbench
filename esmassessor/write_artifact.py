@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Mapping, Optional
 
-from agentbeats.artifacts import send_artifact
+from esmassessor.artifacts import send_artifact
 
 LOGGER = logging.getLogger(__name__)
 

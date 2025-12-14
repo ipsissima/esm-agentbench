@@ -12,6 +12,10 @@ ESM-AgentBench pivots from "LLM-as-a-judge" heuristics toward **Spectral Certifi
 - [Theory](THEORY.md)
 - [Benchmarks](BENCHMARKS.md)
 
+### Run the end-to-end demo
+1. Start the assessor: `python -m esmassessor.green_server --show-logs`
+2. Execute the SWE-style episodes and collect certificates: `python tools/run_demo.py`
+
 ### Why it matters
 - **Certified AI Reasoning:** Every certificate exposes `theoretical_bound` showing how close the Koopman approximation is—smaller bounds mean higher trust.
 - **Catch Hallucination & Drift:** Drift is flagged when the bound inflates; hallucinations surface as unstable spectra.

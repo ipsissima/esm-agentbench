@@ -9,18 +9,15 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
+import random
 
 import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-TUTORIAL_SRC = PROJECT_ROOT / "third_party" / "tutorial" / "src"
-if str(TUTORIAL_SRC) not in sys.path:
-    sys.path.insert(0, str(TUTORIAL_SRC))
 
 from certificates.make_certificate import compute_certificate
-from third_party.tutorial.src.agentbeats.runner import _synthetic_trace
 
 LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +53,21 @@ def embed_texts(texts: Iterable[str], backend: str, config: Dict[str, Any]) -> n
         norms = np.linalg.norm(mat, axis=1, keepdims=True) + 1e-12
         return mat / norms
     raise RuntimeError(f"unsupported backend {backend}")
+
+
+def _synthetic_trace(participant: str, prompt: str, max_steps: int, seed: int) -> List[Dict[str, Any]]:
+    rng = random.Random(seed)
+    trace: List[Dict[str, Any]] = []
+    for idx in range(max_steps):
+        trace.append(
+            {
+                "participant": participant,
+                "step": idx,
+                "text": f"{participant} reasoning {idx} about {prompt} :: {rng.random():.3f}",
+                "evidence": rng.random(),
+            }
+        )
+    return trace
 
 
 def compute_residuals(trials: int, prompt: str, backend: str, config: Dict[str, Any], seed: int, bad: bool = False) -> List[float]:
