@@ -161,13 +161,17 @@ def _load_cached_trace(task: HarvestTask, cache_dir: Path) -> Optional[Dict[str,
 
 def _summarize_trace(payload: Dict[str, Any], filename: Path) -> Dict[str, Any]:
     cert = payload.get("certificate") or {}
+    # Normalize poison field for CSV compatibility (strip newlines)
+    poison_val = payload.get("poison")
+    if poison_val:
+        poison_val = poison_val.replace("\n", " ").strip()
     return {
         "episode": payload.get("episode_id"),
         "run_id": filename.stem,
         "dataset_tag": payload.get("dataset_tag"),
         "model": payload.get("model_name"),
         "temperature": payload.get("temperature"),
-        "poison": payload.get("poison"),
+        "poison": poison_val,
         "truncate_history": payload.get("truncate_history"),
         "task_success": payload.get("task_success"),
         "early_warning_step": payload.get("early_warning_step"),
