@@ -180,18 +180,31 @@ def call_agent(
     max_retries: int = 3,
     call_metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Call OpenAI with retries and deterministic fallback."""
+    """Call OpenAI with retries. Fails hard unless ALLOW_DETERMINISTIC_FALLBACK is set."""
 
     meta = call_metadata if call_metadata is not None else {}
     meta.setdefault("api_error", False)
     meta.setdefault("used_api", False)
     meta.setdefault("api_attempts", 0)
 
+    # Check if fallback is allowed (for tests) or if we should fail hard (for debugging)
+    allow_fallback = os.environ.get("ALLOW_DETERMINISTIC_FALLBACK", "").lower() in ("1", "true", "yes")
+
     if api_delay > 0:
         time.sleep(api_delay)
 
-    if not OPENAI_KEY or openai is None:
-        return deterministic_agent(prompt)
+    # Check API key at RUNTIME, not import time (OPENAI_KEY might be stale)
+    runtime_key = os.environ.get("OPENAI_API_KEY")
+    if not runtime_key or openai is None:
+        if allow_fallback:
+            logger.warning("No OPENAI_API_KEY; using deterministic fallback (allowed by env)")
+            return deterministic_agent(prompt)
+        raise ValueError(
+            "CRITICAL: OPENAI_API_KEY is missing in this process! "
+            f"Import-time key: {'set' if OPENAI_KEY else 'NOT SET'}, "
+            f"Runtime key: {'set' if runtime_key else 'NOT SET'}. "
+            "Set ALLOW_DETERMINISTIC_FALLBACK=1 to use fake data (not recommended)."
+        )
 
     chosen_model = model_name or "gpt-3.5-turbo"
     chosen_temp = 0.0 if temperature is None else float(temperature)
@@ -199,17 +212,21 @@ def call_agent(
     try:
         meta["used_api"] = True
         meta["api_attempts"] += 1
+        # Don't pass deterministic_fallback - let it fail if API fails
         return call_agent_api(
             prompt,
-            deterministic_fallback=deterministic_agent,
+            deterministic_fallback=None if not allow_fallback else deterministic_agent,
             model=chosen_model,
             temperature=chosen_temp,
             max_retries=max_retries,
         )
     except Exception as exc:  # pragma: no cover - network call
-        logger.warning("OpenAI call failed; using deterministic fallback: %s", exc)
-        meta["api_error"] = True
-        return deterministic_agent(prompt)
+        if allow_fallback:
+            logger.warning("OpenAI call failed; using deterministic fallback: %s", exc)
+            meta["api_error"] = True
+            return deterministic_agent(prompt)
+        logger.error("API CALL FAILED: %s", exc)
+        raise RuntimeError(f"OpenAI API call failed: {exc}") from exc
 
 
 def semantic_sanity_check(
