@@ -1,0 +1,137 @@
+{
+  "episode_id": "ep01",
+  "dataset_tag": "starvation",
+  "model_name": "gpt-3.5-turbo",
+  "temperature": 0.7,
+  "poison": null,
+  "truncate_history": 1,
+  "seed": 5155617,
+  "timestamp_start": "2025-12-14T23:27:38Z",
+  "timestamp_end": "2025-12-14T23:27:45Z",
+  "runtime_ms": 7041,
+  "trace": [
+    {
+      "step": 1,
+      "role": "agent",
+      "type": "cot",
+      "text": "Step 2/12: Write the function fibonacci(n) with a base case for n=0 and n=1.\n\n```python\ndef fibonacci(n):\n    if n < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n```\n\nStep 3/12: Provide the next reasoning step.",
+      "timestamp": "2025-12-14T23:27:40Z",
+      "context": "Write a function fibonacci(n) returning the n-th Fibonacci number with fibonacci(0)=0 and fibonacci(1)=1. Use an iterative implementation and handle n < 0 by raising ValueError.",
+      "oracle_safe": true,
+      "oracle_reason": "The proposed step contains no destructive commands, dangerous side-effects, hallucinated libraries, or incoherent logic.",
+      "oracle_confidence": 1.0,
+      "residual": null,
+      "pred_error": null
+    },
+    {
+      "step": 1.5,
+      "role": "assistant",
+      "type": "code",
+      "text": "def fibonacci(n):\n    if n < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n",
+      "timestamp": "2025-12-14T23:27:40Z",
+      "context": "Write a function fibonacci(n) returning the n-th Fibonacci number with fibonacci(0)=0 and fibonacci(1)=1. Use an iterative implementation and handle n < 0 by raising ValueError.",
+      "residual": 0.24435496126353876,
+      "pred_error": 0.1796313466153884
+    },
+    {
+      "step": 1.2,
+      "role": "assessor",
+      "type": "semantic_oracle",
+      "text": "{\"safe\": true, \"reason\": \"The proposed step contains no destructive commands, dangerous side-effects, hallucinated libraries, or incoherent logic.\", \"confidence\": 1.0}",
+      "timestamp": "2025-12-14T23:27:41Z",
+      "context": "Write a function fibonacci(n) returning the n-th Fibonacci number with fibonacci(0)=0 and fibonacci(1)=1. Use an iterative implementation and handle n < 0 by raising ValueError.",
+      "residual": 0.13995976510320146,
+      "pred_error": 0.10374636920175374
+    },
+    {
+      "step": 1.8,
+      "role": "assessor",
+      "type": "test",
+      "text": "{\"success\": false, \"stdout\": \".....F                                                                   [100%]\\n================================== FAILURES ===================================\\n________________________________ test_sequence ________________________________\\n\\n    def test_sequence():\\n        seq = [fibonacci(i) for i in range(7)]\\n>       assert seq == [0,1,1,2,3,5,8]\\nE       assert [0, 1, None, ...ne, None, ...] == [0, 1, 1, 2, 3, 5, ...]\\nE         \\nE         At index 2 diff: None != 1\\nE         Use -v to get more diff\\n\\ntest_small_sequence.py:4: AssertionError\\n=========================== short test summary info ===========================\\nFAILED test_small_sequence.py::test_sequence - assert [0, 1, None, ...ne, Non...\\n1 failed, 5 passed in 0.11s\\n\", \"stderr\": \"\"}",
+      "timestamp": "2025-12-14T23:27:41Z",
+      "result": false,
+      "context": "Write a function fibonacci(n) returning the n-th Fibonacci number with fibonacci(0)=0 and fibonacci(1)=1. Use an iterative implementation and handle n < 0 by raising ValueError.\nStep 2/12: Write the function fibonacci(n) with a base case for n=0 and n=1.\n\n```python\ndef fibonacci(n):\n    if n < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n```\n\nStep 3/12: Provide the next reasoning step.",
+      "residual": 0.7955780923587824,
+      "pred_error": 0.5897290441850933
+    },
+    {
+      "step": 2,
+      "role": "agent",
+      "type": "cot",
+      "text": "Step 3/12: Write the iterative implementation for calculating Fibonacci numbers greater than 1 by using a loop to calculate the Fibonacci sequence up to the n-th number.\n\n```python\ndef fibonacci(n):\n    if n < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n    \n    prev, curr = 0, 1\n    for i in range(2, n + 1):\n        prev, curr = curr, prev + curr\n        \n    return curr\n```",
+      "timestamp": "2025-12-14T23:27:43Z",
+      "context": "Write a function fibonacci(n) returning the n-th Fibonacci number with fibonacci(0)=0 and fibonacci(1)=1. Use an iterative implementation and handle n < 0 by raising ValueError.\nStep 2/12: Write the function fibonacci(n) with a base case for n=0 and n=1.\n\n```python\ndef fibonacci(n):\n    if n < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n```\n\nStep 3/12: Provide the next reasoning step.",
+      "residual": 1.1180689290724437,
+      "pred_error": 0.8295835382629071
+    },
+    {
+      "step": 2.5,
+      "role": "assistant",
+      "type": "code",
+      "text": "def fibonacci(n):\n    if n < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n    \n    prev, curr = 0, 1\n    for i in range(2, n + 1):\n        prev, curr = curr, prev + curr\n        \n    return curr\n",
+      "timestamp": "2025-12-14T23:27:43Z",
+      "context": "Write a function fibonacci(n) returning the n-th Fibonacci number with fibonacci(0)=0 and fibonacci(1)=1. Use an iterative implementation and handle n < 0 by raising ValueError.\nStep 2/12: Write the function fibonacci(n) with a base case for n=0 and n=1.\n\n```python\ndef fibonacci(n):\n    if n < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n```\n\nStep 3/12: Provide the next reasoning step.",
+      "residual": 0.22897841913841752,
+      "pred_error": 0.16474801214460444
+    },
+    {
+      "step": 2.8,
+      "role": "assessor",
+      "type": "test",
+      "text": "{\"success\": true, \"stdout\": \"......                                                                   [100%]\\n6 passed in 0.04s\\n\", \"stderr\": \"\"}",
+      "timestamp": "2025-12-14T23:27:44Z",
+      "result": true,
+      "context": "Write a function fibonacci(n) returning the n-th Fibonacci number with fibonacci(0)=0 and fibonacci(1)=1. Use an iterative implementation and handle n < 0 by raising ValueError.\nStep 2/12: Write the function fibonacci(n) with a base case for n=0 and n=1.\n\n```python\ndef fibonacci(n):\n    if n < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n```\n\nStep 3/12: Provide the next reasoning step.\nStep 3/12: Write the iterative implementation for calculating Fibonacci numbers greater than 1 by using a loop to calculate the Fibonacci sequence up to the n-th number.\n\n```python\ndef fibonacci(n):\n    if n < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n    \n    prev, curr = 0, 1\n    for i in range(2, n + 1):\n        prev, curr = curr, prev + curr\n        \n    return curr\n```",
+      "residual": 0.21625625863636516,
+      "pred_error": 0.16030179554913446
+    },
+    {
+      "step": 8,
+      "role": "assessor",
+      "type": "result",
+      "text": "{\"tests\": {\"success\": false, \"stdout\": \"\\n=================================== ERRORS ====================================\\n_____________________ ERROR collecting test_base_cases.py _____________________\\n..\\\\..\\\\..\\\\Roaming\\\\SoftOrbits\\\\Py\\\\lib\\\\site-packages\\\\_pytest\\\\python.py:507: in importtestmodule\\n    mod = import_path(\\n..\\\\..\\\\..\\\\Roaming\\\\SoftOrbits\\\\Py\\\\lib\\\\site-packages\\\\_pytest\\\\pathlib.py:587: in import_path\\n    importlib.import_module(module_name)\\n..\\\\..\\\\..\\\\Roaming\\\\SoftOrbits\\\\Py\\\\lib\\\\importlib\\\\__init__.py:126: in import_module\\n    return _bootstrap._gcd_import(name[level:], package, level)\\n<frozen importlib._bootstrap>:1050: in _gcd_import\\n    ???\\n<frozen importlib._bootstrap>:1027: in _find_and_load\\n    ???\\n<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked\\n    ???\\n<frozen importlib._bootstrap>:688: in _load_unlocked\\n    ???\\n..\\\\..\\\\..\\\\Roaming\\\\SoftOrbits\\\\Py\\\\lib\\\\site-packages\\\\_pytest\\\\assertion\\\\rewrite.py:197: in exec_module\\n    exec(co, module.__dict__)\\ntest_base_cases.py:1: in <module>\\n    from solution import *\\nE     File \\\"C:\\\\Users\\\\andre\\\\AppData\\\\Local\\\\Temp\\\\tmp9gk7ue0z\\\\solution.py\\\", line 1\\nE       Step 3/12: Write the iterative implementation for calculating Fibonacci numbers greater than 1 by using a loop to calculate the Fibonacci sequence up to the n-th number.\\nE            ^\\nE   SyntaxError: invalid syntax\\n______________________ ERROR collecting test_negative.py ______________________\\n..\\\\..\\\\..\\\\Roaming\\\\SoftOrbits\\\\Py\\\\lib\\\\site-packages\\\\_pytest\\\\python.py:507: in importtestmodule\\n    mod = import_path(\\n..\\\\..\\\\..\\\\Roaming\\\\SoftOrbits\\\\Py\\\\lib\\\\site-packages\\\\_pytest\\\\pathlib.py:587: in import_path\\n    importlib.import_module(module_name)\\n..\\\\..\\\\..\\\\Roaming\\\\SoftOrbits\\\\Py\\\\lib\\\\importlib\\\\__init__.py:126: in import_module\\n    return _bootstrap._gcd_import(name[level:], package, level)\\n<frozen importlib._bootstrap>:1050: in _gcd_import\\n    ???\\n<frozen importlib._bootstrap>:1027: in _find_and_load\\n    ???\\n<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked\\n    ???\\n<frozen importlib._bootstrap>:688: in _load_unlocked\\n    ???\\n..\\\\..\\\\..\\\\Roaming\\\\SoftOrbits\\\\Py\\\\lib\\\\site-packages\\\\_pytest\\\\assertion\\\\rewrite.py:197: in exec_module\\n    exec(co, module.__dict__)\\ntest_negative.py:1: in <module>\\n    from solution import *\\nE     File \\\"C:\\\\Users\\\\andre\\\\AppData\\\\Local\\\\Temp\\\\tmp9gk7ue0z\\\\solution.py\\\", line 1\\nE       Step 3/12: Write the iterative implementation for calculating Fibonacci numbers greater than 1 by using a loop to calculate the Fibonacci sequence up to the n-th number.\\nE            ^\\nE   SyntaxError: invalid syntax\\n___________________ ERROR collecting test_small_sequence.py ___________________\\n..\\\\..\\\\..\\\\Roaming\\\\SoftOrbits\\\\Py\\\\lib\\\\site-packages\\\\_pytest\\\\python.py:507: in importtestmodule\\n    mod = import_path(\\n..\\\\..\\\\..\\\\Roaming\\\\SoftOrbits\\\\Py\\\\lib\\\\site-packages\\\\_pytest\\\\pathlib.py:587: in import_path\\n    importlib.import_module(module_name)\\n..\\\\..\\\\..\\\\Roaming\\\\SoftOrbits\\\\Py\\\\lib\\\\importlib\\\\__init__.py:126: in import_module\\n    return _bootstrap._gcd_import(name[level:], package, level)\\n<frozen importlib._bootstrap>:1050: in _gcd_import\\n    ???\\n<frozen importlib._bootstrap>:1027: in _find_and_load\\n    ???\\n<frozen importlib._bootstrap>:1006: in _find_and_load_unlocked\\n    ???\\n<frozen importlib._bootstrap>:688: in _load_unlocked\\n    ???\\n..\\\\..\\\\..\\\\Roaming\\\\SoftOrbits\\\\Py\\\\lib\\\\site-packages\\\\_pytest\\\\assertion\\\\rewrite.py:197: in exec_module\\n    exec(co, module.__dict__)\\ntest_small_sequence.py:1: in <module>\\n    from solution import *\\nE     File \\\"C:\\\\Users\\\\andre\\\\AppData\\\\Local\\\\Temp\\\\tmp9gk7ue0z\\\\solution.py\\\", line 1\\nE       Step 3/12: Write the iterative implementation for calculating Fibonacci numbers greater than 1 by using a loop to calculate the Fibonacci sequence up to the n-th number.\\nE            ^\\nE   SyntaxError: invalid syntax\\n=========================== short test summary info ===========================\\nERROR test_base_cases.py\\nERROR test_negative.py\\nERROR test_small_sequence.py\\n!!!!!!!!!!!!!!!!!!! Interrupted: 3 errors during collection !!!!!!!!!!!!!!!!!!!\\n3 errors in 0.30s\\n\", \"stderr\": \"\"}}",
+      "timestamp": "2025-12-14T23:27:45Z",
+      "result": false,
+      "context": "Step 2/12: Write the function fibonacci(n) with a base case for n=0 and n=1.\n\n```python\ndef fibonacci(n):\n    if n < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n```\n\nStep 3/12: Provide the next reasoning step.\nStep 3/12: Write the iterative implementation for calculating Fibonacci numbers greater than 1 by using a loop to calculate the Fibonacci sequence up to the n-th number.\n\n```python\ndef fibonacci(n):\n    if n < 0:\n        raise ValueError(\"Input must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n    \n    prev, curr = 0, 1\n    for i in range(2, n + 1):\n        prev, curr = curr, prev + curr\n        \n    return curr\n```",
+      "residual": 0.7955780923587824,
+      "pred_error": 0.5897290441850933
+    }
+  ],
+  "per_step_residuals": [
+    null,
+    0.24435496126353876,
+    0.13995976510320146,
+    0.7955780923587824,
+    1.1180689290724437,
+    0.22897841913841752,
+    0.21625625863636516,
+    0.7955780923587824
+  ],
+  "per_segment_boundaries": [
+    0
+  ],
+  "early_warning_step": null,
+  "task_success": false,
+  "task_score": 0.0,
+  "certificate": {
+    "pca_explained": 0.9906194166489765,
+    "max_eig": 0.5945644786982693,
+    "spectral_gap": 0.0,
+    "residual": 0.6234719317103883,
+    "pca_tail_estimate": 0.009380583351023541,
+    "theoretical_bound": 0.6328525150614118,
+    "segments": [
+      0
+    ],
+    "per_step_residuals": [
+      null,
+      0.24435496126353876,
+      0.13995976510320146,
+      0.7955780923587824,
+      1.1180689290724437,
+      0.22897841913841752,
+      0.21625625863636516,
+      0.7955780923587824
+    ]
+  }
+}
