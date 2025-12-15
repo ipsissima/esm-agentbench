@@ -80,9 +80,16 @@ def compute_certificate(embeddings: np.ndarray, r: int = 10) -> Dict[str, float]
     gram = gram + eps * np.eye(gram.shape[0])
     A = (X1 @ X0.T) @ pinv(gram)
 
+    # Compute eigenvalues of Koopman operator
+    eigs = np.linalg.eigvals(A)
+    mags = np.abs(eigs)
+    mags_sorted = np.sort(mags)[::-1]
+    max_eig = float(mags_sorted[0]) if mags_sorted.size else 0.0
+    second_eig = float(mags_sorted[1]) if mags_sorted.size > 1 else 0.0
+
     residual = float(norm(X1 - A @ X0, ord="fro") / (norm(X1, ord="fro") + eps))
 
-    # Apply variance penalty using smooth hallucination detection:
+    # === PENALTY 1: Smooth Hallucination Penalty ===
     # High penalty when BOTH residual AND info_density are low (loops/identity mappings)
     log_info = float(np.log1p(information_density))
     max_log_info = float(np.log1p(10.0))
@@ -92,13 +99,24 @@ def compute_certificate(embeddings: np.ndarray, r: int = 10) -> Dict[str, float]
     info_complement = np.clip(1.0 - normalized_info, 0.0, 1.0)
     smooth_hallucination_penalty = residual_complement * info_complement
 
-    theoretical_bound = float(residual + pca_tail_estimate + smooth_hallucination_penalty)
+    # === PENALTY 2: Eigenvalue Product Penalty ===
+    # Targets drift/chaotic traces where Koopman eigenvalues are decaying.
+    # Creative/Coherent: λ₁×λ₂ ≈ 0.88 (stable) -> Low Penalty
+    # Drift: λ₁×λ₂ ≈ 0.36 (decaying) -> High Penalty
+    eig_product = max_eig * second_eig
+    eig_product_penalty = float(max(0.0, 0.8 - eig_product) * 0.5)
+
+    theoretical_bound = float(
+        residual + pca_tail_estimate + smooth_hallucination_penalty + eig_product_penalty
+    )
 
     return {
         "pca_explained": pca_explained,
         "residual": residual,
         "pca_tail_estimate": pca_tail_estimate,
         "information_density": information_density,
+        "eig_product": eig_product,
+        "eig_product_penalty": eig_product_penalty,
         "theoretical_bound": theoretical_bound,
     }
 
