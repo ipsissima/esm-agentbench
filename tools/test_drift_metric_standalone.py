@@ -32,13 +32,20 @@ random.seed(42)
 
 
 def compute_certificate(embeddings: np.ndarray, r: int = 10) -> Dict[str, float]:
-    """Compute PCA reduction then finite-rank Koopman spectral summary."""
+    """Compute PCA reduction then finite-rank Koopman spectral summary.
+
+    Updated with variance penalty to fix Coherent > Drift inversion:
+    - Hallucination (Loop): Low Residual / Low Variance -> High Bound (Penalized)
+    - Coherent (Reasoning): Med Residual / Med Variance -> Medium Bound
+    - Creative (Insight): Med Residual / High Variance -> Low Bound (Rewarded)
+    """
     X = np.array(embeddings, dtype=float)
     if X.ndim == 1:
         X = X.reshape(-1, 1)
     T = X.shape[0]
+    eps = 1e-12
     if T < 2 or X.size == 0:
-        return {"theoretical_bound": 2.0, "residual": 1.0, "pca_tail_estimate": 1.0}
+        return {"theoretical_bound": 2.0, "residual": 1.0, "pca_tail_estimate": 1.0, "information_density": eps}
 
     X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
     # Use at most 3 components to capture trend, not noise
@@ -52,24 +59,46 @@ def compute_certificate(embeddings: np.ndarray, r: int = 10) -> Dict[str, float]
     pca_explained = float(np.clip(np.sum(pca.explained_variance_ratio_), 0.0, 1.0))
     pca_tail_estimate = float(max(0.0, 1.0 - pca_explained))
 
+    # Compute information density from PCA eigenvalues (signal energy)
+    if len(pca.explained_variance_) > 0:
+        avg_pca_variance = float(np.mean(pca.explained_variance_))
+    else:
+        avg_pca_variance = eps
+
+    # Also compute information density from Frobenius norm of reduced embeddings
+    z_energy = norm(Z, ord="fro") / np.sqrt(T) if T > 0 else eps
+    information_density = max(avg_pca_variance, z_energy, eps)
+
     if Z.shape[0] < 2:
-        return {"theoretical_bound": 2.0, "residual": 1.0, "pca_tail_estimate": pca_tail_estimate}
+        return {"theoretical_bound": 2.0, "residual": 1.0, "pca_tail_estimate": pca_tail_estimate,
+                "information_density": information_density}
 
     X0 = Z[:-1].T
     X1 = Z[1:].T
 
     gram = X0 @ X0.T
-    eps = 1e-12
     gram = gram + eps * np.eye(gram.shape[0])
     A = (X1 @ X0.T) @ pinv(gram)
 
     residual = float(norm(X1 - A @ X0, ord="fro") / (norm(X1, ord="fro") + eps))
-    theoretical_bound = float(residual + pca_tail_estimate)
+
+    # Apply variance penalty using smooth hallucination detection:
+    # High penalty when BOTH residual AND info_density are low (loops/identity mappings)
+    log_info = float(np.log1p(information_density))
+    max_log_info = float(np.log1p(10.0))
+    normalized_info = np.clip(log_info / max_log_info, 0.0, 1.0)
+
+    residual_complement = np.clip(1.0 - residual, 0.0, 1.0)
+    info_complement = np.clip(1.0 - normalized_info, 0.0, 1.0)
+    smooth_hallucination_penalty = residual_complement * info_complement
+
+    theoretical_bound = float(residual + pca_tail_estimate + smooth_hallucination_penalty)
 
     return {
         "pca_explained": pca_explained,
         "residual": residual,
         "pca_tail_estimate": pca_tail_estimate,
+        "information_density": information_density,
         "theoretical_bound": theoretical_bound,
     }
 
