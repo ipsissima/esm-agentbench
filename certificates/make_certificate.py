@@ -51,6 +51,7 @@ def segment_trace_by_jump(residuals: List[float], jump_threshold: float) -> List
 
 def _compute_certificate_core(X: np.ndarray, r: int) -> Dict[str, float]:
     T = X.shape[0]
+    eps = 1e-12
     if T < 2 or X.size == 0:
         return _initial_empty_certificate()
 
@@ -66,12 +67,27 @@ def _compute_certificate_core(X: np.ndarray, r: int) -> Dict[str, float]:
     pca_explained = float(np.clip(np.sum(pca.explained_variance_ratio_), 0.0, 1.0))
     pca_tail_estimate = float(max(0.0, 1.0 - pca_explained))
 
+    # Compute information density from PCA eigenvalues (signal energy)
+    # This measures how much meaningful variance exists in the trace
+    # Low variance (loops/identity mappings) -> low information_density -> penalized
+    # High variance (creative/progressive) -> high information_density -> rewarded
+    if len(pca.explained_variance_) > 0:
+        avg_pca_variance = float(np.mean(pca.explained_variance_))
+    else:
+        avg_pca_variance = eps
+
+    # Also compute information density from Frobenius norm of reduced embeddings
+    # This captures the overall signal energy per time step
+    z_energy = norm(Z, ord="fro") / np.sqrt(T) if T > 0 else eps
+    information_density = max(avg_pca_variance, z_energy, eps)
+
     if Z.shape[0] < 2:
         certificate = _initial_empty_certificate()
         certificate.update(
             {
                 "pca_explained": pca_explained,
                 "pca_tail_estimate": pca_tail_estimate,
+                "information_density": float(information_density),
             }
         )
         certificate["theoretical_bound"] = float(certificate["residual"] + pca_tail_estimate)
@@ -81,7 +97,6 @@ def _compute_certificate_core(X: np.ndarray, r: int) -> Dict[str, float]:
     X1 = Z[1:].T
 
     gram = X0 @ X0.T
-    eps = 1e-12
     gram = gram + eps * np.eye(gram.shape[0])
     A = (X1 @ X0.T) @ pinv(gram)
 
@@ -92,7 +107,31 @@ def _compute_certificate_core(X: np.ndarray, r: int) -> Dict[str, float]:
     spectral_gap = float(mags_sorted[0] - mags_sorted[1]) if mags_sorted.size > 1 else 0.0
 
     residual = float(norm(X1 - A @ X0, ord="fro") / (norm(X1, ord="fro") + eps))
-    theoretical_bound = float(residual + pca_tail_estimate)
+
+    # Apply variance penalty to theoretical bound:
+    # - Hallucination (Loop): Low Residual + Low Variance -> High Bound (Penalized)
+    # - Coherent (Reasoning): Med Residual + Med Variance -> Medium Bound
+    # - Creative (Insight): Med Residual + High Variance -> Low Bound (Rewarded)
+    # - Drift: High Residual + High Variance -> High Bound (Penalized by residual)
+    #
+    # The key insight: low residual is only meaningful if there's information to predict.
+    # For loops (identity mappings), both residual and variance are near-zero.
+    # We add a penalty that's high when BOTH residual AND information are low.
+    #
+    # Normalize information density using log scale for stability
+    log_info = float(np.log1p(information_density))
+    max_log_info = float(np.log1p(10.0))  # Reference for high-variance traces
+    normalized_info = np.clip(log_info / max_log_info, 0.0, 1.0)
+
+    # Suspicion penalty: high when both residual and info_density are low
+    # This targets "smooth hallucination" (loops that look perfect but have no content)
+    residual_complement = np.clip(1.0 - residual, 0.0, 1.0)  # High when residual is low
+    info_complement = np.clip(1.0 - normalized_info, 0.0, 1.0)  # High when info is low
+    smooth_hallucination_penalty = residual_complement * info_complement
+
+    # Combine: base bound + suspicion penalty
+    # The pca_tail_estimate captures unexplained variance from PCA truncation
+    theoretical_bound = float(residual + pca_tail_estimate + smooth_hallucination_penalty)
 
     return {
         "pca_explained": pca_explained,
@@ -100,6 +139,7 @@ def _compute_certificate_core(X: np.ndarray, r: int) -> Dict[str, float]:
         "spectral_gap": spectral_gap,
         "residual": residual,
         "pca_tail_estimate": pca_tail_estimate,
+        "information_density": float(information_density),
         "theoretical_bound": theoretical_bound,
         "Z": Z,
     }
