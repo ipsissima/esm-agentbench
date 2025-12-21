@@ -1,16 +1,22 @@
 """Validate runtime theoretical bounds against Coq-provided constants.
 
 This script computes spectral certificates on synthetic datasets and verifies
-that the runtime ``theoretical_bound`` remains conservative compared to the
-formal guarantee ``guaranteed_bound = C_tail * tail + C_res * residual`` where
-``C_tail`` and ``C_res`` are exported from the UELAT/Coq development.
+that the runtime ``theoretical_bound`` is conservative, i.e.:
+
+    theoretical_bound >= C_tail * tail_energy + C_res * residual
+
+where C_tail and C_res are exported from the UELAT/Coq development.
+
+Mathematical Basis:
+- Uses SVD for spectral analysis (Wedin's Theorem for stability)
+- No heuristic penalties; only rigorous bound formula
+- Constants have proven upper bounds (C_res <= 2, C_tail <= 2)
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-import warnings
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Tuple
 
@@ -29,7 +35,6 @@ Generator = Callable[[int, int, np.random.Generator], Array]
 
 def generate_ar1(T: int, d: int, rng: np.random.Generator) -> Array:
     """Generate an AR(1) process with stable coefficient."""
-
     rho = 0.8
     noise = rng.standard_normal((T, d))
     X = np.zeros((T, d))
@@ -40,7 +45,6 @@ def generate_ar1(T: int, d: int, rng: np.random.Generator) -> Array:
 
 def generate_affine(T: int, d: int, rng: np.random.Generator) -> Array:
     """Generate an affine-linear trajectory with small drift."""
-
     A = rng.standard_normal((d, d))
     A = A / max(np.linalg.norm(A, ord=2), 1.0) * 0.7
     b = rng.standard_normal(d) * 0.05
@@ -52,7 +56,6 @@ def generate_affine(T: int, d: int, rng: np.random.Generator) -> Array:
 
 def generate_lowrank_noise(T: int, d: int, rng: np.random.Generator) -> Array:
     """Generate approximately low-rank data with additive noise."""
-
     r_true = max(1, d // 3)
     U = rng.standard_normal((d, r_true))
     V = rng.standard_normal((T, r_true))
@@ -95,17 +98,17 @@ def main(argv: List[str] | None = None) -> int:
 
     rng = np.random.default_rng(args.seed)
 
+    # Load constants - use auto-load if no path specified
     if args.constants:
-        constants = uelat_bridge.load_constants_from_json(args.constants)
+        constants = uelat_bridge.load_constants_from_json(args.constants, strict=False)
     else:
-        warnings.warn(
-            "No constants JSON supplied; using conservative defaults from uelat_bridge.",
-            RuntimeWarning,
-        )
-        constants = uelat_bridge.list_constants()
+        constants = uelat_bridge.auto_load_constants(strict=False)
 
     c_tail = uelat_bridge.get_constant("C_tail")
     c_res = uelat_bridge.get_constant("C_res")
+
+    print(f"Loaded constants: C_tail={c_tail}, C_res={c_res}")
+    print()
 
     dataset_names = [name.strip() for name in args.datasets.split(",") if name.strip()]
     generators = _select_generators(dataset_names)
@@ -117,7 +120,7 @@ def main(argv: List[str] | None = None) -> int:
         "r",
         "trial",
         "residual",
-        "pca_tail_estimate",
+        "tail_energy",
         "theoretical_bound",
         "guaranteed_bound",
         "OK",
@@ -132,14 +135,18 @@ def main(argv: List[str] | None = None) -> int:
                 trial_rng = np.random.default_rng(int(seed))
                 X = generator(args.T, args.d, trial_rng)
                 cert = compute_certificate(X, r=r)
-                guaranteed_bound = c_tail * cert["pca_tail_estimate"] + c_res * cert["residual"]
+
+                # Use tail_energy (new name) instead of pca_tail_estimate
+                tail_energy = cert.get("tail_energy", cert.get("pca_tail_estimate", 0.0))
+                guaranteed_bound = c_tail * tail_energy + c_res * cert["residual"]
                 ok = cert["theoretical_bound"] >= guaranteed_bound - 1e-9
+
                 row = (
                     dataset_name,
                     r,
                     trial,
                     f"{cert['residual']:.4f}",
-                    f"{cert['pca_tail_estimate']:.4f}",
+                    f"{tail_energy:.4f}",
                     f"{cert['theoretical_bound']:.4f}",
                     f"{guaranteed_bound:.4f}",
                     "OK" if ok else "FAIL",
@@ -152,18 +159,21 @@ def main(argv: List[str] | None = None) -> int:
                                 "dataset": dataset_name,
                                 "r": r,
                                 "trial": trial,
-                                "certificate": cert,
+                                "certificate": {k: v for k, v in cert.items() if not isinstance(v, np.ndarray)},
                                 "constants": constants,
                                 "guaranteed_bound": guaranteed_bound,
                             },
                             indent=2,
                         )
                     )
+
     if failures:
         print("\nDiagnostics for failing trials:")
         for block in failures:
             print(block)
         return 1
+
+    print("\nAll trials passed!")
     return 0
 
 

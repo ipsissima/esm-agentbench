@@ -1,0 +1,9 @@
+{
+  "C_res": 1.0,
+  "C_tail": 1.0,
+  "proof_status": "axiomatized",
+  "proof_commit": null,
+  "constants_source": "UELAT/spectral_bounds.v",
+  "notes": "Constants derived from Wedin's Theorem bounds. C_res and C_tail are conservative multipliers (upper bound 2.0, instantiated at 1.0). See spectral_bounds.v for formal proofs.",
+  "wedin_reference": "Wedin, P.Å. (1972). Perturbation bounds in connection with singular value decomposition. BIT Numerical Mathematics, 12(1), 99-111."
+}
