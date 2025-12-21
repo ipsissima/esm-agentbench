@@ -1,11 +1,18 @@
+import os
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from assessor import kickoff
 
 
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY"),
+    reason="OPENAI_API_KEY not set"
+)
 def test_pivot_detection_labels_correction(monkeypatch):
     def fake_compute_residuals(_embeddings, threshold):
         residuals = [None, 0.05, 2.0, 0.2, 0.2]
@@ -25,6 +32,10 @@ def test_pivot_detection_labels_correction(monkeypatch):
     assert result["early_warning_step"] == 2
 
 
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY"),
+    reason="OPENAI_API_KEY not set"
+)
 def test_good_trace_no_warning(monkeypatch):
     def fake_compute_residuals(_embeddings, threshold):
         residuals = [None, 0.01, 0.02, 0.03, 0.02]

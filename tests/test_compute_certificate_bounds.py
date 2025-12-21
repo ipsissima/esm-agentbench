@@ -1,53 +1,40 @@
+"""Tests for SVD-based spectral certificate bounds.
+
+The new certificate uses Wedin's Theorem and SVD for rigorous bounds:
+    theoretical_bound = C_res * residual + C_tail * tail_energy
+
+Where C_res and C_tail are constants from formal verification (Coq/UELAT).
+"""
 import numpy as np
 
 from certificates.make_certificate import compute_certificate
 
 
-def test_theoretical_bound_includes_all_penalties():
-    """Test that theoretical_bound applies all penalties correctly.
+def test_theoretical_bound_matches_formula():
+    """Verify theoretical_bound matches the rigorous SVD-based formula.
 
     The formula is:
-        theoretical_bound = residual + pca_tail_estimate
-                          + smooth_hallucination_penalty
-                          + eig_product_penalty
+        theoretical_bound = C_res * residual + C_tail * tail_energy
 
-    Where:
-    - smooth_hallucination_penalty = (1 - residual) * (1 - normalized_info)
-    - eig_product_penalty = max(0, 0.8 - λ₁×λ₂) * 0.5
+    Where C_res and C_tail are verified constants.
     """
     rng = np.random.default_rng(42)
-    embeddings = rng.normal(size=(8, 4))
+    embeddings = rng.normal(size=(12, 8))
     cert = compute_certificate(embeddings, r=3)
 
     residual = cert["residual"]
-    tail = cert["pca_tail_estimate"]
-    information_density = cert["information_density"]
+    tail_energy = cert["tail_energy"]
     theoretical = cert["theoretical_bound"]
-    max_eig = cert["max_eig"]
-    second_eig = cert["second_eig"]
+    c_res = cert["C_res"]
+    c_tail = cert["C_tail"]
 
-    # Verify information_density is present and positive
-    assert information_density > 0
-
-    # Compute smooth hallucination penalty
-    log_info = np.log1p(information_density)
-    max_log_info = np.log1p(10.0)
-    normalized_info = np.clip(log_info / max_log_info, 0.0, 1.0)
-    residual_complement = np.clip(1.0 - residual, 0.0, 1.0)
-    info_complement = np.clip(1.0 - normalized_info, 0.0, 1.0)
-    smooth_hallucination_penalty = residual_complement * info_complement
-
-    # Compute eigenvalue product penalty
-    eig_product = max_eig * second_eig
-    eig_product_penalty = max(0.0, 0.8 - eig_product) * 0.5
-
-    expected_bound = residual + tail + smooth_hallucination_penalty + eig_product_penalty
+    # Verify the formula matches
+    expected_bound = c_res * residual + c_tail * tail_energy
     assert np.isclose(theoretical, expected_bound, atol=1e-9)
 
 
-def test_low_variance_trace_penalized():
-    """Test that low-variance (loop-like) traces get higher bounds."""
-    # Create a nearly constant (loop-like) trace - all embeddings very similar
+def test_low_variance_trace_has_high_pca_explained():
+    """Test that low-variance (loop-like) traces have high PCA explained."""
     rng = np.random.default_rng(42)
     base_embedding = rng.normal(size=(1, 64))
     # Repeat with tiny noise - simulates identity mapping/loop
@@ -59,61 +46,83 @@ def test_low_variance_trace_penalized():
     cert_loop = compute_certificate(loop_trace, r=3)
     cert_progressive = compute_certificate(progressive_trace, r=3)
 
-    # Loop should have lower information density
-    assert cert_loop["information_density"] < cert_progressive["information_density"]
+    # Loop trace should have very high PCA explained (nearly all variance in first component)
+    assert cert_loop["pca_explained"] > 0.99
 
-    # For traces with similar raw residuals, low variance should yield higher bound
-    # (penalized) when residual is non-zero
-    # Note: The loop trace may have very low residual too, so we check info density
-
-
-def test_theoretical_bound_matches_formula():
-    """Verify theoretical_bound matches the complete formula."""
-    rng = np.random.default_rng(42)
-    embeddings = rng.normal(size=(8, 4))
-    cert = compute_certificate(embeddings, r=3)
-
-    residual = cert["residual"]
-    tail = cert["pca_tail_estimate"]
-    information_density = cert["information_density"]
-    theoretical = cert["theoretical_bound"]
-    max_eig = cert["max_eig"]
-    second_eig = cert["second_eig"]
-
-    # The bound should be positive
-    assert theoretical >= 0
-
-    # Compute smooth hallucination penalty
-    log_info = np.log1p(information_density)
-    max_log_info = np.log1p(10.0)
-    normalized_info = np.clip(log_info / max_log_info, 0.0, 1.0)
-    residual_complement = np.clip(1.0 - residual, 0.0, 1.0)
-    info_complement = np.clip(1.0 - normalized_info, 0.0, 1.0)
-    smooth_hallucination_penalty = residual_complement * info_complement
-
-    # Compute eigenvalue product penalty
-    eig_product = max_eig * second_eig
-    eig_product_penalty = max(0.0, 0.8 - eig_product) * 0.5
-
-    expected = residual + tail + smooth_hallucination_penalty + eig_product_penalty
-    assert np.isclose(theoretical, expected, atol=1e-9)
+    # Progressive trace should have lower PCA explained (variance spread across components)
+    assert cert_progressive["pca_explained"] < cert_loop["pca_explained"]
 
 
-def test_eigenvalue_product_penalty_applied():
-    """Test that eigenvalue product penalty is correctly applied."""
+def test_koopman_singular_values_present():
+    """Test that Koopman operator singular values are correctly computed."""
     rng = np.random.default_rng(42)
     embeddings = rng.normal(size=(12, 64))
     cert = compute_certificate(embeddings, r=3)
 
-    # Verify eigenvalue fields are present
-    assert "max_eig" in cert
-    assert "second_eig" in cert
-    assert "eig_product" in cert
-    assert "eig_product_penalty" in cert
+    # Verify Koopman singular value fields are present
+    assert "koopman_sigma_max" in cert
+    assert "koopman_sigma_second" in cert
+    assert "koopman_singular_gap" in cert
 
-    # Verify penalty calculation
-    expected_product = cert["max_eig"] * cert["second_eig"]
-    assert np.isclose(cert["eig_product"], expected_product, atol=1e-9)
+    # Leading singular value should be larger than second
+    assert cert["koopman_sigma_max"] >= cert["koopman_sigma_second"]
 
-    expected_penalty = max(0.0, 0.8 - expected_product) * 0.5
-    assert np.isclose(cert["eig_product_penalty"], expected_penalty, atol=1e-9)
+    # Singular gap should match the difference
+    expected_gap = cert["koopman_sigma_max"] - cert["koopman_sigma_second"]
+    assert np.isclose(cert["koopman_singular_gap"], expected_gap, atol=1e-9)
+
+
+def test_tail_energy_and_pca_explained_sum_to_one():
+    """Test that tail_energy + pca_explained ≈ 1."""
+    rng = np.random.default_rng(42)
+    embeddings = rng.normal(size=(15, 32))
+    cert = compute_certificate(embeddings, r=3)
+
+    # tail_energy is 1 - pca_explained
+    total = cert["pca_explained"] + cert["tail_energy"]
+    assert np.isclose(total, 1.0, atol=1e-9)
+
+
+def test_verified_constants_present():
+    """Test that C_res and C_tail constants from formal verification are included."""
+    rng = np.random.default_rng(42)
+    embeddings = rng.normal(size=(10, 8))
+    cert = compute_certificate(embeddings, r=3)
+
+    # Constants should be present for transparency
+    assert "C_res" in cert
+    assert "C_tail" in cert
+
+    # Constants should be positive
+    assert cert["C_res"] > 0
+    assert cert["C_tail"] > 0
+
+
+def test_singular_values_of_data_matrix():
+    """Test that data matrix singular values are correctly computed."""
+    rng = np.random.default_rng(42)
+    embeddings = rng.normal(size=(12, 8))
+    cert = compute_certificate(embeddings, r=3)
+
+    # Verify singular value fields are present
+    assert "sigma_max" in cert
+    assert "sigma_second" in cert
+    assert "singular_gap" in cert
+
+    # Verify ordering
+    assert cert["sigma_max"] >= cert["sigma_second"]
+
+
+def test_residual_is_normalized():
+    """Test that residual is properly normalized between 0 and 1."""
+    rng = np.random.default_rng(42)
+
+    # Test with well-structured data (should have low residual)
+    X = rng.normal(size=(20, 10))
+    cert = compute_certificate(X, r=5)
+    assert 0.0 <= cert["residual"] <= 1.0
+
+    # Test with random data
+    Y = rng.normal(size=(50, 30))
+    cert2 = compute_certificate(Y, r=10)
+    assert 0.0 <= cert2["residual"] <= 1.0

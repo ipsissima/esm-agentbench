@@ -1,11 +1,18 @@
+import os
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from assessor import kickoff
 
 
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY"),
+    reason="OPENAI_API_KEY not set"
+)
 def test_long_trace_from_cached_real():
     result = kickoff.run_episode({
         "trace_path": "tools/real_traces/sample_gpt4_good.json",
