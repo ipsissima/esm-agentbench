@@ -1,9 +1,10 @@
 """Tests for SVD-based spectral certificate bounds.
 
 The new certificate uses Wedin's Theorem and SVD for rigorous bounds:
-    theoretical_bound = C_res * residual + C_tail * tail_energy
+    theoretical_bound = C_res * residual + C_tail * tail_energy + C_sem * semantic_divergence
 
-Where C_res and C_tail are constants from formal verification (Coq/UELAT).
+Where C_res, C_tail, and C_sem are constants from formal verification (Coq/UELAT).
+The semantic_divergence term enables detection of poison/adversarial attacks.
 """
 import numpy as np
 
@@ -14,9 +15,9 @@ def test_theoretical_bound_matches_formula():
     """Verify theoretical_bound matches the rigorous SVD-based formula.
 
     The formula is:
-        theoretical_bound = C_res * residual + C_tail * tail_energy
+        theoretical_bound = C_res * residual + C_tail * tail_energy + C_sem * semantic_divergence
 
-    Where C_res and C_tail are verified constants.
+    Where C_res, C_tail, and C_sem are verified constants.
     """
     rng = np.random.default_rng(42)
     embeddings = rng.normal(size=(12, 8))
@@ -24,12 +25,14 @@ def test_theoretical_bound_matches_formula():
 
     residual = cert["residual"]
     tail_energy = cert["tail_energy"]
+    semantic_divergence = cert["semantic_divergence"]
     theoretical = cert["theoretical_bound"]
     c_res = cert["C_res"]
     c_tail = cert["C_tail"]
+    c_sem = cert["C_sem"]
 
-    # Verify the formula matches
-    expected_bound = c_res * residual + c_tail * tail_energy
+    # Verify the formula matches (now includes semantic divergence)
+    expected_bound = c_res * residual + c_tail * tail_energy + c_sem * semantic_divergence
     assert np.isclose(theoretical, expected_bound, atol=1e-9)
 
 

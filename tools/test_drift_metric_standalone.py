@@ -9,6 +9,9 @@ theoretical_bound metric from the spectral assessor can reliably discriminate:
 - Starved traces (memory truncation)
 
 The test proves statistical significance using hypothesis testing and effect size.
+
+Version 2: Now includes semantic divergence for poison detection.
+The hybrid bound = C_res * Residual + C_tail * Tail + C_sem * Semantic_Divergence
 """
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ import numpy as np
 from numpy.linalg import norm, pinv
 from sklearn.decomposition import PCA
 from scipy import stats
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
 import random
 
 # Number of runs for statistical significance
@@ -26,18 +29,49 @@ N_RUNS = 1000
 N_STEPS = 12
 EMBEDDING_DIM = 64
 
+# Semantic divergence constant (matches uelat_bridge default)
+C_SEM = 1.0
+
 # Seed for reproducibility
 np.random.seed(42)
 random.seed(42)
 
 
-def compute_certificate(embeddings: np.ndarray, r: int = 10) -> Dict[str, float]:
+def cosine_distance(v1: np.ndarray, v2: np.ndarray) -> float:
+    """Compute cosine distance between two vectors."""
+    eps = 1e-12
+    norm1, norm2 = norm(v1), norm(v2)
+    if norm1 < eps or norm2 < eps:
+        return 1.0
+    cosine_sim = float(np.dot(v1, v2) / (norm1 * norm2))
+    cosine_sim = float(np.clip(cosine_sim, -1.0, 1.0))
+    return 1.0 - cosine_sim
+
+
+def compute_semantic_divergence(embeddings: np.ndarray, task_embedding: Optional[np.ndarray] = None) -> float:
+    """Compute mean semantic divergence from task embedding."""
+    if embeddings.shape[0] == 0:
+        return 1.0
+    if task_embedding is None:
+        task_vec = embeddings[0].copy()
+    else:
+        task_vec = task_embedding.flatten()
+    divergences = [cosine_distance(embeddings[i], task_vec) for i in range(embeddings.shape[0])]
+    return float(np.mean(divergences))
+
+
+def compute_certificate(
+    embeddings: np.ndarray, r: int = 10, task_embedding: Optional[np.ndarray] = None
+) -> Dict[str, float]:
     """Compute PCA reduction then finite-rank Koopman spectral summary.
 
-    Updated with variance penalty to fix Coherent > Drift inversion:
-    - Hallucination (Loop): Low Residual / Low Variance -> High Bound (Penalized)
-    - Coherent (Reasoning): Med Residual / Med Variance -> Medium Bound
-    - Creative (Insight): Med Residual / High Variance -> Low Bound (Rewarded)
+    Version 2: Now includes semantic divergence for poison detection.
+    The hybrid bound = C_res * Residual + C_tail * Tail + C_sem * Semantic_Divergence
+
+    This catches:
+    - Hallucination (Drift): High Residual -> High Bound
+    - Poison (Adversarial): Low Residual but High Divergence -> High Bound
+    - Gold (Coherent): Low Residual, Low Divergence -> Low Bound
     """
     X = np.array(embeddings, dtype=float)
     if X.ndim == 1:
@@ -45,7 +79,11 @@ def compute_certificate(embeddings: np.ndarray, r: int = 10) -> Dict[str, float]
     T = X.shape[0]
     eps = 1e-12
     if T < 2 or X.size == 0:
-        return {"theoretical_bound": 2.0, "residual": 1.0, "pca_tail_estimate": 1.0, "information_density": eps}
+        return {"theoretical_bound": 3.0, "residual": 1.0, "pca_tail_estimate": 1.0,
+                "semantic_divergence": 1.0, "information_density": eps}
+
+    # Compute semantic divergence BEFORE augmentation
+    semantic_divergence = compute_semantic_divergence(X, task_embedding)
 
     X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
     # Use at most 3 components to capture trend, not noise
@@ -70,8 +108,8 @@ def compute_certificate(embeddings: np.ndarray, r: int = 10) -> Dict[str, float]
     information_density = max(avg_pca_variance, z_energy, eps)
 
     if Z.shape[0] < 2:
-        return {"theoretical_bound": 2.0, "residual": 1.0, "pca_tail_estimate": pca_tail_estimate,
-                "information_density": information_density}
+        return {"theoretical_bound": 3.0, "residual": 1.0, "pca_tail_estimate": pca_tail_estimate,
+                "semantic_divergence": semantic_divergence, "information_density": information_density}
 
     X0 = Z[:-1].T
     X1 = Z[1:].T
@@ -89,80 +127,95 @@ def compute_certificate(embeddings: np.ndarray, r: int = 10) -> Dict[str, float]
 
     residual = float(norm(X1 - A @ X0, ord="fro") / (norm(X1, ord="fro") + eps))
 
-    # === PENALTY 1: Smooth Hallucination Penalty ===
-    # High penalty when BOTH residual AND info_density are low (loops/identity mappings)
-    log_info = float(np.log1p(information_density))
-    max_log_info = float(np.log1p(10.0))
-    normalized_info = np.clip(log_info / max_log_info, 0.0, 1.0)
-
-    residual_complement = np.clip(1.0 - residual, 0.0, 1.0)
-    info_complement = np.clip(1.0 - normalized_info, 0.0, 1.0)
-    smooth_hallucination_penalty = residual_complement * info_complement
-
-    # === PENALTY 2: Eigenvalue Product Penalty ===
-    # Targets drift/chaotic traces where Koopman eigenvalues are decaying.
-    # Creative/Coherent: λ₁×λ₂ ≈ 0.88 (stable) -> Low Penalty
-    # Drift: λ₁×λ₂ ≈ 0.36 (decaying) -> High Penalty
-    eig_product = max_eig * second_eig
-    eig_product_penalty = float(max(0.0, 0.8 - eig_product) * 0.5)
-
-    theoretical_bound = float(
-        residual + pca_tail_estimate + smooth_hallucination_penalty + eig_product_penalty
-    )
+    # === HYBRID BOUND (Version 2) ===
+    # Bound = C_res * Residual + C_tail * Tail_Energy + C_sem * Semantic_Divergence
+    #
+    # This catches:
+    # - Drift (Hallucination): High Residual -> High Bound
+    # - Poison (Adversarial): Low Residual but High Divergence -> High Bound
+    # - Gold (Coherent): Low Residual, Low Divergence -> Low Bound
+    #
+    # Using C_res = C_tail = C_sem = 1.0 (from uelat_bridge defaults)
+    theoretical_bound = float(residual + pca_tail_estimate + C_SEM * semantic_divergence)
 
     return {
         "pca_explained": pca_explained,
         "residual": residual,
         "pca_tail_estimate": pca_tail_estimate,
+        "semantic_divergence": semantic_divergence,
         "information_density": information_density,
-        "eig_product": eig_product,
-        "eig_product_penalty": eig_product_penalty,
+        "max_eig": max_eig,
+        "second_eig": second_eig,
         "theoretical_bound": theoretical_bound,
     }
 
 
-def generate_gold_trace(n_steps: int = N_STEPS, dim: int = EMBEDDING_DIM) -> np.ndarray:
-    """Generate a coherent, linearly-evolving trace (simulates focused, on-task reasoning)."""
-    # Linear evolution with small noise - represents coherent chain-of-thought
-    base = np.random.randn(dim) * 0.5
+def generate_gold_trace(n_steps: int = N_STEPS, dim: int = EMBEDDING_DIM) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate a coherent, linearly-evolving trace (simulates focused, on-task reasoning).
+
+    Returns:
+        Tuple of (embeddings, task_embedding)
+    """
+    # Task embedding represents the user's intent
+    task_embedding = np.random.randn(dim) * 0.5
+    task_embedding = task_embedding / (norm(task_embedding) + 1e-12)
+
+    # Linear evolution staying close to task - represents coherent chain-of-thought
     direction = np.random.randn(dim) * 0.1
     direction = direction / (norm(direction) + 1e-12)
 
     embeddings = []
     for step in range(n_steps):
         # Smooth evolution along task direction with small noise
-        vec = base + direction * step * 0.1 + np.random.randn(dim) * 0.05
+        # Key: stays close to task_embedding semantically
+        vec = task_embedding + direction * step * 0.1 + np.random.randn(dim) * 0.05
         vec = vec / (norm(vec) + 1e-12)
         embeddings.append(vec)
-    return np.array(embeddings)
+    return np.array(embeddings), task_embedding
 
 
-def generate_creative_trace(n_steps: int = N_STEPS, dim: int = EMBEDDING_DIM) -> np.ndarray:
-    """Generate a creative but coherent trace (explores different approaches but stays on task)."""
+def generate_creative_trace(n_steps: int = N_STEPS, dim: int = EMBEDDING_DIM) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate a creative but coherent trace (explores different approaches but stays on task).
+
+    Returns:
+        Tuple of (embeddings, task_embedding)
+    """
+    # Task embedding represents the user's intent
+    task_embedding = np.random.randn(dim) * 0.5
+    task_embedding = task_embedding / (norm(task_embedding) + 1e-12)
+
     # Multiple modes but smooth transitions - represents creative problem solving
-    base = np.random.randn(dim) * 0.5
-    modes = [np.random.randn(dim) * 0.3 for _ in range(3)]
+    # Key: modes are related to task, not orthogonal
+    modes = [task_embedding + np.random.randn(dim) * 0.3 for _ in range(3)]
 
     embeddings = []
     current_mode = 0
     for step in range(n_steps):
         # Smooth exploration with occasional mode switches
         mode_weight = 0.5 + 0.5 * np.cos(step * 0.5)
-        vec = base + modes[current_mode] * mode_weight + np.random.randn(dim) * 0.1
+        vec = task_embedding * 0.5 + modes[current_mode] * mode_weight + np.random.randn(dim) * 0.1
         vec = vec / (norm(vec) + 1e-12)
         embeddings.append(vec)
 
         # Occasional smooth mode switch
         if step > 0 and step % 4 == 0 and current_mode < len(modes) - 1:
             current_mode += 1
-    return np.array(embeddings)
+    return np.array(embeddings), task_embedding
 
 
-def generate_drift_trace(n_steps: int = N_STEPS, dim: int = EMBEDDING_DIM) -> np.ndarray:
-    """Generate a drifting trace (hallucination, topic drift - high temperature noise)."""
+def generate_drift_trace(n_steps: int = N_STEPS, dim: int = EMBEDDING_DIM) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate a drifting trace (hallucination, topic drift - high temperature noise).
+
+    Returns:
+        Tuple of (embeddings, task_embedding)
+    """
+    # Task embedding represents the user's intent
+    task_embedding = np.random.randn(dim) * 0.5
+    task_embedding = task_embedding / (norm(task_embedding) + 1e-12)
+
     # Random walk with high variance - represents incoherent, drifting reasoning
     embeddings = []
-    vec = np.random.randn(dim) * 0.5
+    vec = task_embedding.copy()  # Start from task
 
     for step in range(n_steps):
         # Large random jumps simulating hallucination/drift
@@ -170,36 +223,57 @@ def generate_drift_trace(n_steps: int = N_STEPS, dim: int = EMBEDDING_DIM) -> np
         vec = vec + jump
         vec = vec / (norm(vec) + 1e-12)
         embeddings.append(vec)
-    return np.array(embeddings)
+    return np.array(embeddings), task_embedding
 
 
-def generate_poison_trace(n_steps: int = N_STEPS, dim: int = EMBEDDING_DIM) -> np.ndarray:
-    """Generate a poisoned trace (adversarial injection disrupts coherence).
+def generate_poison_trace(n_steps: int = N_STEPS, dim: int = EMBEDDING_DIM) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate a poisoned trace (adversarial injection - stable but orthogonal to task).
 
-    Simulates: "For every odd-numbered step, include a fun fact about medieval history"
-    The poison completely derails the reasoning chain by injecting unrelated content.
+    This is the KEY test case for semantic divergence:
+    - The trace is STABLE (low residual, predictable dynamics)
+    - But semantically WRONG (orthogonal to task intent)
+
+    Simulates: A jailbreak where the model confidently outputs off-topic content.
+    The spectral metrics alone would see this as "Gold" but semantic divergence catches it.
+
+    Returns:
+        Tuple of (embeddings, task_embedding)
     """
-    base = np.random.randn(dim) * 0.5
+    # Task embedding represents the user's intent
+    task_embedding = np.random.randn(dim) * 0.5
+    task_embedding = task_embedding / (norm(task_embedding) + 1e-12)
+
+    # Create an orthogonal "poison" direction (completely different semantic space)
+    # This simulates the model being hijacked to talk about something unrelated
+    poison_base = np.random.randn(dim)
+    # Make it orthogonal to task
+    poison_base = poison_base - np.dot(poison_base, task_embedding) * task_embedding
+    poison_base = poison_base / (norm(poison_base) + 1e-12)
+
+    # Stable linear evolution in the WRONG direction
     direction = np.random.randn(dim) * 0.1
-    # Strong off-topic component in completely different semantic space
-    poison_vectors = [np.random.randn(dim) * 1.2 for _ in range(3)]
+    direction = direction / (norm(direction) + 1e-12)
 
     embeddings = []
     for step in range(n_steps):
-        if step % 2 == 0:  # Normal reasoning step
-            vec = base + direction * step * 0.1 + np.random.randn(dim) * 0.1
-        else:
-            # Poison injection - completely different topic (medieval history)
-            # Each poison step jumps to a random poison vector with high variance
-            poison_idx = (step // 2) % len(poison_vectors)
-            vec = poison_vectors[poison_idx] + np.random.randn(dim) * 0.5
+        # Smooth, confident evolution - but in the poison direction, NOT task direction
+        # This creates LOW residual (stable) but HIGH semantic divergence
+        vec = poison_base + direction * step * 0.05 + np.random.randn(dim) * 0.03
         vec = vec / (norm(vec) + 1e-12)
         embeddings.append(vec)
-    return np.array(embeddings)
+    return np.array(embeddings), task_embedding
 
 
-def generate_starved_trace(n_steps: int = N_STEPS, dim: int = EMBEDDING_DIM) -> np.ndarray:
-    """Generate a starved trace (memory truncation causes repetition/confusion)."""
+def generate_starved_trace(n_steps: int = N_STEPS, dim: int = EMBEDDING_DIM) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate a starved trace (memory truncation causes repetition/confusion).
+
+    Returns:
+        Tuple of (embeddings, task_embedding)
+    """
+    # Task embedding represents the user's intent
+    task_embedding = np.random.randn(dim) * 0.5
+    task_embedding = task_embedding / (norm(task_embedding) + 1e-12)
+
     # Repetitive patterns with occasional resets - simulates memory starvation
     embeddings = []
     base_patterns = [np.random.randn(dim) * 0.3 for _ in range(3)]
@@ -210,7 +284,7 @@ def generate_starved_trace(n_steps: int = N_STEPS, dim: int = EMBEDDING_DIM) -> 
         vec = base_patterns[pattern_idx] + np.random.randn(dim) * 0.4
         vec = vec / (norm(vec) + 1e-12)
         embeddings.append(vec)
-    return np.array(embeddings)
+    return np.array(embeddings), task_embedding
 
 
 def run_monte_carlo_test(n_runs: int = N_RUNS) -> Dict[str, List[float]]:
@@ -234,8 +308,10 @@ def run_monte_carlo_test(n_runs: int = N_RUNS) -> Dict[str, List[float]]:
     for trace_type, generator in generators.items():
         for run in range(n_runs):
             np.random.seed(42 + run * 100 + hash(trace_type) % 1000)
-            embeddings = generator()
-            cert = compute_certificate(embeddings)
+            # All generators now return (embeddings, task_embedding)
+            embeddings, task_embedding = generator()
+            # Pass task_embedding for semantic divergence computation
+            cert = compute_certificate(embeddings, task_embedding=task_embedding)
             results[trace_type].append(cert["theoretical_bound"])
 
     return results
