@@ -70,7 +70,20 @@ class EsmGreenExecutor(GreenExecutorBase):
         texts = [str(step.get("text", "")) for step in trace]
         embeddings = self._embed_texts(texts) if texts else np.zeros((0, 1))
         pca_rank = int((self.config.get("certificate", {}) or {}).get("pca_rank", 10))
-        cert_data = compute_certificate(embeddings, r=pca_rank)
+
+        # Extract task embedding for semantic divergence computation
+        # Priority: assessment.prompt > first step text
+        task_embedding = None
+        if assessment.prompt:
+            # Embed the task/prompt for semantic divergence anchor
+            task_embeddings = self._embed_texts([assessment.prompt])
+            if task_embeddings.shape[0] > 0:
+                task_embedding = task_embeddings[0]
+        elif embeddings.shape[0] > 0:
+            # Fallback: use first step embedding as task reference
+            task_embedding = embeddings[0]
+
+        cert_data = compute_certificate(embeddings, r=pca_rank, task_embedding=task_embedding)
         score = float(np.mean([float(s.get("confidence", 0.5)) for s in trace])) if trace else None
         metrics = SpectralMetrics(
             pca_explained=float(cert_data.get("pca_explained", 0.0)),
@@ -78,6 +91,7 @@ class EsmGreenExecutor(GreenExecutorBase):
             spectral_gap=float(cert_data.get("spectral_gap", 0.0)),
             residual=float(cert_data.get("residual", 0.0)),
             pca_tail_estimate=float(cert_data.get("pca_tail_estimate", 0.0)),
+            semantic_divergence=float(cert_data.get("semantic_divergence", 0.0)),
             theoretical_bound=float(cert_data.get("theoretical_bound", 0.0)),
             task_score=score,
             trace_path=None,

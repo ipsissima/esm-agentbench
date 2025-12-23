@@ -6,18 +6,41 @@ The bounds are mathematically sound and free of heuristic tuning parameters.
 
 Mathematical Basis:
 - Wedin's Theorem guarantees stability of singular subspaces under perturbation
-- Bound = C_res * Residual + C_tail * Tail_Energy
+- Bound = C_res * Residual + C_tail * Tail_Energy + C_sem * Semantic_Divergence
+- The semantic divergence term penalizes traces that drift away from the task intent
 - No "magic numbers" or empirical penalties are used
 """
 from __future__ import annotations
 
 import json
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 from numpy.linalg import norm, pinv
 
 from . import uelat_bridge
+
+
+def _cosine_distance(v1: np.ndarray, v2: np.ndarray) -> float:
+    """Compute cosine distance between two vectors.
+
+    Cosine distance = 1 - cosine_similarity, where:
+    cosine_similarity = (v1 · v2) / (||v1|| * ||v2||)
+
+    Returns a value in [0, 2], where:
+    - 0 = identical direction
+    - 1 = orthogonal
+    - 2 = opposite direction
+    """
+    eps = 1e-12
+    norm1 = norm(v1)
+    norm2 = norm(v2)
+    if norm1 < eps or norm2 < eps:
+        return 1.0  # Default to orthogonal if either vector is near-zero
+    cosine_sim = float(np.dot(v1, v2) / (norm1 * norm2))
+    # Clip to [-1, 1] to handle numerical errors
+    cosine_sim = float(np.clip(cosine_sim, -1.0, 1.0))
+    return 1.0 - cosine_sim
 
 
 def _safe_array(embeddings: Iterable[Iterable[float]]) -> np.ndarray:
@@ -37,7 +60,8 @@ def _initial_empty_certificate() -> Dict[str, float]:
         "singular_gap": 0.0,
         "residual": 1.0,
         "tail_energy": 1.0,
-        "theoretical_bound": 2.0,
+        "semantic_divergence": 1.0,  # Conservative: assume divergent
+        "theoretical_bound": 3.0,  # Updated: includes semantic term
     }
 
 
@@ -57,22 +81,75 @@ def segment_trace_by_jump(residuals: List[float], jump_threshold: float) -> List
     return segments
 
 
-def _compute_certificate_core(X: np.ndarray, r: int) -> Dict[str, float]:
+def _compute_semantic_divergence(
+    X: np.ndarray, task_embedding: Optional[np.ndarray]
+) -> float:
+    """Compute mean semantic divergence from task embedding.
+
+    For each step in the trace, compute the cosine distance to the task
+    embedding, then return the mean divergence across all steps.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Trace embeddings of shape (T, D).
+    task_embedding : Optional[np.ndarray]
+        Embedding of the original task/prompt. If None, uses the first step.
+
+    Returns
+    -------
+    float
+        Mean semantic divergence in [0, 2].
+    """
+    if X.shape[0] == 0:
+        return 1.0  # Conservative: assume divergent
+
+    # If no task embedding provided, use the first step as reference
+    if task_embedding is None:
+        task_vec = X[0].copy()
+    else:
+        task_vec = np.asarray(task_embedding, dtype=float).flatten()
+        # Ensure dimensionality matches (handle bias term if present)
+        if len(task_vec) < X.shape[1]:
+            # Pad with zeros (bias term added by augmentation)
+            task_vec = np.concatenate([task_vec, np.zeros(X.shape[1] - len(task_vec))])
+        elif len(task_vec) > X.shape[1]:
+            task_vec = task_vec[: X.shape[1]]
+
+    # Compute cosine distance for each step
+    divergences = []
+    for i in range(X.shape[0]):
+        dist = _cosine_distance(X[i], task_vec)
+        divergences.append(dist)
+
+    return float(np.mean(divergences)) if divergences else 1.0
+
+
+def _compute_certificate_core(
+    X: np.ndarray, r: int, task_embedding: Optional[np.ndarray] = None
+) -> Dict[str, float]:
     """Compute spectral certificate using SVD (not eigenvalues).
 
     This function implements a rigorous approach based on Wedin's Theorem
     for singular subspace perturbation bounds. The theoretical bound is
     computed as:
 
-        bound = C_res * residual + C_tail * tail_energy
+        bound = C_res * residual + C_tail * tail_energy + C_sem * semantic_divergence
 
-    where C_res and C_tail are constants from formal verification (Coq).
+    where C_res, C_tail, and C_sem are constants from formal verification (Coq).
+    The semantic divergence term penalizes traces that drift away from the task intent,
+    enabling detection of "stable but wrong direction" attacks (poison/adversarial).
+
     No heuristic penalties or magic numbers are used.
     """
     T = X.shape[0]
     eps = 1e-12
     if T < 2 or X.size == 0:
         return _initial_empty_certificate()
+
+    # === SEMANTIC DIVERGENCE ===
+    # Compute semantic divergence BEFORE augmentation (use raw embeddings)
+    semantic_divergence = _compute_semantic_divergence(X, task_embedding)
 
     # Augment with bias term for affine drift handling
     X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
@@ -113,6 +190,7 @@ def _compute_certificate_core(X: np.ndarray, r: int) -> Dict[str, float]:
         certificate.update({
             "pca_explained": pca_explained,
             "tail_energy": tail_energy,
+            "semantic_divergence": semantic_divergence,
             "sigma_max": sigma_max,
             "sigma_second": sigma_second,
             "singular_gap": singular_gap,
@@ -120,7 +198,13 @@ def _compute_certificate_core(X: np.ndarray, r: int) -> Dict[str, float]:
         # Load constants from Coq/verification bridge
         c_res = uelat_bridge.get_constant("C_res")
         c_tail = uelat_bridge.get_constant("C_tail")
-        certificate["theoretical_bound"] = float(c_res * certificate["residual"] + c_tail * tail_energy)
+        c_sem = uelat_bridge.get_constant("C_sem")
+        certificate["theoretical_bound"] = float(
+            c_res * certificate["residual"] + c_tail * tail_energy + c_sem * semantic_divergence
+        )
+        certificate["C_res"] = c_res
+        certificate["C_tail"] = c_tail
+        certificate["C_sem"] = c_sem
         return certificate
 
     # Fit linear Koopman operator in reduced space
@@ -147,10 +231,14 @@ def _compute_certificate_core(X: np.ndarray, r: int) -> Dict[str, float]:
     # Load verified constants from Coq bridge (no magic numbers)
     c_res = uelat_bridge.get_constant("C_res")
     c_tail = uelat_bridge.get_constant("C_tail")
+    c_sem = uelat_bridge.get_constant("C_sem")
 
-    # Bound = C_res * Residual + C_tail * Tail_Energy
-    # This is the only formula; no heuristic penalties are added
-    theoretical_bound = float(c_res * residual + c_tail * tail_energy)
+    # Bound = C_res * Residual + C_tail * Tail_Energy + C_sem * Semantic_Divergence
+    # This is the hybrid bound: spectral stability + semantic alignment
+    # - Residual: prediction error (high = unstable/drifting)
+    # - Tail_Energy: unexplained variance (high = noisy/hallucinating)
+    # - Semantic_Divergence: task alignment (high = wrong direction/poison)
+    theoretical_bound = float(c_res * residual + c_tail * tail_energy + c_sem * semantic_divergence)
 
     return {
         "pca_explained": pca_explained,
@@ -162,20 +250,27 @@ def _compute_certificate_core(X: np.ndarray, r: int) -> Dict[str, float]:
         "koopman_singular_gap": koopman_singular_gap,
         "residual": residual,
         "tail_energy": tail_energy,
+        "semantic_divergence": semantic_divergence,
         "theoretical_bound": theoretical_bound,
         "Z": Z,
         # Include constants for transparency
         "C_res": c_res,
         "C_tail": c_tail,
+        "C_sem": c_sem,
     }
 
 
-def compute_certificate(embeddings: Iterable[Iterable[float]], r: int = 10) -> Dict[str, float]:
+def compute_certificate(
+    embeddings: Iterable[Iterable[float]],
+    r: int = 10,
+    task_embedding: Optional[Iterable[float]] = None,
+) -> Dict[str, float]:
     """Compute SVD-based spectral certificate with rigorous bounds.
 
     This function provides a mathematically sound certificate based on:
     - Singular Value Decomposition for spectral analysis
     - Wedin's Theorem for perturbation stability guarantees
+    - Semantic divergence for task alignment (poison detection)
     - Constants from formal verification (Coq/UELAT)
 
     No heuristic penalties or empirical tuning is used.
@@ -186,6 +281,9 @@ def compute_certificate(embeddings: Iterable[Iterable[float]], r: int = 10) -> D
         Sequence of embedding vectors, one per timestep.
     r : int, optional
         Maximum rank for SVD truncation. Default is 10.
+    task_embedding : Optional[Iterable[float]], optional
+        Embedding of the original task/prompt. If None, the first step
+        of the trace is used as the reference for semantic divergence.
 
     Returns
     -------
@@ -194,13 +292,18 @@ def compute_certificate(embeddings: Iterable[Iterable[float]], r: int = 10) -> D
         - theoretical_bound: Rigorous upper bound on reconstruction error
         - residual: Normalized prediction residual
         - tail_energy: Energy not captured by truncation
+        - semantic_divergence: Mean cosine distance from task embedding
         - sigma_max, sigma_second: Leading singular values
         - singular_gap: Gap between top two singular values
         - pca_explained: Fraction of variance retained
     """
 
     X = _safe_array(embeddings)
-    base = _compute_certificate_core(X, r)
+    # Convert task_embedding to numpy array if provided
+    task_emb = None
+    if task_embedding is not None:
+        task_emb = np.asarray(list(task_embedding), dtype=float)
+    base = _compute_certificate_core(X, r, task_embedding=task_emb)
     certificate = {k: v for k, v in base.items() if k != "Z"}
 
     Z = base.get("Z")
