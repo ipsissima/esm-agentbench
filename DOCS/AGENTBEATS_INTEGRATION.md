@@ -17,9 +17,9 @@
 
 ## Certificates
 Each assessment writes `demo_traces/<assessment>_<participant>_certificate.json` plus an aggregated `demo_swe/report.json`. The `spectral_metrics` block captures:
-- `pca_explained`, `pca_tail_estimate`: PCA variance coverage and tail estimate.
-- `max_eig`, `spectral_gap`: Koopman eigenvalue magnitude and gap.
-- `residual`, `theoretical_bound`: Koopman residual and conservative bound.
+- `pca_explained`, `tail_energy`: SVD variance coverage and truncation energy loss.
+- `sigma_max`, `singular_gap`: Leading singular value and gap (Wedin stability margin).
+- `residual`, `theoretical_bound`: Trajectory prediction residual and SVD-based stability bound.
 - `task_score`: heuristic participant score; `trace_path`: local trace file.
 
 ## Canonical settings

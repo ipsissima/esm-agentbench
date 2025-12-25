@@ -17,13 +17,13 @@ class CertifiedVerdict(str, Enum):
 
 
 class SpectralMetrics(BaseModel):
-    pca_explained: float = Field(..., description="Explained variance captured by PCA")
-    max_eig: float = Field(..., description="Maximum eigenvalue magnitude")
-    spectral_gap: float = Field(..., description="Gap between leading Koopman eigenvalues")
-    residual: float = Field(..., description="Koopman residual ratio")
-    pca_tail_estimate: float = Field(..., description="Estimated PCA tail mass")
+    pca_explained: float = Field(..., description="Explained variance captured by SVD truncation")
+    sigma_max: float = Field(..., description="Leading singular value (stability proxy via Wedin's theorem)")
+    singular_gap: float = Field(..., description="Gap between leading singular values (Wedin margin)")
+    residual: float = Field(..., description="Trajectory prediction residual (||X1 - A X0|| / ||X1||)")
+    tail_energy: float = Field(..., description="Energy lost in rank truncation (unexplained variance)")
     semantic_divergence: float = Field(0.0, description="Mean cosine distance from task embedding")
-    theoretical_bound: float = Field(..., description="Residual + tail + semantic upper bound")
+    theoretical_bound: float = Field(..., description="SVD-based stability bound (residual + tail + semantic)")
     task_score: Optional[float] = Field(None, description="Episode score or heuristic reward")
     trace_path: Optional[str] = Field(None, description="Path to saved trace JSON")
 

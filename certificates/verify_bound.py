@@ -136,7 +136,7 @@ def main(argv: List[str] | None = None) -> int:
                 X = generator(args.T, args.d, trial_rng)
                 cert = compute_certificate(X, r=r)
 
-                # Use tail_energy (new name) instead of pca_tail_estimate
+                # tail_energy: energy lost in SVD truncation (with fallback for legacy data)
                 tail_energy = cert.get("tail_energy", cert.get("pca_tail_estimate", 0.0))
                 guaranteed_bound = c_tail * tail_energy + c_res * cert["residual"]
                 ok = cert["theoretical_bound"] >= guaranteed_bound - 1e-9

@@ -11,6 +11,6 @@
    ```
 
 3. **Interpret the output**
-   - The script prints a JSON-formatted certificate with keys like `residual`, `pca_tail_estimate`, and `theoretical_bound`.
-   - **Low bound ⇒ Coherent.** Reasoning stays within the Koopman approximation; spectral gap is stable.
-   - **High bound ⇒ Drift.** The residual or PCA tail explodes; flag for human review.
+   - The script prints a JSON-formatted certificate with keys like `residual`, `tail_energy`, and `theoretical_bound`.
+   - **Low bound ⇒ Coherent.** Reasoning stays within the SVD approximation; singular gap is stable.
+   - **High bound ⇒ Drift.** The residual or tail energy explodes; flag for human review.
