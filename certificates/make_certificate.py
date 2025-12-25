@@ -126,7 +126,8 @@ def _compute_semantic_divergence(
 
 
 def _compute_certificate_core(
-    X: np.ndarray, r: int, task_embedding: Optional[np.ndarray] = None
+    X: np.ndarray, r: int, task_embedding: Optional[np.ndarray] = None,
+    lipschitz_margin: float = 0.0
 ) -> Dict[str, float]:
     """Compute spectral certificate using SVD (not eigenvalues).
 
@@ -135,10 +136,12 @@ def _compute_certificate_core(
     computed as:
 
         bound = C_res * residual + C_tail * tail_energy + C_sem * semantic_divergence
+                + C_robust * lipschitz_margin
 
-    where C_res, C_tail, and C_sem are constants from formal verification (Coq).
+    where C_res, C_tail, C_sem, and C_robust are constants from formal verification (Coq).
     The semantic divergence term penalizes traces that drift away from the task intent,
-    enabling detection of "stable but wrong direction" attacks (poison/adversarial).
+    and the lipschitz margin term penalizes embedding instability under perturbation.
+    Together, these enable detection of "stable but wrong direction" attacks (poison/adversarial).
 
     No heuristic penalties or magic numbers are used.
     """
@@ -199,15 +202,22 @@ def _compute_certificate_core(
         c_res = uelat_bridge.get_constant("C_res")
         c_tail = uelat_bridge.get_constant("C_tail")
         c_sem = uelat_bridge.get_constant("C_sem")
+        c_robust = uelat_bridge.get_constant("C_robust")
         certificate["theoretical_bound"] = float(
             c_res * certificate["residual"] + c_tail * tail_energy + c_sem * semantic_divergence
+            + c_robust * lipschitz_margin
         )
         certificate["C_res"] = c_res
         certificate["C_tail"] = c_tail
         certificate["C_sem"] = c_sem
+        certificate["C_robust"] = c_robust
+        certificate["lipschitz_margin"] = lipschitz_margin
         return certificate
 
-    # Fit linear Koopman operator in reduced space
+    # Fit linear temporal operator in reduced space
+    # This operator A captures the discrete-time dynamics: Z[t+1] ≈ A @ Z[t]
+    # We use it to compute residuals (prediction errors), not to perform spectral analysis
+    # The key stability guarantees come from the SVD of the trajectory matrix X, not from A's eigenvalues
     X0 = Z[:-1].T  # Shape: (r_eff, T-1)
     X1 = Z[1:].T   # Shape: (r_eff, T-1)
 
@@ -215,14 +225,14 @@ def _compute_certificate_core(
     gram = gram + eps * np.eye(gram.shape[0])
     A = (X1 @ X0.T) @ pinv(gram)
 
-    # === SVD OF KOOPMAN OPERATOR (for stability analysis) ===
-    # Singular values of A characterize the operator's conditioning
-    # This is stable under perturbation via Wedin's Theorem
+    # === TEMPORAL OPERATOR ANALYSIS ===
+    # Singular values of A characterize the operator's conditioning for prediction
+    # This residual is stable under perturbation via Wedin's Theorem applied to the trajectory matrix
     U_A, S_A, Vt_A = np.linalg.svd(A, full_matrices=False)
 
-    koopman_sigma_max = float(S_A[0]) if len(S_A) > 0 else float("nan")
-    koopman_sigma_second = float(S_A[1]) if len(S_A) > 1 else 0.0
-    koopman_singular_gap = float(koopman_sigma_max - koopman_sigma_second)
+    temporal_sigma_max = float(S_A[0]) if len(S_A) > 0 else float("nan")
+    temporal_sigma_second = float(S_A[1]) if len(S_A) > 1 else 0.0
+    temporal_singular_gap = float(temporal_sigma_max - temporal_sigma_second)
 
     # Residual: normalized Frobenius norm of prediction error
     residual = float(norm(X1 - A @ X0, ord="fro") / (norm(X1, ord="fro") + eps))
@@ -232,31 +242,39 @@ def _compute_certificate_core(
     c_res = uelat_bridge.get_constant("C_res")
     c_tail = uelat_bridge.get_constant("C_tail")
     c_sem = uelat_bridge.get_constant("C_sem")
+    c_robust = uelat_bridge.get_constant("C_robust")
 
     # Bound = C_res * Residual + C_tail * Tail_Energy + C_sem * Semantic_Divergence
-    # This is the hybrid bound: spectral stability + semantic alignment
+    #         + C_robust * Lipschitz_Margin
+    # This is the hybrid bound: spectral stability + semantic alignment + robustness
     # - Residual: prediction error (high = unstable/drifting)
     # - Tail_Energy: unexplained variance (high = noisy/hallucinating)
     # - Semantic_Divergence: task alignment (high = wrong direction/poison)
-    theoretical_bound = float(c_res * residual + c_tail * tail_energy + c_sem * semantic_divergence)
+    # - Lipschitz_Margin: embedding stability (high = unstable embedding under perturbation)
+    theoretical_bound = float(
+        c_res * residual + c_tail * tail_energy + c_sem * semantic_divergence
+        + c_robust * lipschitz_margin
+    )
 
     return {
         "pca_explained": pca_explained,
         "sigma_max": sigma_max,
         "sigma_second": sigma_second,
         "singular_gap": singular_gap,
-        "koopman_sigma_max": koopman_sigma_max,
-        "koopman_sigma_second": koopman_sigma_second,
-        "koopman_singular_gap": koopman_singular_gap,
+        "temporal_sigma_max": temporal_sigma_max,
+        "temporal_sigma_second": temporal_sigma_second,
+        "temporal_singular_gap": temporal_singular_gap,
         "residual": residual,
         "tail_energy": tail_energy,
         "semantic_divergence": semantic_divergence,
+        "lipschitz_margin": lipschitz_margin,
         "theoretical_bound": theoretical_bound,
         "Z": Z,
         # Include constants for transparency
         "C_res": c_res,
         "C_tail": c_tail,
         "C_sem": c_sem,
+        "C_robust": c_robust,
     }
 
 
@@ -264,6 +282,7 @@ def compute_certificate(
     embeddings: Iterable[Iterable[float]],
     r: int = 10,
     task_embedding: Optional[Iterable[float]] = None,
+    lipschitz_margin: float = 0.0,
 ) -> Dict[str, float]:
     """Compute SVD-based spectral certificate with rigorous bounds.
 
@@ -271,6 +290,7 @@ def compute_certificate(
     - Singular Value Decomposition for spectral analysis
     - Wedin's Theorem for perturbation stability guarantees
     - Semantic divergence for task alignment (poison detection)
+    - Lipschitz margin for embedding robustness (perturbation stability)
     - Constants from formal verification (Coq/UELAT)
 
     No heuristic penalties or empirical tuning is used.
@@ -284,6 +304,9 @@ def compute_certificate(
     task_embedding : Optional[Iterable[float]], optional
         Embedding of the original task/prompt. If None, the first step
         of the trace is used as the reference for semantic divergence.
+    lipschitz_margin : float, optional
+        Maximum embedding divergence under semantic perturbations.
+        Quantifies robustness of the embedding function. Default is 0.0.
 
     Returns
     -------
@@ -293,6 +316,7 @@ def compute_certificate(
         - residual: Normalized prediction residual
         - tail_energy: Energy not captured by truncation
         - semantic_divergence: Mean cosine distance from task embedding
+        - lipschitz_margin: Maximum perturbation-induced embedding divergence
         - sigma_max, sigma_second: Leading singular values
         - singular_gap: Gap between top two singular values
         - pca_explained: Fraction of variance retained
@@ -303,7 +327,7 @@ def compute_certificate(
     task_emb = None
     if task_embedding is not None:
         task_emb = np.asarray(list(task_embedding), dtype=float)
-    base = _compute_certificate_core(X, r, task_embedding=task_emb)
+    base = _compute_certificate_core(X, r, task_embedding=task_emb, lipschitz_margin=lipschitz_margin)
     certificate = {k: v for k, v in base.items() if k != "Z"}
 
     Z = base.get("Z")
@@ -319,7 +343,7 @@ def compute_certificate(
             for start, end in segments:
                 if end - start < 2:
                     continue
-                cert_seg = _compute_certificate_core(Z[start:end], r=min(r, end - start))
+                cert_seg = _compute_certificate_core(Z[start:end], r=min(r, end - start), lipschitz_margin=0.0)
                 segment_meta.append({
                     "start": start,
                     "end": end,
