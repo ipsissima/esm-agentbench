@@ -24,6 +24,7 @@ from sklearn.decomposition import PCA
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from assessor.call_agent_api import call_agent_api
+from assessor.robustness import generate_perturbations
 from certificates.make_certificate import compute_certificate
 
 logger = logging.getLogger(__name__)
@@ -627,10 +628,106 @@ def _local_embedding(text: str, dim: int = 64) -> List[float]:
     return (counts / norm_val).tolist()
 
 
+def compute_lipschitz_margin(trace: List[Dict[str, Any]], n_perturbations: int = 3) -> float:
+    """Compute the local Lipschitz constant of the embedding function.
+
+    For each step in the trace, generate semantic perturbations, compute embeddings,
+    and measure the maximum divergence. This quantifies how stable the embedding
+    function is under semantic invariance.
+
+    Parameters
+    ----------
+    trace : List[Dict[str, Any]]
+        The execution trace with steps to analyze.
+    n_perturbations : int, optional
+        Number of semantic perturbations per step. Default is 3.
+
+    Returns
+    -------
+    float
+        The maximum Lipschitz margin across all steps (non-negative).
+    """
+
+    if not trace or not isinstance(trace, list):
+        logger.debug("Empty or invalid trace for Lipschitz margin; returning 0.0")
+        return 0.0
+
+    max_margin = 0.0
+    margin_list = []
+
+    for step_idx, step in enumerate(trace):
+        step_type = step.get("type", "")
+        text_content = str(step.get("text", ""))
+
+        # Only analyze agent reasoning steps (exclude system feedback)
+        if step_type not in ("cot", "code", "correction") or not text_content:
+            continue
+
+        # Generate perturbations for this step
+        perturbations = generate_perturbations(text_content, n=n_perturbations)
+        if not perturbations or len(perturbations) < 1:
+            continue
+
+        # Compute embedding for original step
+        try:
+            original_embedding = embed_trace_steps([step])
+            if original_embedding.size == 0 or original_embedding.shape[0] == 0:
+                continue
+            original_vec = original_embedding[0]  # Shape: (D,)
+        except Exception as exc:
+            logger.debug(f"Failed to embed original step {step_idx}: {exc}")
+            continue
+
+        # Compute embeddings for perturbations
+        perturbation_steps = [
+            {
+                "type": "cot",
+                "role": "agent",
+                "text": pert,
+            }
+            for pert in perturbations
+        ]
+
+        try:
+            perturbation_embeddings = embed_trace_steps(perturbation_steps)
+            if perturbation_embeddings.size == 0 or perturbation_embeddings.shape[0] == 0:
+                continue
+        except Exception as exc:
+            logger.debug(f"Failed to embed perturbations for step {step_idx}: {exc}")
+            continue
+
+        # Compute distances between original and each perturbation
+        step_margins = []
+        for pert_idx in range(perturbation_embeddings.shape[0]):
+            pert_vec = perturbation_embeddings[pert_idx]  # Shape: (D,)
+            distance = float(norm(original_vec - pert_vec))
+            step_margins.append(distance)
+            margin_list.append(distance)
+
+        if step_margins:
+            step_max = max(step_margins)
+            max_margin = max(max_margin, step_max)
+            logger.debug(
+                f"Step {step_idx}: lipschitz margin = {step_max:.6f} "
+                f"(from {len(step_margins)} perturbations)"
+            )
+
+    if margin_list:
+        mean_margin = float(np.mean(margin_list))
+        logger.info(
+            f"Lipschitz margin summary: max={max_margin:.6f}, mean={mean_margin:.6f}, "
+            f"n_measurements={len(margin_list)}"
+        )
+    else:
+        logger.debug("No valid margins computed; returning 0.0")
+
+    return float(max(0.0, max_margin))  # Ensure non-negative
+
+
 def _compute_residuals(
     embeddings: np.ndarray, threshold: float
 ) -> Tuple[List[Optional[float]], List[Optional[float]], Optional[int]]:
-    """Compute Koopman residuals and earliest warning step."""
+    """Compute spectral trajectory residuals and earliest warning step using SVD-based analysis."""
 
     if embeddings.ndim == 1:
         embeddings = embeddings.reshape(-1, 1)
@@ -793,7 +890,7 @@ def run_episode(
     api_delay: float = 0.2,
     oracle_every_n_steps: int = 3,
 ) -> Dict[str, Any]:
-    """Run an episode with optional semantic oracle and Koopman analysis.
+    """Run an episode with optional semantic oracle and SVD-based spectral trajectory analysis.
 
     Args mirror existing behavior but now include additional metadata controls
     such as model_name, temperature, poison, truncate_history, tag, seed,
@@ -1010,9 +1107,14 @@ def run_episode(
             if early_warning_step is None:
                 early_warning_step = idx
 
-    certificate = compute_certificate(embeddings)
+    # Compute Lipschitz margin (robustness penalty for embedding instability)
+    lipschitz_margin = compute_lipschitz_margin(trace, n_perturbations=3)
+    logger.info(f"Computed Lipschitz margin: {lipschitz_margin:.6f}")
+
+    certificate = compute_certificate(embeddings, lipschitz_margin=lipschitz_margin)
     certificate["per_step_residuals"] = residuals
     certificate["segments"] = segments
+    certificate["lipschitz_margin"] = lipschitz_margin
 
     timestamp_end = _utc_iso()
     runtime_ms = int((time.time() - start_ts) * 1000)
@@ -1071,6 +1173,7 @@ def run_episode(
 __all__ = [
     "run_episode",
     "embed_trace_steps",
+    "compute_lipschitz_margin",
     "run_unit_tests",
     "call_agent",
     "deterministic_agent",

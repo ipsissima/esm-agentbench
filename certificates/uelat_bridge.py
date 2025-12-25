@@ -31,11 +31,12 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 # Conservative defaults with proven bounds from Coq axioms
-# C_res <= 2.0, C_tail <= 2.0, C_sem <= 2.0 (see UELAT/spectral_bounds.v)
+# C_res <= 2.0, C_tail <= 2.0, C_sem <= 2.0, C_robust <= 2.0 (see UELAT/spectral_bounds.v)
 _DEFAULT_CONSTANTS = {
     "C_tail": 1.0,
     "C_res": 1.0,
     "C_sem": 1.0,  # Semantic divergence constant for poison detection
+    "C_robust": 1.0,  # Lipschitz embedding robustness constant (perturbation penalty)
 }
 
 # Upper bounds from Coq axioms - enforced at load time
@@ -43,6 +44,7 @@ _CONSTANT_UPPER_BOUNDS = {
     "C_tail": 2.0,
     "C_res": 2.0,
     "C_sem": 2.0,
+    "C_robust": 2.0,
 }
 
 _constants: Dict[str, float] = dict(_DEFAULT_CONSTANTS)
