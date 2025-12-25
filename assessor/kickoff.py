@@ -25,7 +25,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 from assessor.call_agent_api import call_agent_api
 from assessor.robustness import generate_perturbations
-from certificates.make_certificate import compute_certificate
+from certificates.make_certificate import compute_certificate, certify_episode
 
 logger = logging.getLogger(__name__)
 
@@ -1237,10 +1237,52 @@ def run_episode(
     lipschitz_margin = compute_lipschitz_margin(trace, n_perturbations=3)
     logger.info(f"Computed Lipschitz margin: {lipschitz_margin:.6f}")
 
-    certificate = compute_certificate(embeddings, lipschitz_margin=lipschitz_margin)
-    certificate["per_step_residuals"] = residuals
-    certificate["segments"] = segments
-    certificate["lipschitz_margin"] = lipschitz_margin
+    # === PHASE 2: Compute Spectral Certificate (Stability) ===
+    spectral_cert = compute_certificate(embeddings, lipschitz_margin=lipschitz_margin)
+    spectral_cert["per_step_residuals"] = residuals
+    spectral_cert["segments"] = segments
+    spectral_cert["lipschitz_margin"] = lipschitz_margin
+
+    # === PHASE 3: Apply Execution Gating (Reality Check) ===
+    # Aggregate semantic oracle results: passed if no warning step was recorded
+    semantic_oracle_passed = semantic_warning_step is None
+
+    # Compute semantic compliance score based on oracle checks in trace
+    semantic_compliance_score = 1.0
+    oracle_confidences = [
+        step.get("oracle_confidence", 0.0)
+        for step in trace
+        if step.get("type") == "semantic_oracle"
+    ]
+    if oracle_confidences:
+        # Average confidence across all oracle checks
+        semantic_compliance_score = float(np.mean(oracle_confidences))
+    # If any oracle check failed, lower the compliance score
+    if not semantic_oracle_passed:
+        semantic_compliance_score = min(semantic_compliance_score, 0.5)
+
+    # Collect agent verify results if any exist
+    agent_verify_result = None
+    for step in trace:
+        if step.get("type") == "agent_verify":
+            try:
+                agent_verify_result = json.loads(step.get("text", "{}"))
+                break
+            except Exception:
+                pass
+
+    # Call the gating logic (Phase 3)
+    certificate = certify_episode(
+        trace_embeddings=embeddings,
+        execution_result=final_test,
+        spectral_certificate=spectral_cert,
+        semantic_oracle_passed=semantic_oracle_passed,
+        semantic_compliance_score=semantic_compliance_score,
+        agent_verify_result=agent_verify_result,
+        bound_threshold=0.5,  # Configurable threshold for drift
+        drift_penalty_factor=1.0,  # Configurable drift penalty
+        robustness_threshold=1.0,  # Configurable robustness threshold
+    )
 
     timestamp_end = _utc_iso()
     runtime_ms = int((time.time() - start_ts) * 1000)
