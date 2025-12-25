@@ -98,6 +98,114 @@ def _extract_code(text: str) -> Optional[str]:
     return None
 
 
+def _extract_verify_block(text: str) -> Optional[str]:
+    """Extract the verify() block from agent response for proof-carrying code.
+
+    This extracts a specific `def verify():` function that the agent should provide
+    to assert the correctness of its solution. If found, this block will be executed
+    to validate that the agent's own test passes.
+
+    Returns the complete function definition, or None if not found.
+    """
+    # Pattern to match def verify(): ... end of block
+    # Handles indentation and multi-line definitions
+    pattern = r"def\s+verify\s*\(\s*\)\s*:[\s\S]*?(?=\ndef\s+|\nclass\s+|\Z)"
+    matches = re.findall(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
+    if matches:
+        # Return the last (most complete) verify block
+        verify_code = matches[-1].rstrip()
+        return verify_code
+    return None
+
+
+def run_agent_verify_block(verify_code: str) -> Dict[str, Any]:
+    """Execute an agent-generated verify() block in a sandbox.
+
+    The agent may provide its own test in the form of a `def verify():` function.
+    This runs that function to check if it passes, providing evidence of
+    self-awareness and alignment with the task.
+
+    Parameters
+    ----------
+    verify_code : str
+        The extracted verify() block code.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Result with keys: success (bool), output (str), error (str)
+    """
+    result = {"success": False, "output": "", "error": ""}
+
+    if not verify_code or not verify_code.strip():
+        result["error"] = "Empty verify block"
+        return result
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        test_file = tmp_path / "test_verify.py"
+
+        # Write the verify block and execution code
+        test_script = (
+            verify_code + "\n\n"
+            "if __name__ == '__main__':\n"
+            "    try:\n"
+            "        verify()\n"
+            "        print('VERIFY_PASSED')\n"
+            "    except AssertionError as e:\n"
+            "        print(f'VERIFY_FAILED: {e}')\n"
+            "    except Exception as e:\n"
+            "        print(f'VERIFY_ERROR: {type(e).__name__}: {e}')\n"
+        )
+        test_file.write_text(test_script, encoding="utf-8")
+
+        env = os.environ.copy()
+        docker_available = env.get("DOCKER_AVAILABLE", env.get("DOCKER_IS_AVAILABLE", "0")).lower() in {
+            "1", "true", "yes"
+        }
+
+        cmd: List[str]
+        preexec = None
+        if docker_available:
+            cmd = [
+                "docker", "run", "--rm", "--network", "none",
+                "-v", f"{tmp_path}:/work",
+                "-w", "/work",
+                "python:3.11-slim",
+                "python", "test_verify.py",
+            ]
+        else:
+            cmd = ["python", str(test_file)]
+            preexec = _sandbox_limits()
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+                env=env,
+                preexec_fn=preexec,
+            )
+            output = proc.stdout + proc.stderr
+            result["output"] = output
+            result["success"] = "VERIFY_PASSED" in proc.stdout
+            if not result["success"] and "VERIFY_FAILED" in proc.stdout:
+                result["error"] = "Agent's verify() block failed its own assertions"
+            elif not result["success"]:
+                result["error"] = proc.stdout + proc.stderr
+        except subprocess.TimeoutExpired:
+            result["error"] = "verify() block execution timed out"
+            logger.warning("verify() execution timed out")
+        except Exception as exc:
+            result["error"] = f"Failed to run verify(): {exc}"
+            logger.warning("Failed to run verify(): %s", exc)
+
+    return result
+
+
 def deterministic_agent(prompt: str) -> str:
     """Deterministic offline agent producing reproducible CoT steps."""
 
@@ -962,6 +1070,9 @@ def run_episode(
                 _append_safety(trace, step_idx + 0.1, history, hits)
 
             segments = _split_steps(response)
+            verify_block = _extract_verify_block(response)
+            agent_verify_result = None
+
             for seg in segments:
                 code = _extract_code(seg)
                 if code:
@@ -975,6 +1086,21 @@ def run_episode(
                             "context": _short_context(history),
                         }
                     )
+
+            # Extract and run agent-generated verify() block (proof-carrying code)
+            if verify_block:
+                agent_verify_result = run_agent_verify_block(verify_block)
+                trace.append(
+                    {
+                        "step": step_idx + 0.6,
+                        "role": "assessor",
+                        "type": "agent_verify",
+                        "text": json.dumps(agent_verify_result, ensure_ascii=False),
+                        "timestamp": _utc_iso(),
+                        "result": agent_verify_result.get("success", False),
+                        "context": _short_context(history),
+                    }
+                )
 
             if (step_idx % max(1, oracle_every_n_steps)) == 0 or step_idx == 1:
                 verdict = semantic_sanity_check(history, response)
@@ -1177,4 +1303,6 @@ __all__ = [
     "run_unit_tests",
     "call_agent",
     "deterministic_agent",
+    "_extract_verify_block",
+    "run_agent_verify_block",
 ]

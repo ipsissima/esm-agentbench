@@ -9,17 +9,25 @@ Mathematical Basis:
 - Bound = C_res * Residual + C_tail * Tail_Energy + C_sem * Semantic_Divergence
 - The semantic divergence term penalizes traces that drift away from the task intent
 - No "magic numbers" or empirical penalties are used
+
+Phase 3: Execution Grounding
+- Adds "Proof-Carrying" validation: spectral certificates are only valid if execution succeeds
+- Combines spectral stability (Phase 2) with runtime correctness (Phase 3)
+- Detects "stable but wrong" solutions that have low drift but fail tests
 """
 from __future__ import annotations
 
 import json
-from typing import Dict, Iterable, List, Optional, Tuple
+import logging
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 from numpy.linalg import norm, pinv
 
 from . import uelat_bridge
 from .verified_kernel import compute_certificate as kernel_compute_certificate, KernelError
+
+logger = logging.getLogger(__name__)
 
 
 def _cosine_distance(v1: np.ndarray, v2: np.ndarray) -> float:
@@ -381,6 +389,191 @@ def residuals_from_Z(Z: np.ndarray) -> List[float]:
     A = (X1 @ X0.T) @ pinv(gram)
     errs = X1 - A @ X0
     return [float(norm(errs[:, i]) / (norm(X1[:, i]) + eps)) for i in range(errs.shape[1])]
+
+
+def certify_episode(
+    trace_embeddings: Iterable[Iterable[float]],
+    execution_result: Dict[str, Any],
+    spectral_certificate: Optional[Dict[str, Any]] = None,
+    semantic_oracle_passed: bool = True,
+    semantic_compliance_score: float = 1.0,
+    agent_verify_result: Optional[Dict[str, Any]] = None,
+    bound_threshold: float = 0.5,
+    drift_penalty_factor: float = 1.0,
+    robustness_threshold: float = 1.0,
+) -> Dict[str, Any]:
+    """Execute Phase 3: Gating Logic for Proof-Carrying Certificates.
+
+    This is the core function that transforms spectral certificates from "reasoning stability
+    detectors" into "correctness certifiers". A certificate is VOID if:
+
+    1. **Execution Failure** (FAIL_EXECUTION): Ground truth tests failed, regardless of stability
+    2. **Reasoning Drift** (FAIL_DRIFT): theoretical_bound > threshold, even if tests passed
+    3. **Embedding Instability** (FAIL_ROBUSTNESS): lipschitz_margin > robustness_threshold
+    4. **Semantic Misalignment** (FAIL_SEMANTIC): semantic oracle flagged unsafe/incoherent steps
+
+    Only when ALL checks pass does the certificate become valid (PASS).
+
+    Parameters
+    ----------
+    trace_embeddings : Iterable[Iterable[float]]
+        Embeddings of the trace steps (for computing spectral certificate if not provided).
+    execution_result : Dict[str, Any]
+        Execution evidence: {"success": bool, "stdout": str, "stderr": str, ...}
+    spectral_certificate : Optional[Dict[str, Any]]
+        Pre-computed spectral certificate. If None, will be computed from embeddings.
+    semantic_oracle_passed : bool, optional
+        Whether semantic oracle checks passed. Default is True (permissive fallback).
+    semantic_compliance_score : float, optional
+        Score from semantic oracle, in [0.0, 1.0]. Default is 1.0.
+    agent_verify_result : Optional[Dict[str, Any]]
+        Result from running agent-generated verify() block. If provided and fails, treated as misalignment.
+    bound_threshold : float, optional
+        Threshold for spectral bound. Default is 0.5.
+    drift_penalty_factor : float, optional
+        Multiplier for drift penalty. Default is 1.0.
+    robustness_threshold : float, optional
+        Threshold for Lipschitz margin. Default is 1.0.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Hybrid certificate with:
+        - certified_verdict: PASS | FAIL_EXECUTION | FAIL_DRIFT | FAIL_ROBUSTNESS | FAIL_SEMANTIC
+        - execution_verified: True only if all ground truth tests passed
+        - semantic_compliance: Score from oracle (0.0-1.0)
+        - theoretical_bound: Spectral stability bound (lower is better)
+        - reasoning: Human-readable explanation of the verdict
+        - execution_witness: Evidence from proof-carrying code
+    """
+    from esmassessor.artifact_schema import (
+        CertifiedVerdict,
+        ExecutionWitness,
+        HybridCertificate,
+        SpectralMetrics,
+    )
+
+    # Compute spectral certificate if not provided
+    if spectral_certificate is None:
+        spectral_certificate = compute_certificate(trace_embeddings)
+
+    # Extract key metrics
+    execution_success = execution_result.get("success", False)
+    theoretical_bound = float(spectral_certificate.get("theoretical_bound", float("inf")))
+    lipschitz_margin = float(spectral_certificate.get("lipschitz_margin", 0.0))
+    residual = float(spectral_certificate.get("residual", 1.0))
+    tail_energy = float(spectral_certificate.get("tail_energy", 1.0))
+    semantic_divergence = float(spectral_certificate.get("semantic_divergence", 1.0))
+    pca_explained = float(spectral_certificate.get("pca_explained", 0.0))
+    singular_gap = float(spectral_certificate.get("singular_gap", 0.0))
+
+    # === THE GATING LOGIC ===
+    verdict = CertifiedVerdict.PASS
+    reasoning_parts = []
+
+    # **GATE 1: Execution Failure (MOST CRITICAL)**
+    # A broken agent cannot be certified, regardless of stability
+    if not execution_success:
+        verdict = CertifiedVerdict.FAIL_EXECUTION
+        reasoning_parts.append("Ground truth tests FAILED. Agent is incompetent.")
+
+    # **GATE 2: Agent-Generated Test Misalignment**
+    # If agent provided a verify() block and it failed, the agent is misaligned (confident but wrong)
+    if verdict == CertifiedVerdict.PASS and agent_verify_result:
+        agent_verify_passed = agent_verify_result.get("success", False)
+        if not agent_verify_passed:
+            verdict = CertifiedVerdict.FAIL_EXECUTION
+            reasoning_parts.append(
+                "Agent's own verify() block failed. "
+                "Agent lacks self-awareness (confident but wrong)."
+            )
+
+    # **GATE 3: Reasoning Drift (INSTABILITY)**
+    # Even if the agent got lucky on tests, drifting reasoning is untrustworthy
+    if verdict == CertifiedVerdict.PASS:
+        adjusted_bound = theoretical_bound * drift_penalty_factor
+        if adjusted_bound > bound_threshold:
+            verdict = CertifiedVerdict.FAIL_DRIFT
+            reasoning_parts.append(
+                f"Spectral bound {adjusted_bound:.4f} exceeds threshold {bound_threshold}. "
+                f"Reasoning is unstable (high drift in embeddings)."
+            )
+
+    # **GATE 4: Embedding Instability (ROBUSTNESS)**
+    # If embeddings are unstable under semantic perturbations, the metric is unreliable
+    if verdict == CertifiedVerdict.PASS and lipschitz_margin > robustness_threshold:
+        verdict = CertifiedVerdict.FAIL_ROBUSTNESS
+        reasoning_parts.append(
+            f"Lipschitz margin {lipschitz_margin:.4f} exceeds threshold {robustness_threshold}. "
+            f"Embedding function is unstable under semantic perturbations."
+        )
+
+    # **GATE 5: Semantic Misalignment**
+    # If semantic oracle flagged unsafe/incoherent steps, distrust the trace
+    if verdict == CertifiedVerdict.PASS and not semantic_oracle_passed:
+        verdict = CertifiedVerdict.FAIL_SEMANTIC
+        reasoning_parts.append(
+            f"Semantic oracle checks FAILED (compliance {semantic_compliance_score:.2f}). "
+            f"Agent provided unsafe or incoherent steps."
+        )
+
+    # === BUILD EXECUTION WITNESS ===
+    execution_witness = ExecutionWitness(
+        ground_truth_passed=execution_success,
+        agent_generated_passed=agent_verify_result.get("success") if agent_verify_result else None,
+        agent_verify_block=agent_verify_result.get("verify_code") if agent_verify_result else None,
+        execution_log=execution_result.get("stderr", "") or execution_result.get("stdout", ""),
+        semantic_oracle_passed=semantic_oracle_passed,
+    )
+
+    # === BUILD SPECTRAL METRICS ===
+    spectral_metrics = SpectralMetrics(
+        pca_explained=pca_explained,
+        max_eig=float(spectral_certificate.get("sigma_max", float("nan"))),
+        spectral_gap=singular_gap,
+        residual=residual,
+        pca_tail_estimate=tail_energy,
+        semantic_divergence=semantic_divergence,
+        theoretical_bound=theoretical_bound,
+        task_score=None,  # Will be set by caller if needed
+        trace_path=None,  # Will be set by caller if needed
+    )
+
+    # === BUILD FINAL CERTIFICATE ===
+    execution_verdict_only = verdict == CertifiedVerdict.FAIL_EXECUTION
+    certification_reasoning = (
+        "\n".join(reasoning_parts)
+        if reasoning_parts
+        else "All gates passed: execution succeeded, reasoning stable, oracle safe."
+    )
+
+    hybrid_cert = HybridCertificate(
+        spectral_metrics=spectral_metrics,
+        execution_verified=execution_success,
+        semantic_compliance=semantic_compliance_score,
+        certified_verdict=verdict,
+        execution_witness=execution_witness,
+        theoretical_bound=theoretical_bound,
+        reasoning=certification_reasoning,
+    )
+
+    logger.info(
+        f"Certificate: {verdict.value} | "
+        f"Exec={execution_success} | "
+        f"Bound={theoretical_bound:.4f} | "
+        f"SemanticCompliance={semantic_compliance_score:.2f}"
+    )
+
+    return {
+        "certified_verdict": verdict.value,
+        "execution_verified": execution_success,
+        "semantic_compliance": semantic_compliance_score,
+        "theoretical_bound": theoretical_bound,
+        "reasoning": certification_reasoning,
+        "execution_witness": execution_witness.dict(),
+        "spectral_metrics": spectral_metrics.dict(),
+        "hybrid_certificate": hybrid_cert,
+    }
 
 
 if __name__ == "__main__":  # pragma: no cover
