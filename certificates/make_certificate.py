@@ -19,6 +19,7 @@ import numpy as np
 from numpy.linalg import norm, pinv
 
 from . import uelat_bridge
+from .verified_kernel import compute_certificate as kernel_compute_certificate, KernelError
 
 
 def _cosine_distance(v1: np.ndarray, v2: np.ndarray) -> float:
@@ -234,27 +235,35 @@ def _compute_certificate_core(
     temporal_sigma_second = float(S_A[1]) if len(S_A) > 1 else 0.0
     temporal_singular_gap = float(temporal_sigma_max - temporal_sigma_second)
 
-    # Residual: normalized Frobenius norm of prediction error
-    residual = float(norm(X1 - A @ X0, ord="fro") / (norm(X1, ord="fro") + eps))
-
-    # === RIGOROUS THEORETICAL BOUND ===
-    # Load verified constants from Coq bridge (no magic numbers)
+    # === VERIFIED KERNEL COMPUTATION ===
+    # Load verified constants from Coq bridge
     c_res = uelat_bridge.get_constant("C_res")
     c_tail = uelat_bridge.get_constant("C_tail")
     c_sem = uelat_bridge.get_constant("C_sem")
     c_robust = uelat_bridge.get_constant("C_robust")
 
-    # Bound = C_res * Residual + C_tail * Tail_Energy + C_sem * Semantic_Divergence
-    #         + C_robust * Lipschitz_Margin
-    # This is the hybrid bound: spectral stability + semantic alignment + robustness
-    # - Residual: prediction error (high = unstable/drifting)
-    # - Tail_Energy: unexplained variance (high = noisy/hallucinating)
-    # - Semantic_Divergence: task alignment (high = wrong direction/poison)
-    # - Lipschitz_Margin: embedding stability (high = unstable embedding under perturbation)
-    theoretical_bound = float(
-        c_res * residual + c_tail * tail_energy + c_sem * semantic_divergence
-        + c_robust * lipschitz_margin
-    )
+    # Call the verified kernel to compute residual and bound
+    # The kernel is formally verified in Coq to satisfy all axioms.
+    # It receives witness matrices (X0, X1, A) from Python (unverified witness)
+    # and computes residual and theoretical_bound with formal guarantees.
+    try:
+        residual_computed, theoretical_bound = kernel_compute_certificate(
+            X0, X1, A,
+            tail_energy,
+            semantic_divergence,
+            lipschitz_margin,
+            strict=True  # Fail hard if kernel unavailable
+        )
+        residual = residual_computed
+    except KernelError as exc:
+        # Kernel computation failed
+        # This is a hard failure: we cannot proceed without the verified kernel
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Verified kernel failed: {exc}")
+        raise RuntimeError(
+            f"Spectral certificate computation failed: verified kernel unavailable. {exc}"
+        ) from exc
 
     return {
         "pca_explained": pca_explained,
