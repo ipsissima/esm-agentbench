@@ -529,10 +529,10 @@ def certify_episode(
     # === BUILD SPECTRAL METRICS ===
     spectral_metrics = SpectralMetrics(
         pca_explained=pca_explained,
-        max_eig=float(spectral_certificate.get("sigma_max", float("nan"))),
-        spectral_gap=singular_gap,
+        sigma_max=float(spectral_certificate.get("sigma_max", float("nan"))),
+        singular_gap=singular_gap,
         residual=residual,
-        pca_tail_estimate=tail_energy,
+        tail_energy=tail_energy,
         semantic_divergence=semantic_divergence,
         theoretical_bound=theoretical_bound,
         task_score=None,  # Will be set by caller if needed

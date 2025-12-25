@@ -21,14 +21,14 @@
 </head>
 <body>
   <h1>ESM-AgentBench Demo</h1>
-  <p>Catch what GPT-4 misses: certified spectral residuals and theoretical bounds with Koopman-backed stability.</p>
+  <p>Catch what GPT-4 misses: certified spectral residuals and theoretical bounds with SVD/Wedin-backed stability.</p>
 
   <div class="grid">
     <div class="card">
       <h2>Good Agent vs Bad Agent</h2>
       <table id="comparison-table">
         <thead>
-          <tr><th>Side</th><th>Episode</th><th>Residual</th><th>Theoretical Bound</th><th>max_eig</th></tr>
+          <tr><th>Side</th><th>Episode</th><th>Residual</th><th>Theoretical Bound</th><th>σ_max</th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -64,7 +64,7 @@
           <td>${row.entry.episode}</td>
           <td>${row.entry.spectral_metrics.residual.toExponential(3)}</td>
           <td>${row.entry.spectral_metrics.theoretical_bound.toExponential(3)}</td>
-          <td>${row.entry.spectral_metrics.max_eig.toFixed(3)}</td>
+          <td>${row.entry.spectral_metrics.sigma_max.toFixed(3)}</td>
         `;
         tbody.appendChild(tr);
       });
@@ -110,7 +110,7 @@
 
       const warningNote = document.getElementById('warning-note');
       if (earlyWarning) {
-        warningNote.innerHTML = `<span class="highlight">Early warning at step ${earlyWarning}</span>: residuals spike relative to the Koopman fit.`;
+        warningNote.innerHTML = `<span class="highlight">Early warning at step ${earlyWarning}</span>: residuals spike relative to the SVD fit.`;
       } else {
         warningNote.textContent = 'Stable: no early warning step reported.';
       }

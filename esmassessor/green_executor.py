@@ -87,10 +87,10 @@ class EsmGreenExecutor(GreenExecutorBase):
         score = float(np.mean([float(s.get("confidence", 0.5)) for s in trace])) if trace else None
         metrics = SpectralMetrics(
             pca_explained=float(cert_data.get("pca_explained", 0.0)),
-            max_eig=float(cert_data.get("max_eig", 0.0)),
-            spectral_gap=float(cert_data.get("spectral_gap", 0.0)),
+            sigma_max=float(cert_data.get("sigma_max", 0.0)),
+            singular_gap=float(cert_data.get("singular_gap", 0.0)),
             residual=float(cert_data.get("residual", 0.0)),
-            pca_tail_estimate=float(cert_data.get("pca_tail_estimate", 0.0)),
+            tail_energy=float(cert_data.get("tail_energy", 0.0)),
             semantic_divergence=float(cert_data.get("semantic_divergence", 0.0)),
             theoretical_bound=float(cert_data.get("theoretical_bound", 0.0)),
             task_score=score,
