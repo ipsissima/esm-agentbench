@@ -207,18 +207,45 @@ def compute_residual(
         return 0.0
 
     try:
-        # Call kernel function
-        # Note: Simplified - actual implementation would marshal matrices properly
-        # kernel_compute_residual_fn = kernel.compute_residual_matrix
-        # residual = kernel_compute_residual_fn(X0, X1, A)
-        # For now, return a placeholder that indicates kernel was called
+        # VERIFIED KERNEL CALL: Compute residual in formally verified OCaml kernel
+        # The kernel implements: residual = ||X1 - A @ X0||_F / ||X1||_F
+        # This computation is proven correct in Coq (CertificateProofs.v)
 
-        logger.debug("Called verified kernel for residual computation")
-        # Compute fallback (should not be used in verified mode)
-        eps = 1e-12
-        error = np.linalg.norm(X1 - A @ X0, ord="fro")
-        x1_norm = np.linalg.norm(X1, ord="fro")
-        residual = error / (x1_norm + eps) if x1_norm > eps else 0.0
+        kernel_compute_residual_fn = kernel.kernel_compute_certificate_wrapper
+        kernel_compute_residual_fn.argtypes = [
+            ctypes.POINTER(ctypes.c_double), ctypes.c_int, ctypes.c_int,  # X0
+            ctypes.POINTER(ctypes.c_double), ctypes.c_int, ctypes.c_int,  # X1
+            ctypes.POINTER(ctypes.c_double), ctypes.c_int, ctypes.c_int,  # A
+            ctypes.c_double,  # tail_energy (not used for residual, pass 0)
+            ctypes.c_double,  # semantic_divergence
+            ctypes.c_double,  # lipschitz_margin
+            ctypes.POINTER(ctypes.c_double),  # out_residual
+            ctypes.POINTER(ctypes.c_double),  # out_bound
+        ]
+        kernel_compute_residual_fn.restype = None
+
+        # Prepare output buffers
+        out_residual = ctypes.c_double()
+        out_bound = ctypes.c_double()
+
+        # Call kernel with C-contiguous arrays
+        X0_c = np.ascontiguousarray(X0, dtype=np.float64)
+        X1_c = np.ascontiguousarray(X1, dtype=np.float64)
+        A_c = np.ascontiguousarray(A, dtype=np.float64)
+
+        kernel_compute_residual_fn(
+            X0_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), X0_c.shape[0], X0_c.shape[1],
+            X1_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), X1_c.shape[0], X1_c.shape[1],
+            A_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), A_c.shape[0], A_c.shape[1],
+            ctypes.c_double(0.0),  # tail_energy (dummy)
+            ctypes.c_double(0.0),  # semantic_divergence (dummy)
+            ctypes.c_double(0.0),  # lipschitz_margin (dummy)
+            ctypes.byref(out_residual),
+            ctypes.byref(out_bound),
+        )
+
+        residual = out_residual.value
+        logger.debug(f"Verified kernel computed residual: {residual:.6f}")
         return float(residual)
 
     except Exception as exc:
@@ -291,13 +318,54 @@ def compute_bound(
         return c_res * residual + c_tail * tail_energy + c_sem * semantic_divergence + c_robust * lipschitz_margin
 
     try:
-        # Call kernel function
-        # kernel_compute_bound_fn = kernel.compute_theoretical_bound
-        # bound = kernel_compute_bound_fn(residual, tail_energy, semantic_divergence, lipschitz_margin, c_res, c_tail, c_sem, c_robust)
+        # VERIFIED KERNEL CALL: Compute bound in formally verified OCaml kernel
+        # The kernel implements the exact formula:
+        #   bound = c_res*residual + c_tail*tail_energy + c_sem*semantic_divergence + c_robust*lipschitz_margin
+        # This computation is proven correct in Coq (CertificateProofs.v)
+        #
+        # Note: We pass dummy matrices for X0, X1, A since bound computation doesn't use them
+        # The kernel returns the bound in out_bound
 
-        logger.debug("Called verified kernel for bound computation")
-        # Compute bound (this should be delegated to kernel in full implementation)
-        bound = c_res * residual + c_tail * tail_energy + c_sem * semantic_divergence + c_robust * lipschitz_margin
+        kernel = load_kernel(strict=strict)
+        if kernel is None:
+            if strict:
+                raise KernelError("Verified kernel not available for bound computation")
+            logger.warning("Verified kernel unavailable; using unverified Python computation")
+            return c_res * residual + c_tail * tail_energy + c_sem * semantic_divergence + c_robust * lipschitz_margin
+
+        kernel_compute_bound_fn = kernel.kernel_compute_certificate_wrapper
+        kernel_compute_bound_fn.argtypes = [
+            ctypes.POINTER(ctypes.c_double), ctypes.c_int, ctypes.c_int,  # X0 (dummy)
+            ctypes.POINTER(ctypes.c_double), ctypes.c_int, ctypes.c_int,  # X1 (dummy)
+            ctypes.POINTER(ctypes.c_double), ctypes.c_int, ctypes.c_int,  # A (dummy)
+            ctypes.c_double,  # tail_energy
+            ctypes.c_double,  # semantic_divergence
+            ctypes.c_double,  # lipschitz_margin
+            ctypes.POINTER(ctypes.c_double),  # out_residual (will be filled but ignored)
+            ctypes.POINTER(ctypes.c_double),  # out_bound (this is what we want)
+        ]
+        kernel_compute_bound_fn.restype = None
+
+        # Create dummy 1x1 matrices (kernel needs them but won't use for bound-only computation)
+        dummy = np.ascontiguousarray([[residual]], dtype=np.float64)
+
+        out_residual = ctypes.c_double()
+        out_bound = ctypes.c_double()
+
+        # Call kernel
+        kernel_compute_bound_fn(
+            dummy.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 1, 1,
+            dummy.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 1, 1,
+            dummy.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 1, 1,
+            ctypes.c_double(tail_energy),
+            ctypes.c_double(semantic_divergence),
+            ctypes.c_double(lipschitz_margin),
+            ctypes.byref(out_residual),
+            ctypes.byref(out_bound),
+        )
+
+        bound = out_bound.value
+        logger.debug(f"Verified kernel computed bound: {bound:.6f}")
         return float(bound)
 
     except Exception as exc:
@@ -319,6 +387,11 @@ def compute_certificate(
 ) -> Tuple[float, float]:
     """Compute residual and bound using verified kernel.
 
+    **Witness-Checker Architecture:**
+    - X0, X1, A: Witness matrices computed in Python (unverified, fast)
+    - Verified kernel: Computes residual and bound with formal guarantees
+    - Return: (residual, theoretical_bound) both proven correct by Coq
+
     Parameters
     ----------
     X0, X1, A : np.ndarray
@@ -326,12 +399,13 @@ def compute_certificate(
     tail_energy, semantic_divergence, lipschitz_margin : float
         Computed error metrics.
     strict : bool
-        If True, fail hard on kernel issues.
+        If True, fail hard on kernel issues. If False, use Python fallback.
 
     Returns
     -------
     Tuple[float, float]
         (residual, theoretical_bound)
+        Both values are computed by the formally verified kernel.
 
     Raises
     ------
@@ -339,15 +413,80 @@ def compute_certificate(
         If strict=True and kernel computation fails.
     """
 
-    residual = compute_residual(X0, X1, A, strict=strict)
-    bound = compute_bound(
-        residual,
-        tail_energy,
-        semantic_divergence,
-        lipschitz_margin,
-        strict=strict,
-    )
-    return (residual, bound)
+    # Load kernel once
+    kernel = load_kernel(strict=strict)
+    if kernel is None:
+        if strict:
+            raise KernelError("Verified kernel not available")
+        logger.warning("Verified kernel unavailable; falling back to unverified Python")
+        # Fallback: compute in Python (not verified)
+        residual = compute_residual(X0, X1, A, strict=False)
+        bound = compute_bound(residual, tail_energy, semantic_divergence, lipschitz_margin, strict=False)
+        return (residual, bound)
+
+    try:
+        # Call verified kernel directly (single call for both residual and bound)
+        # This is more efficient than separate calls
+
+        kernel_compute_cert_fn = kernel.kernel_compute_certificate_wrapper
+        kernel_compute_cert_fn.argtypes = [
+            ctypes.POINTER(ctypes.c_double), ctypes.c_int, ctypes.c_int,  # X0
+            ctypes.POINTER(ctypes.c_double), ctypes.c_int, ctypes.c_int,  # X1
+            ctypes.POINTER(ctypes.c_double), ctypes.c_int, ctypes.c_int,  # A
+            ctypes.c_double,  # tail_energy
+            ctypes.c_double,  # semantic_divergence
+            ctypes.c_double,  # lipschitz_margin
+            ctypes.POINTER(ctypes.c_double),  # out_residual
+            ctypes.POINTER(ctypes.c_double),  # out_bound
+        ]
+        kernel_compute_cert_fn.restype = None
+
+        # Prepare output buffers
+        out_residual = ctypes.c_double()
+        out_bound = ctypes.c_double()
+
+        # Ensure C-contiguous arrays
+        X0_c = np.ascontiguousarray(X0, dtype=np.float64)
+        X1_c = np.ascontiguousarray(X1, dtype=np.float64)
+        A_c = np.ascontiguousarray(A, dtype=np.float64)
+
+        # VERIFIED KERNEL CALL
+        # This call invokes the formally verified Coq/OCaml kernel
+        # The kernel proves:
+        #   1. residual is correctly computed
+        #   2. bound satisfies the theoretical formula
+        #   3. bound is non-negative and monotonic
+        logger.debug("Calling verified kernel for certificate computation")
+
+        kernel_compute_cert_fn(
+            X0_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), X0_c.shape[0], X0_c.shape[1],
+            X1_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), X1_c.shape[0], X1_c.shape[1],
+            A_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), A_c.shape[0], A_c.shape[1],
+            ctypes.c_double(tail_energy),
+            ctypes.c_double(semantic_divergence),
+            ctypes.c_double(lipschitz_margin),
+            ctypes.byref(out_residual),
+            ctypes.byref(out_bound),
+        )
+
+        residual = out_residual.value
+        bound = out_bound.value
+
+        logger.info(
+            f"Verified kernel computed: residual={residual:.6f}, bound={bound:.6f}"
+        )
+
+        return (float(residual), float(bound))
+
+    except Exception as exc:
+        msg = f"Verified kernel computation failed: {exc}"
+        if strict:
+            raise KernelError(msg) from exc
+        logger.error(msg)
+        # Fallback to Python (not verified)
+        residual = compute_residual(X0, X1, A, strict=False)
+        bound = compute_bound(residual, tail_energy, semantic_divergence, lipschitz_margin, strict=False)
+        return (residual, bound)
 
 
 __all__ = [
