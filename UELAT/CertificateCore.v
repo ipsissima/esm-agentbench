@@ -30,17 +30,69 @@ Open Scope R_scope.
 
 Definition Matrix := list (list R).
 
+(** ** Vector Operations *)
+
+(** Dot product of two vectors *)
+Definition dot_product (v1 v2 : list R) : R :=
+  fold_right (fun '(x, y) acc => x * y + acc) 0 (combine v1 v2).
+
+(** Vector subtraction *)
+Definition vec_sub (v1 v2 : list R) : list R :=
+  map (fun '(x, y) => x - y) (combine v1 v2).
+
+(** Vector norm squared *)
+Definition vec_norm_sq (v : list R) : R :=
+  fold_right (fun x acc => x * x + acc) 0 v.
+
 (** ** Frobenius Norm Helper Functions *)
 
 (** Sum of squares of all elements in a vector *)
 Definition sum_squares (v : list R) : R :=
   fold_right (fun x acc => x * x + acc) 0 v.
 
-(** Frobenius norm: sqrt(sum of squares of all elements) *)
+(** Frobenius norm squared: sum of all element squares *)
 Definition frobenius_norm_squared (M : Matrix) : R :=
-  fold_right (fun row acc =>
-    sum_squares row + acc
-  ) 0 M.
+  fold_right (fun row acc => sum_squares row + acc) 0 M.
+
+(** ** Matrix Algebra Operations *)
+
+(** Get the i-th row of a matrix (0-indexed) *)
+Definition get_row (M : Matrix) (i : nat) : list R :=
+  match nth_error M i with
+  | Some row => row
+  | None => []
+  end.
+
+(** Get the j-th column of a matrix (0-indexed) *)
+Definition get_column (M : Matrix) (j : nat) : list R :=
+  map (fun row =>
+    match nth_error row j with
+    | Some x => x
+    | None => 0
+    end
+  ) M.
+
+(** Transpose a matrix *)
+Definition transpose (M : Matrix) : Matrix :=
+  match M with
+  | [] => []
+  | firstrow :: _ =>
+      let ncols := length firstrow in
+      List.map (fun j => get_column M j) (List.seq 0 ncols)
+  end.
+
+(** Matrix multiplication: A (m x n) * B (n x p) = C (m x p)
+    Result[i,j] = dot_product(Row_i(A), Column_j(B))
+*)
+Definition matrix_mult (A B : Matrix) : Matrix :=
+  let B_T := transpose B in
+  map (fun row_a =>
+    map (fun col_b => dot_product row_a col_b) B_T
+  ) A.
+
+(** Matrix subtraction: A - B element-wise *)
+Definition matrix_sub (A B : Matrix) : Matrix :=
+  map (fun '(row_a, row_b) => vec_sub row_a row_b) (combine A B).
 
 (** ** Residual Computation
 
@@ -51,30 +103,16 @@ Definition frobenius_norm_squared (M : Matrix) : R :=
     Defined as a ratio to be scale-invariant.
 *)
 
-(** Matrix multiplication: (m x n) * (n x p) = (m x p)
-    Simplified: multiply row vectors by column vectors
-*)
-Definition matrix_mult_safe (A : Matrix) (X0 : Matrix) : Matrix :=
-  match X0 with
-  | [] => []
-  | _ => []  (* Stub: full implementation requires transpose and dot products *)
-  end.
-
-(** Compute residual error: ||X1 - A*X0||_F *)
-(* For formal verification, we assume correct witness matrices *)
-(* The actual computation happens in the extracted OCaml code *)
-Definition compute_residual_squared
-  (X0_rows : nat) (X1_rows : nat)
-  (X1_norm_sq : R) (error_norm_sq : R) : R :=
-  if Rgt_dec X1_norm_sq 0 then
-    error_norm_sq / X1_norm_sq
-  else
-    0.  (* Degenerate case *)
-
 Definition compute_residual (X0 X1 : Matrix) (A : Matrix) : R :=
-  let error_norm_sq := frobenius_norm_squared X1 in  (* Simplified *)
+  let AX0 := matrix_mult A X0 in
+  let error := matrix_sub X1 AX0 in
+  let error_norm_sq := frobenius_norm_squared error in
   let x1_norm_sq := frobenius_norm_squared X1 in
-  compute_residual_squared (length X0) (length X1) x1_norm_sq error_norm_sq.
+  let eps := 1e-12 in
+  if Rgt_dec x1_norm_sq eps then
+    sqrt (error_norm_sq / x1_norm_sq)
+  else
+    0.
 
 (** ** Theoretical Bound Computation
 
