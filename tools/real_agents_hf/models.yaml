@@ -1,0 +1,74 @@
+# Configuration for local Hugging Face models used in real agent evaluation
+#
+# Each model entry specifies:
+# - name: Short identifier for the model
+# - hf_id: Full Hugging Face model ID
+# - backend: 'transformers' or 'vllm'
+# - dtype: Data type (e.g., bfloat16, float16, float32)
+# - max_tokens: Maximum generation length
+# - temperature: Sampling temperature
+# - load_in_4bit/load_in_8bit: Quantization for transformers backend
+
+models:
+  # Fast baseline model - very small for quick testing
+  - name: tiny-test
+    hf_id: HuggingFaceH4/tiny-random-LlamaForCausalLM
+    backend: transformers
+    dtype: float32
+    max_tokens: 512
+    temperature: 0.2
+    load_in_4bit: false
+    description: "Tiny random model for pipeline testing only"
+
+  # Recommended models for actual evaluation
+  - name: deepseek-coder-7b-instruct
+    hf_id: deepseek-ai/deepseek-coder-7b-instruct-v1.5
+    backend: vllm
+    dtype: bfloat16
+    max_tokens: 2048
+    temperature: 0.2
+    description: "Strong code model, good tool-use with prompting"
+
+  - name: codellama-13b-instruct
+    hf_id: codellama/CodeLlama-13b-Instruct-hf
+    backend: transformers
+    dtype: bfloat16
+    max_tokens: 2048
+    temperature: 0.2
+    load_in_4bit: true
+    description: "Meta's code model, quantized for memory efficiency"
+
+  - name: starcoder2-15b
+    hf_id: bigcode/starcoder2-15b-instruct-v0.1
+    backend: vllm
+    dtype: bfloat16
+    max_tokens: 2048
+    temperature: 0.2
+    description: "BigCode's instruction-tuned code model"
+
+  - name: mistral-7b-instruct
+    hf_id: mistralai/Mistral-7B-Instruct-v0.2
+    backend: transformers
+    dtype: bfloat16
+    max_tokens: 2048
+    temperature: 0.3
+    load_in_4bit: true
+    description: "General instruct model, good baseline"
+
+  - name: phi-3-mini-instruct
+    hf_id: microsoft/Phi-3-mini-128k-instruct
+    backend: transformers
+    dtype: float16
+    max_tokens: 2048
+    temperature: 0.2
+    load_in_4bit: true
+    description: "Small efficient model with large context"
+
+# Default model to use if none specified
+default_model: deepseek-coder-7b-instruct
+
+# Embedding model for trace embeddings (local, no API)
+embedding_model:
+  name: bge-small-en-v1.5
+  hf_id: BAAI/bge-small-en-v1.5
+  description: "Fast, high-quality sentence embeddings"
