@@ -1,11 +1,30 @@
 #!/usr/bin/env python3
 """
-Generate precomputed seed traces and embeddings for each embedding backend.
+DEPRECATED: This script generates synthetic traces for testing only.
+
+For real agent evaluation, use tools/real_agents_hf/run_real_agents.py instead.
+
+This script is kept for backward compatibility with tests but should NOT be used
+for actual benchmark evaluation. All submission results must be based on real
+agent traces from local HuggingFace models.
+
+Legacy purpose:
+  Generate precomputed seed traces and embeddings for each embedding backend.
 
 Saves:
   - certificates/seed_traces_{backend}.json  (raw traces)
   - certificates/seed_embeddings_{backend}.npz  (numpy .npz with arrays: embeddings, texts)
+
+WARNING: Using synthetic traces violates the real-only evaluation requirement.
 """
+
+import warnings
+warnings.warn(
+    "generate_seed_traces.py is DEPRECATED. Use tools/real_agents_hf/run_real_agents.py "
+    "for real agent evaluation. Synthetic traces should only be used for unit tests.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 from __future__ import annotations
 import json

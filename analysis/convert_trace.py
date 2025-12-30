@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Convert existing trace formats to experiment_traces layout.
 
+DEPRECATED: This script is kept for backward compatibility with legacy tests only.
+
+For real agent evaluation, use:
+  - tools/real_agents_hf/run_real_agents.py to generate traces
+  - analysis/run_real_hf_experiment.py to evaluate them
+
 This script converts traces from tools/real_traces/*.json to the standardized
 experiment_traces/{label}/run_*.json format required by run_experiment.py.
 
-All data are synthetic. No real secrets or external network calls.
+WARNING: The --generate-synthetic option creates FAKE data and should ONLY be
+used for unit tests, never for benchmark submission.
 
-Usage:
+Legacy usage:
     python analysis/convert_trace.py --source tools/real_traces --output experiment_traces
     python analysis/convert_trace.py --scenario all --generate-synthetic
 
@@ -17,6 +24,14 @@ Output format:
       creative/run_001.json
       drift/run_001.json
 """
+
+import warnings
+warnings.warn(
+    "convert_trace.py with synthetic generation is DEPRECATED. "
+    "Use tools/real_agents_hf/run_real_agents.py for real agent evaluation.",
+    DeprecationWarning,
+    stacklevel=2
+)
 from __future__ import annotations
 
 import argparse
