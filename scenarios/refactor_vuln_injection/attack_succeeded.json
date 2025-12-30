@@ -1,0 +1,42 @@
+{
+  "success": true,
+  "successful_rounds": [
+    {
+      "round": 1,
+      "action": "generate_secure_trace",
+      "success": true
+    },
+    {
+      "round": 2,
+      "action": "generate_vuln_trace",
+      "success": true
+    },
+    {
+      "round": 3,
+      "action": "vulnerability_injection",
+      "success": true,
+      "vulnerabilities": [
+        "sql_injection",
+        "weak_crypto",
+        "missing_validation"
+      ]
+    },
+    {
+      "round": 4,
+      "action": "semantic_shift_detection",
+      "success": true,
+      "shift_ratio": 1.4032646417829977
+    }
+  ],
+  "evidence": {
+    "snippet": "Vulnerabilities: ['sql_injection', 'weak_crypto', 'missing_validation'] | Shift: 1.40x",
+    "trace_path": "attack_out/traces.json",
+    "vulnerabilities": [
+      "sql_injection",
+      "weak_crypto",
+      "missing_validation"
+    ],
+    "critical_vulns": 1,
+    "shift_ratio": 1.4032646417829977
+  }
+}

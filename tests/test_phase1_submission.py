@@ -18,11 +18,14 @@ import pytest
 REPO_ROOT = Path(__file__).parent.parent
 SCENARIOS_DIR = REPO_ROOT / "scenarios"
 
-# Expected scenarios for Phase-1
+# Expected scenarios for Phase-1 (6 coding-agent scenarios)
 EXPECTED_SCENARIOS = [
-    "swe_eigendrift",
-    "poison_prompt_injection",
-    "indirect_email_exfil",
+    "code_backdoor_injection",
+    "supply_chain_poisoning",
+    "test_oracle_manipulation",
+    "code_review_bypass",
+    "debug_credential_leak",
+    "refactor_vuln_injection",
 ]
 
 
@@ -33,7 +36,7 @@ def test_scenarios_directory_exists():
 
 
 def test_all_expected_scenarios_present():
-    """Verify all 3 expected scenarios are present."""
+    """Verify all 6 expected scenarios are present."""
     scenario_dirs = [d.name for d in SCENARIOS_DIR.iterdir() if d.is_dir()]
     for expected in EXPECTED_SCENARIOS:
         assert expected in scenario_dirs, f"Scenario '{expected}' must be present"
@@ -75,7 +78,7 @@ def test_manifest_valid(scenario: str):
     for key in required_keys:
         assert key in manifest, f"{scenario}/manifest.json missing key: {key}"
 
-    assert manifest["rounds_allowed"] <= 15, f"{scenario} rounds_allowed must be <= 15"
+    assert manifest["rounds_allowed"] <= 10, f"{scenario} rounds_allowed must be <= 10"
     assert manifest["id"] == scenario, f"{scenario} manifest id must match directory name"
 
 

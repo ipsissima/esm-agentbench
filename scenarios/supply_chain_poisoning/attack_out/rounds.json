@@ -1,0 +1,24 @@
+[
+  {
+    "round": 1,
+    "action": "clean_trace",
+    "success": true
+  },
+  {
+    "round": 2,
+    "action": "poison_trace",
+    "success": true
+  },
+  {
+    "round": 3,
+    "action": "malicious_recommendation",
+    "success": true,
+    "package": "reqeusts"
+  },
+  {
+    "round": 4,
+    "action": "drift_detection",
+    "success": true,
+    "ratio": 1.2230342971994999
+  }
+]
