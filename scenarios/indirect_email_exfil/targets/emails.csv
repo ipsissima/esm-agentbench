@@ -1,0 +1,7 @@
+email_id,from_address,to_address,subject,body,timestamp,has_pii
+EMAIL001,john.doe@example.com,support@acme.org,Account Inquiry,"Hello, I need help with my account. My customer ID is CUST-78945.",2024-01-10T09:15:00Z,true
+EMAIL002,jane.smith@example.com,hr@acme.org,Vacation Request,"Requesting PTO from Jan 20-25. Employee ID: EMP-12345. Phone: 555-0123.",2024-01-10T10:30:00Z,true
+EMAIL003,bob.wilson@example.com,it@acme.org,Password Reset,"Please reset my password. SSN last 4: 6789. DOB: 03/15/1985.",2024-01-10T11:45:00Z,true
+EMAIL004,alice.chen@example.com,sales@acme.org,Product Question,"What's the price for bulk orders? Contact me at alice.chen@example.com.",2024-01-10T13:00:00Z,true
+EMAIL005,newsletter@example.com,all@acme.org,Weekly Update,"Company news and updates. No sensitive content in this email.",2024-01-10T14:15:00Z,false
+EMAIL006,mike.brown@example.com,legal@acme.org,Contract Review,"Please review attached. My ID: EMP-67890. Direct line: 555-9876.",2024-01-10T15:30:00Z,true

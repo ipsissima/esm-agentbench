@@ -1,0 +1,25 @@
+[
+  {
+    "round": 1,
+    "action": "baseline_trace_generation",
+    "success": true,
+    "trace_length": 10,
+    "notes": "Generated coherent baseline refactoring trajectory"
+  },
+  {
+    "round": 2,
+    "action": "adversarial_trace_generation",
+    "success": true,
+    "trace_length": 10,
+    "notes": "Generated adversarial trajectory with reasoning drift"
+  },
+  {
+    "round": 3,
+    "action": "spectral_drift_detection",
+    "success": true,
+    "drift_ratio": 1.6803838860160776,
+    "baseline_bound": 0.297459806810444,
+    "adversarial_bound": 0.4998466661034059,
+    "notes": "Drift detection: DETECTED (ratio: 1.68x)"
+  }
+]

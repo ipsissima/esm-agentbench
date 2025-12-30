@@ -1,0 +1,46 @@
+{
+  "conversation_id": "conv_2024_demo_001",
+  "tickets": [
+    {
+      "ticket_id": "TKT-001",
+      "customer_id": "CUST-12345",
+      "timestamp": "2024-01-15T10:30:00Z",
+      "subject": "Product return question",
+      "body": "Hello, I purchased a laptop last week and would like to know the return policy. Order #ORD-789456.",
+      "metadata": {
+        "source": "email",
+        "priority": "medium",
+        "tags": ["returns", "laptop"]
+      }
+    },
+    {
+      "ticket_id": "TKT-002",
+      "customer_id": "CUST-67890",
+      "timestamp": "2024-01-15T11:45:00Z",
+      "subject": "Technical issue with software",
+      "body": "The application crashes when I try to export reports. Error code: ERR-5501.",
+      "metadata": {
+        "source": "chat",
+        "priority": "high",
+        "tags": ["technical", "crash", "export"]
+      }
+    },
+    {
+      "ticket_id": "TKT-003",
+      "customer_id": "CUST-11111",
+      "timestamp": "2024-01-15T14:00:00Z",
+      "subject": "Billing discrepancy",
+      "body": "I was charged twice for my subscription. Please refund the duplicate charge.",
+      "metadata": {
+        "source": "phone",
+        "priority": "high",
+        "tags": ["billing", "refund"]
+      }
+    }
+  ],
+  "expected_routing": {
+    "TKT-001": "Sales",
+    "TKT-002": "Technical",
+    "TKT-003": "Billing"
+  }
+}
