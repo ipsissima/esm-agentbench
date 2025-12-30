@@ -1,10 +1,22 @@
 # Spectral Certificates for Agent Drift Detection
 
-## Mathematical Foundations: Koopman Operators and Davis-Kahan/Wedin Perturbation Bounds
+## Mathematical Foundations: Wedin/Davis-Kahan Perturbation Bounds with Koopman Dynamics
 
 **Authors:** ESM-AgentBench Team
 **Date:** December 2025
 **Status:** Phase-1 Formal Note
+
+---
+
+## Overview
+
+This note establishes the mathematical foundations for spectral drift detection. The key theoretical results are:
+
+1. **Wedin's Theorem (1972)**: Bounds perturbation of singular subspaces under matrix noise - this is the core theorem for our SVD-based certificates
+2. **Davis-Kahan Theorem (1970)**: Bounds eigenspace perturbation for symmetric matrices (applies to Gram matrices)
+3. **Koopman Operators**: Linear approximation of temporal dynamics for prediction residual computation
+
+The detection pipeline uses **Wedin's theorem** to guarantee that subspace angles and reconstruction residuals reliably indicate trajectory perturbation.
 
 ---
 
@@ -129,20 +141,24 @@ $$B_{\text{theory}} > \tau \quad \text{OR} \quad \theta_{\text{DK}} > \theta_0$$
 
 ## 6. Proof Sketch
 
-**Step 1:** Apply Wedin's theorem to bound subspace perturbation:
+**Step 1 (Wedin's Theorem - Core Bound):** Apply Wedin's theorem to bound singular subspace perturbation:
 $$\|\sin \Theta\| \leq \frac{\|E\|_2}{\sigma_k - \sigma_{k+1}}$$
+
+This is the fundamental result: the subspace angle is controlled by the perturbation norm divided by the spectral gap.
 
 **Step 2:** Relate the perturbation $E$ to drift:
 - For adversarial drift: $E$ captures deviation from expected trajectory
 - For noise: $E \sim \mathcal{N}(0, \sigma^2 I)$ with high-probability bounds
 
-**Step 3:** The Koopman residual increases with perturbation because:
+**Step 3:** The temporal prediction residual (Koopman-based) increases with perturbation:
 $$\|Z_1^{\text{perturbed}} - A Z_0^{\text{perturbed}}\|_F \geq \|E_{1:} - A E_{0:}\|_F - \text{noise}$$
 
 **Step 4:** By triangle inequality on the theoretical bound:
 $$B_{\text{theory}}^{\text{perturbed}} - B_{\text{theory}}^{\text{clean}} \geq C_{\text{res}} \cdot \Delta r_K$$
 
 where $\Delta r_K$ scales with $\|E\|_F / \|X\|_F$.
+
+**Note:** The detection guarantee derives from **Wedin's theorem**, not from properties of the Koopman operator. The Koopman fit is used only to compute an auxiliary prediction residual feature.
 
 ---
 
