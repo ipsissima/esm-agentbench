@@ -7,12 +7,12 @@ This script:
 3. Trains a classifier to distinguish drift from creative
 4. Computes ROC/AUC metrics and saves validation reports
 
-All data are synthetic. No real secrets or external network calls.
+For real agent evaluation, generate traces using:
+    tools/real_agents_hf/run_real_agents.py
 
 Usage:
     python analysis/run_experiment.py --all-scenarios
     python analysis/run_experiment.py --scenario code_backdoor_injection --k 10
-    python analysis/run_experiment.py --generate-synthetic --run
 
 Output:
     reports/spectral_validation/{scenario}/
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 import warnings
@@ -33,6 +34,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -91,7 +95,7 @@ def load_traces(traces_dir: Path) -> Dict[str, List[Dict[str, Any]]]:
                     data['_source_file'] = str(trace_file)
                     traces[label].append(data)
             except (json.JSONDecodeError, IOError) as e:
-                print(f"Error loading {trace_file}: {e}")
+                logger.warning("Error loading %s: %s", trace_file, e)
 
     return traces
 
@@ -378,15 +382,17 @@ def run_experiment(
     dict
         Validation report with AUC, TPR_at_FPR05, etc.
     """
-    print(f"Running experiment for scenario: {scenario_name}")
-    print(f"  Traces dir: {traces_dir}")
-    print(f"  Output dir: {output_dir}")
-    print(f"  Rank k: {k}")
+    logger.info("Running experiment for scenario: %s", scenario_name)
+    logger.info("  Traces dir: %s", traces_dir)
+    logger.info("  Output dir: %s", output_dir)
+    logger.info("  Rank k: %d", k)
 
     # Load traces
     traces = load_traces(traces_dir)
-    print(f"  Loaded traces: gold={len(traces['gold'])}, "
-          f"creative={len(traces['creative'])}, drift={len(traces['drift'])}")
+    logger.info(
+        "  Loaded traces: gold=%d, creative=%d, drift=%d",
+        len(traces['gold']), len(traces['creative']), len(traces['drift'])
+    )
 
     if not any(traces.values()):
         return {
@@ -419,7 +425,7 @@ def run_experiment(
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / 'features.csv'
     features_df.drop(columns=['_U_k'], errors='ignore').to_csv(csv_path, index=False)
-    print(f"  Saved features to {csv_path}")
+    logger.info("  Saved features to %s", csv_path)
 
     # Train classifier and compute metrics
     feature_cols = ['residual', 'theoretical_bound', 'sigma_max', 'singular_gap',
@@ -470,28 +476,28 @@ def run_experiment(
             'drift': len(traces['drift']),
         },
         'rank_k': k,
-        'synthetic_data': True,  # All data are synthetic
+        'real_traces': True,  # Using real agent traces
     }
 
     # Save report
     report_path = output_dir / 'validation_report.json'
     with open(report_path, 'w') as f:
         json.dump(report, f, indent=2)
-    print(f"  Saved report to {report_path}")
+    logger.info("  Saved report to %s", report_path)
 
     # Generate plots
     if 'fpr' in metrics and 'tpr' in metrics:
         plot_roc_curve(metrics['fpr'], metrics['tpr'], metrics['auc'], output_dir)
-        print(f"  Saved ROC curve")
+        logger.info("  Saved ROC curve")
 
     plot_distributions(features_df, output_dir)
-    print(f"  Saved distribution plots")
+    logger.info("  Saved distribution plots")
 
-    # Print summary
-    print(f"\n  Results:")
-    print(f"    AUC: {report['AUC']:.4f}")
-    print(f"    TPR @ FPR=0.05: {report['TPR_at_FPR05']:.4f}")
-    print(f"    Threshold tau: {report['threshold_tau']:.4f}")
+    # Log summary
+    logger.info("  Results:")
+    logger.info("    AUC: %.4f", report['AUC'])
+    logger.info("    TPR @ FPR=0.05: %.4f", report['TPR_at_FPR05'])
+    logger.info("    Threshold tau: %.4f", report['threshold_tau'])
 
     return report
 
@@ -538,7 +544,7 @@ def run_all_scenarios(
             traces_dir = traces_base
 
         if not traces_dir.exists():
-            print(f"Skipping {scenario_name}: no traces found")
+            logger.warning("Skipping %s: no traces found", scenario_name)
             continue
 
         output_dir = reports_dir / scenario_name
@@ -552,7 +558,7 @@ def run_all_scenarios(
 
     # If no per-scenario traces, run on global traces
     if not all_reports and traces_base.exists():
-        print("Running on global experiment_traces...")
+        logger.info("Running on global experiment_traces...")
         report = run_experiment(
             traces_dir=traces_base,
             output_dir=reports_dir / 'global',
@@ -565,6 +571,12 @@ def run_all_scenarios(
 
 
 def main():
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
     parser = argparse.ArgumentParser(
         description="Run spectral validation experiments."
     )
@@ -598,29 +610,21 @@ def main():
         help="Output directory for reports",
     )
     parser.add_argument(
-        "--generate-synthetic",
+        "--verbose",
+        "-v",
         action="store_true",
-        help="Generate synthetic traces first",
+        help="Enable verbose output",
     )
 
     args = parser.parse_args()
 
-    print("=" * 60)
-    print("Spectral Validation Experiment Runner")
-    print("NOTE: All data are synthetic. No real secrets or external network calls.")
-    print("=" * 60)
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
 
-    # Generate synthetic traces if requested
-    if args.generate_synthetic:
-        from analysis.convert_trace import generate_synthetic_traces
-        print("\nGenerating synthetic traces...")
-        generate_synthetic_traces(
-            args.traces_dir,
-            n_gold=20,
-            n_creative=20,
-            n_drift=20,
-            seed=42,
-        )
+    logger.info("=" * 60)
+    logger.info("Spectral Validation Experiment Runner")
+    logger.info("Using real agent traces for evaluation")
+    logger.info("=" * 60)
 
     # Run experiments
     if args.all_scenarios or args.scenario == 'all':
@@ -632,10 +636,10 @@ def main():
             k=args.k,
         )
 
-        # Print summary
-        print("\n" + "=" * 60)
-        print("Summary of All Scenarios")
-        print("=" * 60)
+        # Log summary
+        logger.info("=" * 60)
+        logger.info("Summary of All Scenarios")
+        logger.info("=" * 60)
 
         all_pass = True
         for scenario_name, report in reports.items():
@@ -644,12 +648,12 @@ def main():
             status = 'PASS' if auc >= 0.90 and tpr >= 0.80 else 'WARN'
             if status == 'WARN':
                 all_pass = False
-            print(f"  {scenario_name}: AUC={auc:.4f}, TPR@FPR05={tpr:.4f} [{status}]")
+            logger.info("  %s: AUC=%.4f, TPR@FPR05=%.4f [%s]", scenario_name, auc, tpr, status)
 
         if all_pass:
-            print("\nAll scenarios PASS validation thresholds (AUC >= 0.90, TPR >= 0.80)")
+            logger.info("All scenarios PASS validation thresholds (AUC >= 0.90, TPR >= 0.80)")
         else:
-            print("\nSome scenarios did not meet thresholds")
+            logger.warning("Some scenarios did not meet thresholds")
 
     elif args.scenario:
         # Run single scenario
@@ -658,7 +662,7 @@ def main():
         if scenario_traces.exists():
             traces_dir = scenario_traces
 
-        report = run_experiment(
+        run_experiment(
             traces_dir=traces_dir,
             output_dir=args.output_dir / args.scenario,
             k=args.k,
@@ -667,14 +671,14 @@ def main():
 
     else:
         # Run on global traces
-        report = run_experiment(
+        run_experiment(
             traces_dir=args.traces_dir,
             output_dir=args.output_dir / 'global',
             k=args.k,
             scenario_name='global',
         )
 
-    print("\nDone!")
+    logger.info("Done!")
 
 
 if __name__ == "__main__":
