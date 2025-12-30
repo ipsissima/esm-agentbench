@@ -30,4 +30,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD python /app/healthcheck.py
 
-CMD ["python", "-m", "esmassessor.green_server", "--host", "0.0.0.0", "--port", "8080", "--serve-only"]
+# Default to judge mode (can be overridden at runtime)
+CMD ["python", "/app/run_judge_mode.py"]
