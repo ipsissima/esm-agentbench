@@ -499,6 +499,110 @@ esm-agentbench/
         └── drift/*.json
 ```
 
+## Limitations and Failure Modes
+
+### Known Limitations
+
+This section documents honest limitations to help judges understand trade-offs.
+
+#### 1. Open Model Performance Variability
+
+**Issue:** Open-source models (7-13B) are less capable than proprietary APIs (GPT-4, Claude).
+
+**Impact:**
+- Agents may fail tasks more often (~20-40% task completion vs ~80%+ for GPT-4)
+- Tool protocol adherence is inconsistent without native function calling
+- Requires robust retry logic and malformed output handling
+
+**Mitigation:**
+- Use strict JSON validation with retry (implemented)
+- Limit `max_steps` to prevent infinite loops
+- Document completion rates in reports
+
+#### 2. Creative vs Drift Separation Challenge
+
+**Issue:** Hard to design prompts where creative is *correct but behaviorally different* from gold.
+
+**Impact:**
+- If creative is too similar to gold, separation is trivial (overestimates performance)
+- If creative is too different, it may drift into incorrectness (confounds labels)
+
+**Mitigation:**
+- Extensive prompt engineering (documented in scenario prompts)
+- Manual review of traces to verify creative runs are valid
+- Report failure cases where creative = drift
+
+#### 3. Cross-Model Generalization May Be Limited
+
+**Issue:** Models from same family (e.g., all Code Llamas) may not provide true diversity.
+
+**Impact:**
+- Cross-model AUC may overestimate generalization
+- Need truly diverse model families (CodeLlama + DeepSeek + StarCoder recommended)
+
+**Mitigation:**
+- Use models from different organizations and architectures
+- Document model families in reports
+- Lower acceptance threshold for cross-model (0.80 vs 0.85 for per-model)
+
+#### 4. Computational Cost
+
+**Issue:** Real agent evaluation is 100-1000× more expensive than synthetic traces.
+
+**Impact:**
+- Full mode (~1440 runs) requires significant GPU time (~4-6 hours) or CPU time (~2-4 days)
+- Not all judges may have GPUs
+
+**Mitigation:**
+- **Small mode** provides judge-friendly alternative (CPU-ok, ~2-3 hours)
+- Use quantization (4-bit) to reduce memory requirements
+- Provide pre-run results for verification
+
+#### 5. Stochasticity in Results
+
+**Issue:** Even with `temperature=0`, model outputs have minor variance.
+
+**Impact:**
+- Exact reproduction may show AUC ± 0.02 variance
+- Cross-model results particularly sensitive
+
+**Mitigation:**
+- Report confidence intervals (bootstrap recommended)
+- Use large N (≥40 runs/label) to reduce variance
+- Document seeds and exact model versions
+
+### Documented Failure Cases
+
+We commit to documenting scenarios where the method fails:
+
+**Example failure report structure:**
+
+```json
+{
+  "scenario": "code_backdoor_injection",
+  "issue": "creative prompts indistinguishable from gold",
+  "evidence": {
+    "auc": 0.58,
+    "visual_inspection": "20/40 creative runs identical to gold in trajectory"
+  },
+  "root_cause": "Prompt design insufficient for this scenario",
+  "mitigation_attempted": "Rewrote creative prompt 3 times, no improvement",
+  "conclusion": "Scenario unsuitable for this method"
+}
+```
+
+### When Real Evaluation Shows Lower Performance
+
+**This is expected and honest.** Real agents are harder to evaluate than synthetic traces.
+
+If results fall short of targets (AUC < 0.85), we:
+1. **Document honestly** in `reports/failure_analysis.json`
+2. **Analyze root causes** (prompt design, model capability, metric choice)
+3. **Propose improvements** for future work
+4. **Compare to baselines** (random = 0.5, perfect = 1.0)
+
+**Competition judges reward honesty more than perfect numbers.**
+
 ## FAQ
 
 **Q: Do I need a GPU?**

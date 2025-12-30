@@ -256,6 +256,15 @@ def main():
         description="Run real HF agents for multi-model evaluation"
     )
     parser.add_argument(
+        "--mode",
+        choices=["small", "full"],
+        help=(
+            "Resource mode: 'small' (judge-friendly, 1 quantized model, 8-12 runs, CPU-ok) "
+            "or 'full' (comprehensive, multiple models, 30-50 runs, GPU recommended). "
+            "Overrides --models and --n if specified."
+        ),
+    )
+    parser.add_argument(
         "--scenario",
         help="Scenario name (or use --all-scenarios)",
     )
@@ -267,7 +276,7 @@ def main():
     parser.add_argument(
         "--models",
         help="Comma-separated model names (from models.yaml)",
-        default="deepseek-coder-7b-instruct",
+        default=None,
     )
     parser.add_argument(
         "--labels",
@@ -277,8 +286,8 @@ def main():
     parser.add_argument(
         "--n",
         type=int,
-        default=20,
-        help="Number of runs per model/label (min 20, target 50)",
+        default=None,
+        help="Number of runs per model/label (overridden by --mode)",
     )
     parser.add_argument(
         "--outdir",
@@ -314,6 +323,28 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Apply mode presets
+    if args.mode == "small":
+        # Small mode: judge-friendly, CPU-ok, 1 quantized model, 8-12 runs
+        if args.models is None:
+            args.models = "phi-3-mini-instruct"  # Small, efficient, quantized
+        if args.n is None:
+            args.n = 10
+        logger.info("Using SMALL mode: 1 model, 10 runs/label, CPU-friendly")
+    elif args.mode == "full":
+        # Full mode: comprehensive, 3+ models, 30-50 runs
+        if args.models is None:
+            args.models = "deepseek-coder-7b-instruct,codellama-13b-instruct,starcoder2-15b"
+        if args.n is None:
+            args.n = 40
+        logger.info("Using FULL mode: 3 models, 40 runs/label, GPU recommended")
+    else:
+        # No mode specified, use defaults
+        if args.models is None:
+            args.models = "deepseek-coder-7b-instruct"
+        if args.n is None:
+            args.n = 20
 
     # Setup logging
     logging.basicConfig(

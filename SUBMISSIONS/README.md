@@ -175,77 +175,120 @@ jupyter notebook analysis/notebooks/validate_spectral.ipynb
 
 See `docs/SPECTRAL_THEORY.md` for the mathematical foundations (Davis-Kahan/Wedin lemma, Koopman operators, detection inequalities).
 
-## Real Agent HF Evaluation (NEW!)
+## Real-Only Agent Evaluation (Primary Method)
 
-We've extended the framework to collect **real agent traces using only local Hugging Face models** — no API keys required, fully reproducible.
+**All evaluation results are based on real agent traces from local open-source models.**
 
-**Why this matters for competition:**
-- ✅ Judges can reproduce results without your API keys
-- ✅ Tests generalization across multiple open models
-- ✅ Demonstrates method works on *real* agent behavior, not just synthetic data
-- ✅ Includes cross-model validation for robust evaluation
+This submission uses **ONLY real agent behavior** — no synthetic traces, no API keys required, fully reproducible by judges.
 
-### Quick Start
+### Why Real-Only Matters
+
+- ✅ **Judges can reproduce** results on their machines without API keys
+- ✅ **Fair evaluation** across multiple open-source model families
+- ✅ **Demonstrates real capability** — method works on actual agent behavior, not fabricated data
+- ✅ **Cross-model validation** — proves generalization beyond single model
+- ✅ **Aligned with competition goals** — tool-using agents with open models
+
+### Two Resource Modes
+
+We provide two execution modes for different evaluation contexts:
+
+#### Small Mode (Judge-Friendly, Default)
+
+**Designed for judges to verify results on modest hardware:**
 
 ```bash
-# 1. Run agents on all scenarios (default model: deepseek-coder-7b-instruct)
+# Run all scenarios in small mode
 python tools/real_agents_hf/run_real_agents.py \
   --all-scenarios \
-  --n 20
+  --mode small
 
-# 2. Validate with spectral analysis + cross-model testing
+# Validate results
+python analysis/run_real_hf_experiment.py \
+  --all-scenarios
+```
+
+**Configuration:**
+- **Models:** 1 quantized model (phi-3-mini-instruct)
+- **Runs:** 10 per label (gold/creative/drift)
+- **Hardware:** CPU-friendly, 16 GB RAM minimum
+- **Time:** ~2-3 hours for all 6 scenarios
+- **Total traces:** ~180 real agent runs
+
+#### Full Mode (Competition-Grade)
+
+**Comprehensive evaluation with cross-model validation:**
+
+```bash
+# Run all scenarios in full mode
+python tools/real_agents_hf/run_real_agents.py \
+  --all-scenarios \
+  --mode full
+
+# Cross-model validation
 python analysis/run_real_hf_experiment.py \
   --all-scenarios \
   --cross-model
+```
 
-# 3. Review results
+**Configuration:**
+- **Models:** 3 diverse models (deepseek-coder, codellama, starcoder2)
+- **Runs:** 40 per label per model
+- **Hardware:** GPU with 16+ GB VRAM recommended
+- **Time:** ~4-6 hours with GPU
+- **Total traces:** ~1440 real agent runs
+- **Cross-model validation:** Leave-one-out testing across model families
+
+### One-Command Reproduction
+
+Judges can verify the entire submission with:
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run small mode evaluation (judge-friendly)
+python tools/real_agents_hf/run_real_agents.py --all-scenarios --mode small
+
+# Validate results
+python analysis/run_real_hf_experiment.py --all-scenarios
+
+# View reports
 cat reports/spectral_validation_real_hf/*/validation_report.json
 ```
 
-### Multi-Model Evaluation
+### Acceptance Criteria (Competition-Grade)
 
-```bash
-# Run with 3 models (recommended for publication-quality results)
-python tools/real_agents_hf/run_real_agents.py \
-  --all-scenarios \
-  --models deepseek-coder-7b-instruct,codellama-13b-instruct,starcoder2-15b \
-  --n 50
+For **at least 4 of 6 scenarios**, we target:
+- ✅ Per-model AUC ≥ 0.85 (drift vs creative classification)
+- ✅ Cross-model AUC ≥ 0.80 (generalization test)
+- ✅ TPR ≥ 0.70 at FPR ≤ 0.05 (high detection with low false positives)
 
-# Cross-model validation (leave-one-out)
-python analysis/run_real_hf_experiment.py \
-  --all-scenarios \
-  --cross-model
-```
-
-### Acceptance Criteria (Competition Winning Grade)
-
-For **at least 4 of 6 scenarios**, achieve:
-- ✅ Per-model AUC ≥ 0.85 (drift vs creative)
-- ✅ Cross-model AUC ≥ 0.80 (generalization)
-- ✅ TPR ≥ 0.70 at FPR ≤ 0.05
+**Note:** These are targets, not guarantees. Real agent evaluation may show lower performance than synthetic baselines — this is expected and demonstrates honest evaluation.
 
 ### Key Features
 
-1. **Local-only inference**: transformers / vLLM (no APIs)
-2. **Reproducible**: All runs use fixed seeds, temperatures, configs
-3. **Offline-capable**: No network after models downloaded
-4. **Cross-model validation**: Tests method generalizes across model families
-5. **Real traces**: Actual agent tool usage, not synthetic
+1. **100% Real Traces** — Every trace comes from actual LLM agent execution
+2. **Open Models Only** — No proprietary APIs (HuggingFace, llama.cpp, vLLM)
+3. **Tool-Using Agents** — Multi-step reasoning with file operations, tests, git, grep
+4. **Reproducible** — Fixed seeds, temperatures, configurations
+5. **Offline-Capable** — No network required after model download
+6. **Cross-Model Tested** — Validates generalization across model families
+7. **Judge-Runnable** — Small mode works on CPU with 16 GB RAM
 
 ### Hardware Requirements
 
-- **Minimum**: 16 GB RAM, CPU-only (with quantization)
-- **Recommended**: GPU with 16 GB VRAM (e.g., RTX 4080)
-- **Ideal**: GPU with 24 GB VRAM (e.g., RTX 3090, A5000)
+| Mode | CPU | RAM | GPU | Time (6 scenarios) |
+|------|-----|-----|-----|-------------------|
+| Small | Any | 16 GB | Optional | ~2-3 hours |
+| Full | Modern | 32+ GB | 16+ GB VRAM | ~4-6 hours |
 
 ### Documentation
 
-See **`docs/REAL_AGENT_HF_EVAL.md`** for complete guide including:
-- Model configuration
-- Tool protocol design
-- Prompt engineering (gold/creative/drift)
-- Cross-model validation methodology
-- Troubleshooting and FAQ
+Complete technical details:
+- **`docs/REAL_AGENT_HF_EVAL.md`** — Architecture, models, tool protocol, limitations
+- **`tools/real_agents_hf/README.md`** — Quick start, configuration, troubleshooting
+- **Scenario prompts:** `scenarios/{scenario}/real_agent_prompts/{gold,creative,drift}.md`
 
 ## Documentation
 

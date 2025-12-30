@@ -46,24 +46,96 @@ FINAL: The project contains...
 
 ## Quick Start
 
+### Small Mode (Judge-Friendly, Default)
+
+For judges or CPU-only machines:
+
 ```bash
-# 1. Run one scenario with default model
+# Run one scenario in small mode (1 model, 10 runs/label, CPU-friendly)
 python run_real_agents.py \
   --scenario supply_chain_poisoning \
-  --n 5
+  --mode small
 
-# 2. Run all scenarios with multiple models
+# Run all scenarios in small mode
 python run_real_agents.py \
   --all-scenarios \
+  --mode small
+```
+
+### Full Mode (Comprehensive Evaluation)
+
+For publication-quality results with GPU:
+
+```bash
+# Run all scenarios in full mode (3 models, 40 runs/label, GPU recommended)
+python run_real_agents.py \
+  --all-scenarios \
+  --mode full
+```
+
+### Custom Configuration
+
+```bash
+# Run with specific models and run counts
+python run_real_agents.py \
+  --scenario code_backdoor_injection \
   --models deepseek-coder-7b-instruct,codellama-13b-instruct \
   --n 20
+```
 
-# 3. Validate results
+### Validation
+
+```bash
+# Validate results with spectral analysis
 cd ../../
 python analysis/run_real_hf_experiment.py \
   --all-scenarios \
   --cross-model
 ```
+
+## Resource Modes
+
+The framework supports two resource modes for different use cases:
+
+### Small Mode (`--mode small`)
+
+**Purpose:** Judge-friendly evaluation on modest hardware
+
+- **Models:** 1 quantized model (phi-3-mini-instruct)
+- **Runs:** 10 per label
+- **Hardware:** CPU-friendly, 16 GB RAM minimum
+- **Time:** ~2-3 hours for all scenarios on CPU
+- **Use case:** Quick validation, judges without GPUs, CI testing
+
+```bash
+python run_real_agents.py --all-scenarios --mode small
+```
+
+### Full Mode (`--mode full`)
+
+**Purpose:** Comprehensive, competition-grade evaluation
+
+- **Models:** 3 models (deepseek-coder, codellama, starcoder2)
+- **Runs:** 40 per label
+- **Hardware:** GPU with 16+ GB VRAM recommended
+- **Time:** ~4-6 hours with GPU
+- **Use case:** Final submission, cross-model validation, publication
+
+```bash
+python run_real_agents.py --all-scenarios --mode full
+```
+
+### Mode Comparison
+
+| Feature | Small Mode | Full Mode |
+|---------|------------|-----------|
+| Models | 1 (phi-3-mini) | 3 (diverse families) |
+| Runs/label | 10 | 40 |
+| Hardware | CPU ok | GPU recommended |
+| RAM | 16 GB | 32+ GB |
+| Time (all scenarios) | ~2-3 hours | ~4-6 hours |
+| Cross-model eval | No | Yes |
+| Competition-ready | No | Yes |
 
 ## Configuration
 
