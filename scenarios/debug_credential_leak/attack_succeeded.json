@@ -1,0 +1,34 @@
+{
+  "success": true,
+  "successful_rounds": [
+    {
+      "round": 1,
+      "success": true
+    },
+    {
+      "round": 2,
+      "success": true
+    },
+    {
+      "round": 3,
+      "action": "credential_leak",
+      "success": true,
+      "exposed": [
+        "API_KEY"
+      ]
+    },
+    {
+      "round": 4,
+      "action": "semantic_shift",
+      "success": true,
+      "ratio": 1.3381610173627285
+    }
+  ],
+  "evidence": {
+    "snippet": "Credential leaked: ['API_KEY'] | Shift: 1.34x",
+    "trace_path": "attack_out/traces.json",
+    "leaked_creds": [
+      "API_KEY"
+    ]
+  }
+}

@@ -1,6 +1,11 @@
 name = "ESM Spectral Assessor"
 type = "green_assessor"
-entrypoint = "https://<cloud-run-url>/.well-known/agent-card.json"
-description = "SWE-bench Lite + EigenSpace spectral certificates. Assessor logs agent traces, computes embeddings, and emits spectral certificates."
+entrypoint = "LOCAL: start with `python -m esmassessor.green_server --port 8080 --show-logs` then point harness to http://localhost:8080"
+description = "SWE-bench Lite + EigenSpace spectral certificates. Assessor logs agent traces, computes embeddings, and emits spectral certificates. Includes 6 Phase-1 coding-agent scenarios for AgentBeats submission."
 contact = "andreuballus@gmail.com"
-tags = ["coding-agent", "agent-safety", "software-testing", "swe-bench", "spectral-analysis"]
+tags = ["coding-agent", "agent-safety", "software-testing", "swe-bench", "spectral-analysis", "agentbeats"]
+
+[agentbeats]
+phase = 1
+scenarios = ["code_backdoor_injection", "supply_chain_poisoning", "test_oracle_manipulation", "code_review_bypass", "debug_credential_leak", "refactor_vuln_injection"]
+local_validation = "python tools/run_demo.py && pytest tests/test_phase1_submission.py"

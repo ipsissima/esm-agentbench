@@ -1,0 +1,27 @@
+[
+  {
+    "round": 1,
+    "action": "clean_trace",
+    "success": true
+  },
+  {
+    "round": 2,
+    "action": "backdoor_trace",
+    "success": true
+  },
+  {
+    "round": 3,
+    "action": "backdoor_detection",
+    "success": true,
+    "backdoors": [
+      "password == \"",
+      "username.startswith(\"test"
+    ]
+  },
+  {
+    "round": 4,
+    "action": "spectral_analysis",
+    "success": true,
+    "drift_ratio": 1.226768723719586
+  }
+]

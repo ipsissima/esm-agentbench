@@ -1,0 +1,85 @@
+name: AgentBeats Phase1 Validation
+
+on:
+  push:
+    branches:
+      - 'agentbeats/phase1-submission-*'
+      - 'claude/*'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate-phase1:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m venv .venv
+        . .venv/bin/activate
+        pip install -r requirements.txt
+        pip install pytest
+
+    - name: Start green assessor (background)
+      run: |
+        . .venv/bin/activate
+        nohup python -m esmassessor.green_server --port 8080 --show-logs > assessor.log 2>&1 &
+        sleep 3
+        # Verify server is running
+        curl -s http://localhost:8080/health || echo "Server health check (may not be implemented)"
+
+    - name: Validate scenarios
+      run: |
+        . .venv/bin/activate
+        echo "Validating Phase-1 scenarios..."
+        for s in scenarios/*; do
+          if [ -d "$s" ]; then
+            echo "==> Running baseline for $s"
+            (cd "$s" && python baseline_test.py)
+            echo "==> Running plugin for $s"
+            (cd "$s" && python plugin.py)
+            if [ ! -f "$s/attack_succeeded.json" ]; then
+              echo "ERROR: Missing attack_succeeded.json in $s"
+              exit 1
+            fi
+            # Check success:true
+            ok=$(python3 -c "import json; j=json.load(open('$s/attack_succeeded.json')); print('TRUE' if j.get('success') else 'FALSE')")
+            echo "    attack_succeeded.json success: $ok"
+            if [ "$ok" != "TRUE" ]; then
+              echo "ERROR: attack_succeeded.json success != true in $s"
+              cat "$s/attack_succeeded.json"
+              exit 1
+            fi
+          fi
+        done
+        echo "All scenarios validated successfully!"
+
+    - name: Run Phase-1 submission tests
+      run: |
+        . .venv/bin/activate
+        pytest tests/test_phase1_submission.py -v
+
+    - name: Run repository validation demo
+      run: |
+        . .venv/bin/activate
+        python tools/run_demo.py || true
+
+    - name: Upload scenario artifacts
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: scenario-artifacts
+        path: |
+          scenarios/*/attack_succeeded.json
+          scenarios/*/attack_out/
+          assessor.log

@@ -34,3 +34,69 @@ Each assessment writes `demo_traces/<assessment>_<participant>_certificate.json`
   python tools/calibrate_thresholds.py --backend sentence-transformers --trials 4 --dry-run
   ```
 - The script writes `certificates/calibration_sentence-transformers.json` and updates `evaluation_config.yaml` with `residual_threshold` and `jump_factor`.
+
+## Validate Phase-1 scenarios locally
+
+This repository includes 3 Phase-1 scenarios for AgentBeats submission:
+
+1. **swe_eigendrift**: Spectral certificate drift detection via adversarial refactoring prompts
+2. **poison_prompt_injection**: Multi-turn indirect prompt injection via JSON context
+3. **indirect_email_exfil**: PII exfiltration via chained external content processing
+
+### Local Validation Steps
+
+1. Start the green assessor:
+   ```bash
+   python -m esmassessor.green_server --port 8080 --show-logs
+   ```
+
+2. For each scenario, run baseline and plugin:
+   ```bash
+   cd scenarios/swe_eigendrift
+   python baseline_test.py
+   python plugin.py   # writes attack_succeeded.json
+
+   cd ../poison_prompt_injection
+   python baseline_test.py
+   python plugin.py
+
+   cd ../indirect_email_exfil
+   python baseline_test.py
+   python plugin.py
+   ```
+
+3. Verify all `attack_succeeded.json` files show `"success": true`:
+   ```bash
+   for s in scenarios/*; do
+     echo "==> $s"
+     python -c "import json; j=json.load(open('$s/attack_succeeded.json')); print('success:', j.get('success'))"
+   done
+   ```
+
+4. Run the full validation test suite:
+   ```bash
+   pytest tests/test_phase1_submission.py -v
+   ```
+
+5. (Optional) Run the demo validation:
+   ```bash
+   python tools/run_demo.py
+   ```
+
+### Gate Artifacts
+
+Each scenario produces an `attack_succeeded.json` at its root containing:
+- `success`: boolean indicating attack demonstration success
+- `evidence`: object with human-readable snippet and trace path
+- `successful_rounds`: list of successful attack rounds
+
+Judges will verify that all 3 scenarios have `"success": true`.
+
+### Agent Card
+
+The `agent_card.toml` provides local-run instructions:
+```
+entrypoint = "LOCAL: start with `python -m esmassessor.green_server --port 8080 --show-logs` then point harness to http://localhost:8080"
+```
+
+See also: `SUBMISSIONS/README.md` for a complete reproduction guide.
