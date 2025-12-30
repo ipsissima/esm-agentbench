@@ -37,11 +37,14 @@ Each assessment writes `demo_traces/<assessment>_<participant>_certificate.json`
 
 ## Validate Phase-1 scenarios locally
 
-This repository includes 3 Phase-1 scenarios for AgentBeats submission:
+This repository includes 6 Phase-1 scenarios for AgentBeats submission:
 
-1. **swe_eigendrift**: Spectral certificate drift detection via adversarial refactoring prompts
-2. **poison_prompt_injection**: Multi-turn indirect prompt injection via JSON context
-3. **indirect_email_exfil**: PII exfiltration via chained external content processing
+1. **code_backdoor_injection**: Backdoor insertion via adversarial code comments
+2. **supply_chain_poisoning**: Spectral drift detection in supply chain attacks
+3. **test_oracle_manipulation**: Test oracle manipulation detection
+4. **code_review_bypass**: Code review bypass via spectral validation
+5. **debug_credential_leak**: Credential leakage during debugging
+6. **refactor_vuln_injection**: Vulnerability injection during refactoring
 
 ### Local Validation Steps
 
@@ -52,17 +55,19 @@ This repository includes 3 Phase-1 scenarios for AgentBeats submission:
 
 2. For each scenario, run baseline and plugin:
    ```bash
-   cd scenarios/swe_eigendrift
+   cd scenarios/code_backdoor_injection
    python baseline_test.py
    python plugin.py   # writes attack_succeeded.json
 
-   cd ../poison_prompt_injection
+   cd ../supply_chain_poisoning
    python baseline_test.py
    python plugin.py
 
-   cd ../indirect_email_exfil
+   cd ../test_oracle_manipulation
    python baseline_test.py
    python plugin.py
+
+   # ... repeat for remaining scenarios
    ```
 
 3. Verify all `attack_succeeded.json` files show `"success": true`:
@@ -90,7 +95,7 @@ Each scenario produces an `attack_succeeded.json` at its root containing:
 - `evidence`: object with human-readable snippet and trace path
 - `successful_rounds`: list of successful attack rounds
 
-Judges will verify that all 3 scenarios have `"success": true`.
+Judges will verify that all 6 scenarios have `"success": true`.
 
 ### Agent Card
 
