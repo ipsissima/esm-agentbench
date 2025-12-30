@@ -1,0 +1,229 @@
+name: Real HF Agent Validation
+
+# This workflow tests the real agent HF evaluation pipeline.
+# It's optional and only runs when RUN_REAL_HF=1 or on manual dispatch.
+# Uses a tiny model for quick pipeline validation.
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Scenario to test (or "all" for all scenarios)'
+        required: false
+        default: 'supply_chain_poisoning'
+      n_runs:
+        description: 'Number of runs per label'
+        required: false
+        default: '2'
+
+  push:
+    branches:
+      - main
+      - 'claude/**'
+    paths:
+      - 'tools/real_agents_hf/**'
+      - 'analysis/run_real_hf_experiment.py'
+      - 'scenarios/*/real_agent_prompts/**'
+      - '.github/workflows/real_hf_validation.yml'
+
+  pull_request:
+    paths:
+      - 'tools/real_agents_hf/**'
+      - 'analysis/run_real_hf_experiment.py'
+
+env:
+  PYTHON_VERSION: '3.11'
+  # Set to 1 to enable HF evaluation (requires time and resources)
+  RUN_REAL_HF: ${{ secrets.RUN_REAL_HF || '0' }}
+
+jobs:
+  test-pipeline:
+    name: Test Real HF Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Only run if RUN_REAL_HF=1 or manual dispatch
+    if: github.event_name == 'workflow_dispatch' || env.RUN_REAL_HF == '1'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+          # Install minimal transformers (CPU-only for CI)
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers accelerate
+
+      - name: Verify installation
+        run: |
+          python -c "import transformers; print('transformers:', transformers.__version__)"
+          python -c "import sentence_transformers; print('sentence-transformers OK')"
+          python -c "import torch; print('torch:', torch.__version__)"
+
+      - name: Test agent loop with tiny model
+        run: |
+          # Test the agent loop module standalone
+          cd tools/real_agents_hf
+          python -c "
+          from inference import create_backend
+          print('Testing inference backend...')
+          backend = create_backend('tiny-test')
+          print('Backend created successfully')
+          "
+
+      - name: Run pipeline test (1 scenario, 2 runs, tiny model)
+        run: |
+          # Use workflow input or default
+          SCENARIO="${{ github.event.inputs.scenario || 'supply_chain_poisoning' }}"
+          N_RUNS="${{ github.event.inputs.n_runs || '2' }}"
+
+          python tools/real_agents_hf/run_real_agents.py \
+            --scenario "$SCENARIO" \
+            --models tiny-test \
+            --labels gold,drift \
+            --n "$N_RUNS" \
+            --max-steps 10 \
+            --team ci_test \
+            --verbose
+
+      - name: Verify traces generated
+        run: |
+          SCENARIO="${{ github.event.inputs.scenario || 'supply_chain_poisoning' }}"
+
+          # Check that traces were created
+          if [ ! -d "submissions/ci_test/$SCENARIO/experiment_traces_real_hf" ]; then
+            echo "Error: Trace directory not created"
+            exit 1
+          fi
+
+          # Count trace files
+          TRACE_COUNT=$(find "submissions/ci_test/$SCENARIO/experiment_traces_real_hf" -name "*.json" -type f | wc -l)
+          echo "Found $TRACE_COUNT trace files"
+
+          if [ "$TRACE_COUNT" -lt 1 ]; then
+            echo "Error: No trace files generated"
+            exit 1
+          fi
+
+          echo "✅ Traces generated successfully"
+
+      - name: Run spectral validation
+        run: |
+          SCENARIO="${{ github.event.inputs.scenario || 'supply_chain_poisoning' }}"
+
+          python analysis/run_real_hf_experiment.py \
+            --scenario "$SCENARIO" \
+            --team ci_test \
+            --k 3
+
+      - name: Verify reports generated
+        run: |
+          SCENARIO="${{ github.event.inputs.scenario || 'supply_chain_poisoning' }}"
+
+          REPORT="reports/spectral_validation_real_hf/$SCENARIO/validation_report.json"
+
+          if [ ! -f "$REPORT" ]; then
+            echo "Error: Validation report not created"
+            exit 1
+          fi
+
+          # Check report has expected keys
+          python -c "
+          import json
+          with open('$REPORT') as f:
+              report = json.load(f)
+          assert 'scenario' in report
+          assert 'overall_auc' in report
+          print('✅ Validation report structure OK')
+          "
+
+      - name: Upload traces (for inspection)
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: real-hf-traces
+          path: submissions/ci_test/*/experiment_traces_real_hf/
+          retention-days: 7
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: real-hf-reports
+          path: reports/spectral_validation_real_hf/
+          retention-days: 7
+
+  lint-prompts:
+    name: Validate Scenario Prompts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Check all scenarios have prompts
+        run: |
+          SCENARIOS=(
+            "supply_chain_poisoning"
+            "code_backdoor_injection"
+            "code_review_bypass"
+            "debug_credential_leak"
+            "refactor_vuln_injection"
+            "test_oracle_manipulation"
+          )
+
+          MISSING=0
+          for scenario in "${SCENARIOS[@]}"; do
+            for label in gold creative drift; do
+              PROMPT="scenarios/$scenario/real_agent_prompts/$label.md"
+              if [ ! -f "$PROMPT" ]; then
+                echo "❌ Missing: $PROMPT"
+                MISSING=$((MISSING + 1))
+              else
+                echo "✅ Found: $PROMPT"
+              fi
+            done
+          done
+
+          if [ $MISSING -gt 0 ]; then
+            echo "Error: $MISSING prompt files missing"
+            exit 1
+          fi
+
+          echo "✅ All scenario prompts present"
+
+      - name: Validate models.yaml
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - run: pip install pyyaml
+
+      - name: Check models.yaml structure
+        run: |
+          python -c "
+          import yaml
+          with open('tools/real_agents_hf/models.yaml') as f:
+              config = yaml.safe_load(f)
+
+          assert 'models' in config, 'Missing models key'
+          assert len(config['models']) > 0, 'No models defined'
+
+          for model in config['models']:
+              assert 'name' in model, 'Model missing name'
+              assert 'hf_id' in model, 'Model missing hf_id'
+              assert 'backend' in model, 'Model missing backend'
+              assert model['backend'] in ['transformers', 'vllm'], f'Invalid backend: {model[\"backend\"]}'
+
+          print(f'✅ models.yaml valid with {len(config[\"models\"])} models')
+          "

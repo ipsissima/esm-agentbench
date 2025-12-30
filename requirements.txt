@@ -16,3 +16,14 @@ pydantic>=1.10
 openai>=1.0.0
 jupyter
 nbconvert
+
+# Real agent HF evaluation dependencies
+transformers>=4.30.0
+accelerate>=0.20.0
+torch>=2.0.0
+
+# Optional: for quantization (install if you have GPU and want 4-bit models)
+# bitsandbytes>=0.41.0
+
+# Optional: for faster inference (Linux + CUDA only)
+# vllm>=0.2.0

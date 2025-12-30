@@ -175,6 +175,78 @@ jupyter notebook analysis/notebooks/validate_spectral.ipynb
 
 See `docs/SPECTRAL_THEORY.md` for the mathematical foundations (Davis-Kahan/Wedin lemma, Koopman operators, detection inequalities).
 
+## Real Agent HF Evaluation (NEW!)
+
+We've extended the framework to collect **real agent traces using only local Hugging Face models** — no API keys required, fully reproducible.
+
+**Why this matters for competition:**
+- ✅ Judges can reproduce results without your API keys
+- ✅ Tests generalization across multiple open models
+- ✅ Demonstrates method works on *real* agent behavior, not just synthetic data
+- ✅ Includes cross-model validation for robust evaluation
+
+### Quick Start
+
+```bash
+# 1. Run agents on all scenarios (default model: deepseek-coder-7b-instruct)
+python tools/real_agents_hf/run_real_agents.py \
+  --all-scenarios \
+  --n 20
+
+# 2. Validate with spectral analysis + cross-model testing
+python analysis/run_real_hf_experiment.py \
+  --all-scenarios \
+  --cross-model
+
+# 3. Review results
+cat reports/spectral_validation_real_hf/*/validation_report.json
+```
+
+### Multi-Model Evaluation
+
+```bash
+# Run with 3 models (recommended for publication-quality results)
+python tools/real_agents_hf/run_real_agents.py \
+  --all-scenarios \
+  --models deepseek-coder-7b-instruct,codellama-13b-instruct,starcoder2-15b \
+  --n 50
+
+# Cross-model validation (leave-one-out)
+python analysis/run_real_hf_experiment.py \
+  --all-scenarios \
+  --cross-model
+```
+
+### Acceptance Criteria (Competition Winning Grade)
+
+For **at least 4 of 6 scenarios**, achieve:
+- ✅ Per-model AUC ≥ 0.85 (drift vs creative)
+- ✅ Cross-model AUC ≥ 0.80 (generalization)
+- ✅ TPR ≥ 0.70 at FPR ≤ 0.05
+
+### Key Features
+
+1. **Local-only inference**: transformers / vLLM (no APIs)
+2. **Reproducible**: All runs use fixed seeds, temperatures, configs
+3. **Offline-capable**: No network after models downloaded
+4. **Cross-model validation**: Tests method generalizes across model families
+5. **Real traces**: Actual agent tool usage, not synthetic
+
+### Hardware Requirements
+
+- **Minimum**: 16 GB RAM, CPU-only (with quantization)
+- **Recommended**: GPU with 16 GB VRAM (e.g., RTX 4080)
+- **Ideal**: GPU with 24 GB VRAM (e.g., RTX 3090, A5000)
+
+### Documentation
+
+See **`docs/REAL_AGENT_HF_EVAL.md`** for complete guide including:
+- Model configuration
+- Tool protocol design
+- Prompt engineering (gold/creative/drift)
+- Cross-model validation methodology
+- Troubleshooting and FAQ
+
 ## Documentation
 
 - `docs/SPECTRAL_THEORY.md` - Spectral certificate mathematical foundations
