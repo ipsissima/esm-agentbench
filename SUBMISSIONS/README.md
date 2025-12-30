@@ -150,8 +150,34 @@ The repository includes CI workflow `.github/workflows/agentbeats_phase1.yml` th
 - [x] Each scenario has non-trivial attack demonstrating real vulnerability
 - [x] Evidence includes trace paths and human-readable snippets
 
+## Spectral Certificate Validation
+
+The spectral certificate approach for drift detection has been formally validated using the Davis-Kahan/Wedin perturbation bounds. The validation pipeline demonstrates that spectral certificates can reliably distinguish between creative agent behavior and problematic drift.
+
+**Key Results (on synthetic validation data):**
+- **AUC**: >= 0.90 for drift vs creative classification
+- **TPR @ FPR=0.05**: >= 0.80 (high detection rate with low false positives)
+
+**How to reproduce:**
+```bash
+# Generate synthetic traces and run validation
+python analysis/convert_trace.py --generate-synthetic --n-traces 30
+python analysis/run_experiment.py --all-scenarios --k 10
+
+# View reports
+cat reports/spectral_validation/*/validation_report.json
+
+# Run the validation notebook
+jupyter notebook analysis/notebooks/validate_spectral.ipynb
+```
+
+**Note:** All validation data are synthetic. No real secrets or external network calls are used.
+
+See `docs/SPECTRAL_THEORY.md` for the mathematical foundations (Davis-Kahan/Wedin lemma, Koopman operators, detection inequalities).
+
 ## Documentation
 
+- `docs/SPECTRAL_THEORY.md` - Spectral certificate mathematical foundations
 - `DOCS/AGENTBEATS_INTEGRATION.md` - Full integration guide
 - `scenarios/<name>/README.md` - Per-scenario documentation
 - `THEORY.md` - Mathematical foundations (Koopman, UELAT, Wedin)

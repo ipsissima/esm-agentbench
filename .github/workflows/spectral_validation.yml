@@ -1,0 +1,156 @@
+name: Spectral Certificate Validation
+
+on:
+  push:
+    branches:
+      - 'claude/*'
+      - 'agentbeats/phase1-*'
+      - main
+  pull_request:
+    branches: [main]
+
+env:
+  SPECTRAL_MIN_AUC: "0.90"
+  SPECTRAL_MIN_TPR_FPR05: "0.80"
+
+jobs:
+  validate-spectral:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Ensure spectral validation dependencies are installed
+          pip install scipy seaborn jupyter nbconvert
+
+      - name: Run spectral prover unit tests
+        run: |
+          pytest tests/test_spectral_prover.py -v --tb=short
+
+      - name: Generate synthetic traces
+        run: |
+          echo "Generating synthetic traces for validation..."
+          echo "NOTE: All data are synthetic. No real secrets or external network calls."
+          python analysis/convert_trace.py --generate-synthetic --n-traces 30 --seed 42
+
+      - name: Run spectral validation experiments
+        id: validation
+        run: |
+          echo "Running spectral validation on all scenarios..."
+          python analysis/run_experiment.py --all-scenarios --k 10
+
+          # Check validation results
+          echo "Checking validation results..."
+
+          VALIDATION_PASSED=true
+
+          for report in reports/spectral_validation/*/validation_report.json; do
+            if [ -f "$report" ]; then
+              scenario=$(dirname "$report" | xargs basename)
+              auc=$(python -c "import json; print(json.load(open('$report'))['AUC'])")
+              tpr=$(python -c "import json; print(json.load(open('$report'))['TPR_at_FPR05'])")
+
+              echo "Scenario: $scenario"
+              echo "  AUC: $auc (threshold: $SPECTRAL_MIN_AUC)"
+              echo "  TPR@FPR05: $tpr (threshold: $SPECTRAL_MIN_TPR_FPR05)"
+
+              # Check thresholds
+              auc_ok=$(python -c "print('1' if $auc >= $SPECTRAL_MIN_AUC else '0')")
+              tpr_ok=$(python -c "print('1' if $tpr >= $SPECTRAL_MIN_TPR_FPR05 else '0')")
+
+              if [ "$auc_ok" != "1" ] || [ "$tpr_ok" != "1" ]; then
+                echo "  STATUS: WARN - thresholds not met"
+                VALIDATION_PASSED=false
+              else
+                echo "  STATUS: PASS"
+              fi
+            fi
+          done
+
+          echo "validation_passed=$VALIDATION_PASSED" >> $GITHUB_OUTPUT
+
+          if [ "$VALIDATION_PASSED" = "false" ]; then
+            echo ""
+            echo "WARNING: Some scenarios did not meet validation thresholds."
+            echo "This may indicate the synthetic data or parameters need adjustment."
+            echo "Review the reports for details."
+            exit 1
+          fi
+
+      - name: Upload validation reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spectral-validation-reports
+          path: |
+            reports/spectral_validation/
+            experiment_traces/
+          retention-days: 30
+
+      - name: Post validation summary
+        if: always()
+        run: |
+          echo "## Spectral Validation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Note:** All data are synthetic. No real secrets or external network calls." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "| Scenario | AUC | TPR@FPR05 | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-----|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          for report in reports/spectral_validation/*/validation_report.json; do
+            if [ -f "$report" ]; then
+              scenario=$(dirname "$report" | xargs basename)
+              auc=$(python -c "import json; print(f\"{json.load(open('$report'))['AUC']:.4f}\")")
+              tpr=$(python -c "import json; print(f\"{json.load(open('$report'))['TPR_at_FPR05']:.4f}\")")
+
+              auc_ok=$(python -c "print('1' if float('$auc') >= float('$SPECTRAL_MIN_AUC') else '0')")
+              tpr_ok=$(python -c "print('1' if float('$tpr') >= float('$SPECTRAL_MIN_TPR_FPR05') else '0')")
+
+              if [ "$auc_ok" = "1" ] && [ "$tpr_ok" = "1" ]; then
+                status="PASS"
+              else
+                status="WARN"
+              fi
+
+              echo "| $scenario | $auc | $tpr | $status |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Thresholds: AUC >= $SPECTRAL_MIN_AUC, TPR@FPR05 >= $SPECTRAL_MIN_TPR_FPR05" >> $GITHUB_STEP_SUMMARY
+
+  run-full-test-suite:
+    runs-on: ubuntu-latest
+    needs: validate-spectral
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install scipy seaborn
+
+      - name: Run all tests
+        run: |
+          pytest tests/ -v --tb=short -x
