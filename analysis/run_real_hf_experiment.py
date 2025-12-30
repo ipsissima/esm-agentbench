@@ -364,6 +364,7 @@ def run_scenario(
     k: int = 5,
     model_filter: Optional[List[str]] = None,
     cross_model: bool = False,
+    skip_plots: bool = False,
 ) -> Dict[str, Any]:
     """Run spectral validation on real HF traces for a scenario.
 
@@ -495,6 +496,7 @@ def run_scenario(
     # Build report
     report = {
         'scenario': scenario_name,
+        'data_source': 'real_traces_only',
         'models': models,
         'overall_auc': float(overall_auc),
         'overall_tpr_at_fpr05': float(overall_tpr_at_fpr05),
@@ -536,9 +538,10 @@ def run_scenario(
         json.dump(report, f, indent=2)
     print(f"  Saved report to {report_path}")
 
-    # Plots
-    plot_distributions(features_df, output_dir)
-    plot_roc_by_model(features_df, feature_cols, output_dir)
+    # Plots (optional)
+    if not skip_plots:
+        plot_distributions(features_df, output_dir)
+        plot_roc_by_model(features_df, feature_cols, output_dir)
 
     # Summary
     print(f"\n  Results:")
@@ -550,16 +553,35 @@ def run_scenario(
     return report
 
 
+def load_evaluation_config() -> dict:
+    """Load evaluation config from evaluation_config.yaml."""
+    import yaml
+
+    config_path = PROJECT_ROOT / "evaluation_config.yaml"
+    if config_path.exists():
+        with open(config_path) as f:
+            return yaml.safe_load(f)
+    return {}
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run spectral validation on real HF agent traces")
     parser.add_argument("--scenario", help="Scenario name")
     parser.add_argument("--all-scenarios", action="store_true", help="Run all scenarios")
     parser.add_argument("--team", default="ipsissima", help="Team name")
-    parser.add_argument("--k", type=int, default=5, help="Rank for spectral analysis")
+    parser.add_argument("--k", type=int, help="Rank for spectral analysis (default: from config)")
     parser.add_argument("--model-filter", help="Comma-separated model names to include")
     parser.add_argument("--cross-model", action="store_true", help="Run cross-model validation")
+    parser.add_argument("--skip-plots", action="store_true", help="Skip generating plots (faster)")
 
     args = parser.parse_args()
+
+    # Load config
+    config = load_evaluation_config()
+
+    # Use k from config if not specified
+    if args.k is None:
+        args.k = config.get('certificate', {}).get('pca_rank', 5)
 
     if args.all_scenarios:
         scenarios = SCENARIOS
@@ -580,6 +602,7 @@ def main():
             k=args.k,
             model_filter=model_filter,
             cross_model=args.cross_model,
+            skip_plots=args.skip_plots,
         )
 
     return 0

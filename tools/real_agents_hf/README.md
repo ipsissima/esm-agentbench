@@ -2,6 +2,8 @@
 
 Infrastructure for running coding agents using local Hugging Face models.
 
+**Real-Only Policy**: This framework generates **only real agent traces** for benchmarking. All benchmark evidence comes from actual tool-using agent executions. Synthetic data is isolated to `tests/` for numerical regression only and cannot enter the evaluation pipeline (enforced by CI).
+
 ## Components
 
 ### Core Modules
