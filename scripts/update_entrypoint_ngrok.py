@@ -67,7 +67,9 @@ def start_ngrok(port: str) -> subprocess.Popen:
 
 def fetch_ngrok_url(timeout: int = 20) -> str:
     require_requests()
-    api = "http://127.0.0.1:4040/api/tunnels"
+    ngrok_host = os.environ.get("NGROK_API_HOST", "127.0.0.1")
+    ngrok_api_port = os.environ.get("NGROK_API_PORT", "4040")
+    api = f"http://{ngrok_host}:{ngrok_api_port}/api/tunnels"
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 try:  # pragma: no cover - optional dependency
     import openai  # type: ignore
-except Exception:  # pragma: no cover - offline env
+except (ImportError, ModuleNotFoundError):  # pragma: no cover - offline env
     openai = None
 
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
@@ -122,8 +122,14 @@ def generate_perturbations(text: str, n: int = 3) -> List[str]:
         logger.debug(f"Generated {len(perturbations)} perturbations for robustness check")
         return perturbations
 
-    except Exception as exc:  # pragma: no cover - network call
-        logger.debug(f"Robustness Check Skipped: LLM call failed: {exc}")
+    except (TimeoutError, ConnectionError, OSError) as exc:  # pragma: no cover - network call
+        logger.debug(f"Robustness Check Skipped: Network error: {exc}")
+        return [text]
+    except AttributeError as exc:  # pragma: no cover - API version mismatch
+        logger.debug(f"Robustness Check Skipped: OpenAI API compatibility issue: {exc}")
+        return [text]
+    except Exception as exc:  # pragma: no cover - catch-all for API errors
+        logger.warning(f"Unexpected error in perturbation generation: {exc}", exc_info=True)
         return [text]
 
 

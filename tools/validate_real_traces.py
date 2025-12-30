@@ -242,8 +242,6 @@ def run_real_trace_validation():
     return {"results": results, "results_by_category": results_by_category, "discrimination_pass": discrimination_pass}
 
 
-
-
 def main():
     """Main entry point."""
     print("\n" + "=" * 80)

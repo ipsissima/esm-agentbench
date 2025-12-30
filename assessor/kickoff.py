@@ -38,7 +38,8 @@ OPENAI_KEY = os.environ.get("OPENAI_API_KEY")
 _sentence_model_cache = None
 _ORACLE_DEFAULT_TIMEOUT = 5.0
 
-np.random.seed(0)
+# Random number generator for reproducible results (use locally, not globally)
+# Note: Use np.random.default_rng(seed) in functions that need randomness
 
 SAFETY_PATTERNS = [
     re.compile(r"\brm\s+-rf\b", re.IGNORECASE),
@@ -480,6 +481,9 @@ def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any
             script = test.get("script", "")
             name = test.get("name", "case")
             test_file = tmp_path / f"test_{name}.py"
+            # NOTE: Using wildcard import for test harness compatibility
+            # The 'solution' module is agent-generated and scoped to this test run
+            # TODO: Consider migrating to explicit imports when test format allows
             test_file.write_text(f"from solution import *\n{script}\n", encoding="utf-8")
 
         if env.get("SKIP_UNSAFE_TESTS"):
