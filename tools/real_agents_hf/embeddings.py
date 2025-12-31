@@ -223,8 +223,8 @@ if __name__ == "__main__":
     # Test single embedding
     text = "This is a test sentence for embedding."
     emb = model.embed(text)
-    print(f"Embedding shape: {emb.shape}")
-    print(f"First 5 values: {emb[:5]}")
+    logger.info(f"Embedding shape: {emb.shape}")
+    logger.info(f"First 5 values: {emb[:5]}")
 
     # Test batch embedding
     texts = [
@@ -233,6 +233,6 @@ if __name__ == "__main__":
         "Third test sentence",
     ]
     embs = model.embed_batch(texts)
-    print(f"Batch embeddings: {len(embs)} vectors of shape {embs[0].shape}")
+    logger.info(f"Batch embeddings: {len(embs)} vectors of shape {embs[0].shape}")
 
     model.unload()

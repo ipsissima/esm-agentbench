@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,8 @@ except Exception:  # pragma: no cover - optional dependency
     openai = None
 
 
-def _build_client():
+def _build_client() -> Optional[Any]:
+    """Build an OpenAI client if available."""
     if openai is None:
         return None
     try:  # pragma: no cover - optional dependency

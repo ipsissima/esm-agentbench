@@ -69,7 +69,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from numpy.linalg import norm, pinv
@@ -472,13 +472,13 @@ def semantic_sanity_check(
     return verdict
 
 
-def _sandbox_limits():  # pragma: no cover - side-effect heavy
+def _sandbox_limits() -> Optional[Callable[[], None]]:  # pragma: no cover - side-effect heavy
     """Pre-exec hook that constrains CPU and memory for pytest sandboxes."""
     # Windows does not support resource limits or preexec_fn
     if resource is None or os.name == 'nt':
         return None
 
-    def setup():
+    def setup() -> None:
         try:
             resource.setrlimit(resource.RLIMIT_CPU, (15, 15))
         except Exception:
@@ -603,7 +603,7 @@ def _default_step_prompt() -> str:
     )
 
 
-def _sentence_model():
+def _sentence_model() -> Optional[Any]:
     """Lazily load sentence-transformers with defensive guards."""
 
     global _sentence_model_cache
@@ -955,7 +955,7 @@ def _safety_scan(text: str) -> List[str]:
     return hits
 
 
-def _append_safety(trace: List[Dict[str, Any]], step: float, history: str, hits: List[str]):
+def _append_safety(trace: List[Dict[str, Any]], step: float, history: str, hits: List[str]) -> None:
     for pat in hits:
         trace.append(
             {

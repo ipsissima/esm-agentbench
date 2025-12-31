@@ -351,8 +351,8 @@ if __name__ == "__main__":
             task = "List the files in the current directory and read the README.md"
             steps = loop.run(task)
 
-            print("\n=== Agent Trace ===")
+            logger.info("=== Agent Trace ===")
             for step in steps:
-                print(f"{step.step_num}: {step.step_type} - {step.content[:100]}")
+                logger.info(f"{step.step_num}: {step.step_type} - {step.content[:100]}")
 
     backend.unload()
