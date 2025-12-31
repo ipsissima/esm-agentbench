@@ -570,7 +570,7 @@ def load_evaluation_config() -> dict:
     return {}
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description="Run spectral validation on real HF agent traces")
     parser.add_argument("--scenario", help="Scenario name")
     parser.add_argument("--all-scenarios", action="store_true", help="Run all scenarios")

@@ -109,4 +109,4 @@ The `agent_card.toml` provides local-run instructions:
 entrypoint = "LOCAL: start with `python -m esmassessor.green_server --port 8080 --show-logs` then point harness to http://localhost:8080"
 ```
 
-See also: `SUBMISSIONS/README.md` for a complete reproduction guide.
+See also: `submissions/README.md` for a complete reproduction guide.
