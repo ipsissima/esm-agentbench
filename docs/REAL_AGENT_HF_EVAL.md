@@ -653,4 +653,4 @@ If you use this framework, cite the ESM AgentBench submission:
 
 - GitHub Issues: https://github.com/ipsissima/esm-agentbench/issues
 - Documentation: docs/REAL_AGENT_HF_EVAL.md
-- Phase-1 Specs: SUBMISSIONS/README.md
+- Phase-1 Specs: submissions/README.md

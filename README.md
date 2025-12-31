@@ -56,7 +56,7 @@ cat reports/spectral_validation_real_hf/*/validation_report.json
 - ✅ **Reproducible** — Judges can verify on their machines
 - ✅ **Two Modes** — Small (judge-friendly, CPU) or Full (comprehensive, GPU)
 
-**Documentation:** See `SUBMISSIONS/README.md` for complete details and `docs/REAL_AGENT_HF_EVAL.md` for technical architecture.
+**Documentation:** See `submissions/README.md` for complete details and `docs/REAL_AGENT_HF_EVAL.md` for technical architecture.
 
 ### Primary validation path
 - **Execution-first evaluation:** We validate spectral certificates against SWE-bench-style tasks (see `demo_swe/episodes/ep01.json`) where agent code runs and produces ground-truth traces.
