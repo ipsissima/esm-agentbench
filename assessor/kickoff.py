@@ -1,4 +1,57 @@
-"""Episode runner with chain-of-thought tracing, safety notes, and coherence analysis."""
+"""Episode runner with chain-of-thought tracing, safety notes, and coherence analysis.
+
+This module orchestrates agent evaluation episodes, including:
+- Multi-step agent interactions with safety monitoring
+- Spectral analysis of agent behavior trajectories
+- Certificate generation for robustness validation
+
+Module Structure
+----------------
+The module is organized into the following major sections:
+
+**Utilities (Lines 52-100)**
+    - `_utc_iso()`: Timestamp generation
+    - `_short_context()`: Context truncation
+    - `_chunk_response()`, `_split_steps()`: Response parsing
+    - `_extract_code()`, `_extract_verify_block()`: Code extraction
+
+**Agent Execution (Lines 122-340)**
+    - `run_agent_verify_block()`: Execute verification code in sandbox
+    - `deterministic_agent()`: Fallback deterministic agent
+    - `call_agent()`: Main agent API call wrapper with retry logic
+    - `semantic_sanity_check()`: LLM-based semantic validation
+
+**Unit Testing (Lines 449-545)**
+    - `run_unit_tests()`: Execute unit tests on agent-generated code
+
+**Embedding & Spectral Analysis (Lines 553-880)**
+    - `_sentence_model()`: Load sentence-transformers model
+    - `_tfidf_embeddings()`: TF-IDF fallback embeddings
+    - `_domain_aware_embeddings()`: Domain-specific embeddings
+    - `embed_trace_steps()`: Embed full trace for spectral analysis
+    - `compute_lipschitz_margin()`: Robustness margin computation
+    - `_compute_residuals()`: Spectral residual calculation
+
+**Safety & Analysis (Lines 881-987)**
+    - `segment_trace_by_jump()`: Detect trajectory jumps
+    - `_safety_scan()`: Pattern-based safety scanning
+    - `_detect_pivots()`: Identify behavioral pivots
+
+**Main Entry Point (Line 988+)**
+    - `run_episode()`: Main episode execution function
+
+Dependencies
+------------
+- numpy, sklearn: Spectral analysis and embeddings
+- sentence-transformers (optional): Semantic embeddings
+- openai (optional): LLM-based evaluation
+
+See Also
+--------
+- certificates/make_certificate.py: Certificate generation
+- assessor/robustness.py: Perturbation generation
+- esmassessor/config.py: Configuration validation
+"""
 from __future__ import annotations
 
 import datetime as _dt

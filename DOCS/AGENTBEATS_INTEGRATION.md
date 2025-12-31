@@ -28,12 +28,17 @@ Each assessment writes `demo_traces/<assessment>_<participant>_certificate.json`
 - Ports: green server `8080` by default.
 
 ## Calibration workflow
-- Generate or reuse seed traces if desired: `python tools/generate_seed_traces.py --trials 2 --backends sentence-transformers tfidf`.
-- Calibrate thresholds (dry-run for CI):
+- Generate real agent traces using local HuggingFace models:
+  ```bash
+  python tools/real_agents_hf/run_real_agents.py --scenario code_backdoor_injection --n 20
+  ```
+- Calibrate thresholds from real traces (dry-run for CI):
   ```bash
   python tools/calibrate_thresholds.py --backend sentence-transformers --trials 4 --dry-run
   ```
 - The script writes `certificates/calibration_sentence-transformers.json` and updates `evaluation_config.yaml` with `residual_threshold` and `jump_factor`.
+
+**Note:** All calibration must use real agent traces. Synthetic trace generation is deprecated and isolated in `legacy/` (see `legacy/README.md`).
 
 ## Validate Phase-1 scenarios locally
 

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 import warnings
 from itertools import combinations
@@ -34,6 +35,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -108,7 +111,7 @@ def load_real_hf_traces(traces_dir: Path, model_filter: Optional[List[str]] = No
 
     # Find model directories
     if not traces_dir.exists():
-        print(f"Warning: Trace directory not found: {traces_dir}")
+        logger.warning("Trace directory not found: %s", traces_dir)
         return all_traces
 
     for model_dir in sorted(traces_dir.iterdir()):
@@ -138,7 +141,7 @@ def load_real_hf_traces(traces_dir: Path, model_filter: Optional[List[str]] = No
                             data['label'] = label
                         model_traces[label].append(data)
                 except (json.JSONDecodeError, IOError) as e:
-                    print(f"Error loading {trace_file}: {e}")
+                    logger.warning("Error loading %s: %s", trace_file, e)
 
         if any(len(v) > 0 for v in model_traces.values()):
             all_traces[model_name] = model_traces
@@ -279,7 +282,7 @@ def run_cross_model_experiments(
         if not train_models:
             continue
 
-        print(f"  Cross-model: train={train_models}, test=[{test_model}]")
+        logger.info("  Cross-model: train=%s, test=[%s]", train_models, test_model)
 
         _, metrics = train_cross_model_classifier(
             features_df,
@@ -294,9 +297,12 @@ def run_cross_model_experiments(
             **metrics,
         })
 
-        print(f"    Train AUC: {metrics.get('train_auc', 0):.4f}, "
-              f"Test AUC: {metrics.get('test_auc', 0):.4f}, "
-              f"TPR@FPR05: {metrics.get('tpr_at_fpr05', 0):.4f}")
+        logger.info(
+            "    Train AUC: %.4f, Test AUC: %.4f, TPR@FPR05: %.4f",
+            metrics.get('train_auc', 0),
+            metrics.get('test_auc', 0),
+            metrics.get('tpr_at_fpr05', 0),
+        )
 
     return results
 
@@ -386,30 +392,30 @@ def run_scenario(
     dict
         Report
     """
-    print(f"\nProcessing scenario: {scenario_name}")
-    print(f"  Rank k = {k}")
+    logger.info("Processing scenario: %s", scenario_name)
+    logger.info("  Rank k = %d", k)
 
     # Load traces
     traces_dir = PROJECT_ROOT / "submissions" / team / scenario_name / "experiment_traces_real_hf"
     model_traces = load_real_hf_traces(traces_dir, model_filter)
 
     if not model_traces:
-        print(f"  No traces found in {traces_dir}")
+        logger.warning("  No traces found in %s", traces_dir)
         return {}
 
     models = list(model_traces.keys())
-    print(f"  Found models: {models}")
+    logger.info("  Found models: %s", models)
 
     # Flatten for per-model and overall analysis
     traces = flatten_traces(model_traces)
 
     total_traces = sum(len(v) for v in traces.values())
-    print(f"  Total traces: {total_traces}")
+    logger.info("  Total traces: %d", total_traces)
     for label, trace_list in traces.items():
-        print(f"    {label}: {len(trace_list)}")
+        logger.info("    %s: %d", label, len(trace_list))
 
     # Compute features
-    print(f"  Computing spectral features...")
+    logger.info("  Computing spectral features...")
 
     # Get baseline from gold traces
     gold_features = [
@@ -435,7 +441,7 @@ def run_scenario(
     # Save features
     csv_path = output_dir / 'features.csv'
     features_df.drop(columns=['_U_k'], errors='ignore').to_csv(csv_path, index=False)
-    print(f"  Saved features to {csv_path}")
+    logger.info("  Saved features to %s", csv_path)
 
     # Feature columns
     feature_cols = ['residual', 'theoretical_bound', 'sigma_max', 'singular_gap',
@@ -512,7 +518,7 @@ def run_scenario(
 
     # Cross-model validation
     if cross_model and len(models) > 1:
-        print(f"\n  Running cross-model validation...")
+        logger.info("  Running cross-model validation...")
         cross_results = run_cross_model_experiments(features_df, feature_cols, models)
 
         cross_report = {
@@ -528,7 +534,7 @@ def run_scenario(
         cross_report_path = output_dir / 'cross_model_report.json'
         with open(cross_report_path, 'w') as f:
             json.dump(cross_report, f, indent=2)
-        print(f"  Saved cross-model report to {cross_report_path}")
+        logger.info("  Saved cross-model report to %s", cross_report_path)
 
         report['cross_model'] = cross_report['summary']
 
@@ -536,7 +542,7 @@ def run_scenario(
     report_path = output_dir / 'validation_report.json'
     with open(report_path, 'w') as f:
         json.dump(report, f, indent=2)
-    print(f"  Saved report to {report_path}")
+    logger.info("  Saved report to %s", report_path)
 
     # Plots (optional)
     if not skip_plots:
@@ -544,11 +550,11 @@ def run_scenario(
         plot_roc_by_model(features_df, feature_cols, output_dir)
 
     # Summary
-    print(f"\n  Results:")
-    print(f"    Overall AUC: {report['overall_auc']:.4f}")
-    print(f"    Overall TPR @ FPR=0.05: {report['overall_tpr_at_fpr05']:.4f}")
+    logger.info("  Results:")
+    logger.info("    Overall AUC: %.4f", report['overall_auc'])
+    logger.info("    Overall TPR @ FPR=0.05: %.4f", report['overall_tpr_at_fpr05'])
     for model, metrics in per_model_results.items():
-        print(f"    {model}: AUC={metrics['auc']:.4f}, TPR@FPR05={metrics.get('tpr_at_fpr05', 0):.4f}")
+        logger.info("    %s: AUC=%.4f, TPR@FPR05=%.4f", model, metrics['auc'], metrics.get('tpr_at_fpr05', 0))
 
     return report
 
@@ -588,7 +594,7 @@ def main():
     elif args.scenario:
         scenarios = [args.scenario]
     else:
-        print("Must specify --scenario or --all-scenarios")
+        logger.error("Must specify --scenario or --all-scenarios")
         return 1
 
     model_filter = None
@@ -609,4 +615,8 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+    )
     sys.exit(main())

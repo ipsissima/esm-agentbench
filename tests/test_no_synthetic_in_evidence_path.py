@@ -80,6 +80,17 @@ def scan_file_for_patterns(file_path: Path, patterns: list) -> list:
     """
     matches = []
 
+    # Patterns indicating documentation/negation (not actual synthetic code)
+    negation_patterns = [
+        r"\bno\s+synthetic\b",
+        r"\bnon-synthetic\b",
+        r"\bnot\s+synthetic\b",
+        r"\bwithout\s+synthetic\b",
+        r"are\s+(not|no)\s+generated",
+        r"deprecated.*synthetic",
+        r"synthetic.*deprecated",
+    ]
+
     try:
         content = file_path.read_text()
         lines = content.split("\n")
@@ -87,6 +98,11 @@ def scan_file_for_patterns(file_path: Path, patterns: list) -> list:
         for line_num, line in enumerate(lines, 1):
             # Skip comments
             if line.strip().startswith("#"):
+                continue
+
+            # Skip lines that are documentation explaining real-only policy
+            line_lower = line.lower()
+            if any(re.search(p, line_lower, re.IGNORECASE) for p in negation_patterns):
                 continue
 
             for pattern in patterns:
