@@ -56,6 +56,9 @@ tools/real_trace_validation_results.json
 scenarios/*/attack_out/
 scenarios/*/baseline_out/
 
+# Per-user submission data (generated during test runs)
+submissions/*/
+
 # Note: validation_history/ is TRACKED (not ignored) to maintain audit trail
 
 Docker
