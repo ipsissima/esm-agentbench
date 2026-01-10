@@ -15,11 +15,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install apt packages
+      - name: Install apt packages (no docker)
         run: |
           sudo apt-get update
-          sudo apt-get install -y docker.io git ffmpeg imagemagick espeak jq curl bc fonts-dejavu-core
-          sudo systemctl start docker || sudo service docker start || true
+          # do NOT install docker.io on ubuntu-latest (containerd conflict)
+          sudo apt-get install -y git ffmpeg imagemagick espeak jq curl bc fonts-dejavu-core
+          # start docker if present
+          if command -v docker >/dev/null 2>&1; then
+            echo "Docker present: $(docker --version)"
+            sudo systemctl start docker || sudo service docker start || true
+          else
+            echo "Docker not found on runner. If this occurs on a custom runner, install Docker separately."
+            exit 1
+          fi
 
       - name: Make script executable
         run: chmod +x ./make_demo_auto.sh
