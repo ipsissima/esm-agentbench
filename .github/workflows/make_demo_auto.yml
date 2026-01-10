@@ -1,0 +1,69 @@
+name: Build Demo Video (Automated, No Humans, ElevenLabs smoke-test)
+
+on:
+  push:
+    branches:
+      - 'claude/agentx-competition-prep-oj95n'
+  workflow_dispatch:
+
+jobs:
+  build-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install apt packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker.io git ffmpeg imagemagick espeak jq curl bc fonts-dejavu-core
+          sudo systemctl start docker || sudo service docker start || true
+
+      - name: Make script executable
+        run: chmod +x ./make_demo_auto.sh
+
+      - name: ElevenLabs smoke test (optional)
+        env:
+          ELEVEN_API_KEY: ${{ secrets.ELEVEN_API_KEY }}
+          ELEVEN_VOICE: ${{ secrets.ELEVEN_VOICE }}
+        run: |
+          set -euo pipefail
+          if [ -n "${ELEVEN_API_KEY:-}" ]; then
+            echo "Testing ElevenLabs TTS..."
+            text='Quick voice test for AgentX demo.'
+            # request a tiny MP3 and return http code
+            http_code=$(curl -s -w "%{http_code}" -o sample_eleven.mp3 \
+              -X POST "https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE}" \
+              -H "Accept: audio/mpeg" \
+              -H "Content-Type: application/json" \
+              -H "xi-api-key: ${ELEVEN_API_KEY}" \
+              -d "{\"text\": \"$text\"}")
+            echo "ElevenLabs HTTP status: $http_code"
+            if [ "$http_code" != "200" ]; then
+              echo "::warning::ElevenLabs TTS smoke-test returned HTTP $http_code. The main demo will still run and fall back to espeak if necessary."
+              # print small diagnostic body (masked) - do not leak the key
+              if [ -s sample_eleven.mp3 ]; then
+                echo "sample_eleven.mp3 exists with size $(wc -c < sample_eleven.mp3) bytes"
+              else
+                echo "No sample audio produced."
+              fi
+            else
+              echo "ElevenLabs smoke-test OK. sample_eleven.mp3 size: $(wc -c < sample_eleven.mp3) bytes"
+            fi
+          else
+            echo "ELEVEN_API_KEY not set; skipping ElevenLabs test (will use espeak fallback)."
+          fi
+
+      - name: Run automated demo script (ElevenLabs optional)
+        env:
+          ELEVEN_API_KEY: ${{ secrets.ELEVEN_API_KEY }}
+          ELEVEN_VOICE: ${{ secrets.ELEVEN_VOICE }}
+        run: ./make_demo_auto.sh
+
+      - name: Upload demo artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-3min-final
+          path: demo_3min_final.mp4
