@@ -292,6 +292,14 @@ A:
 
 For questions or issues, open an issue at: https://github.com/ipsissima/esm-agentbench/issues
 
+## Contributors & Provenance
+
+See the following files in the repository root for contributor and provenance information:
+
+- [`CONTRIBUTORS.md`](../CONTRIBUTORS.md) — List of human and AI contributors
+- [`AGENT_PROVENANCE.md`](../AGENT_PROVENANCE.md) — Agent-generated code mapping
+- [`REVIEWED_BY_ANDREU.md`](../REVIEWED_BY_ANDREU.md) — Human review sign-off
+
 ## License
 
 MIT License (see LICENSE file)
