@@ -326,12 +326,12 @@ def main():
 
     # Apply mode presets
     if args.mode == "small":
-        # Small mode: judge-friendly, CPU-ok, 1 quantized model, 8-12 runs
+        # Small mode: judge-friendly, CPU-ok, tiny model for offline Docker runs
         if args.models is None:
-            args.models = "phi-3-mini-instruct"  # Small, efficient, quantized
+            args.models = "tiny-test"  # Tiny model for fast offline judge verification
         if args.n is None:
             args.n = 10
-        logger.info("Using SMALL mode: 1 model, 10 runs/label, CPU-friendly")
+        logger.info("Using SMALL mode: 1 tiny model, 10 runs/label, fully offline")
     elif args.mode == "full":
         # Full mode: comprehensive, 3+ models, 30-50 runs
         if args.models is None:

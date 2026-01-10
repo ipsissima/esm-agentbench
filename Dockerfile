@@ -17,6 +17,12 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 # This avoids network access at runtime and the unshare permission issue
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
+# Pre-download the tiny-test model for offline judge mode
+# This ensures docker run works without any network access
+RUN python -c "from transformers import AutoModelForCausalLM, AutoTokenizer; \
+    AutoTokenizer.from_pretrained('HuggingFaceH4/tiny-random-LlamaForCausalLM'); \
+    AutoModelForCausalLM.from_pretrained('HuggingFaceH4/tiny-random-LlamaForCausalLM')"
+
 COPY . /app
 
 # Create user and set permissions (including model directory)
