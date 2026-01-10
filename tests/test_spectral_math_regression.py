@@ -133,26 +133,26 @@ class TestSpectralMathRegression:
 
     def test_drift_vs_gold_synthetic(self):
         """Synthetic drift trace should have higher bound than gold."""
-        # Gold: stable trajectory
-        gold = generate_synthetic_trace(seed=100, dim=128, n_steps=8)
+        # Gold: stable trajectory (use a larger trajectory for more stable PCA)
+        gold = generate_synthetic_trace(seed=100, dim=64, n_steps=12)
 
-        # Drift: add orthogonal component to simulate drift
+        # Drift: inject random noise that increases over time to disrupt dynamics
+        # This simulates actual drift where the system becomes less predictable
         rng = np.random.default_rng(200)
-        drift_direction = rng.standard_normal(128)
-        drift_direction /= np.linalg.norm(drift_direction)
 
         drift = []
-        for i in range(8):
-            # Gradually drift away from gold direction
-            mix = 0.3 + i * 0.1
-            vec = (1 - mix) * gold[i] + mix * drift_direction
+        for i in range(12):
+            # Add time-varying random noise (not converging to a direction)
+            noise_scale = 0.05 + i * 0.08  # Noise grows from 0.05 to 0.93
+            random_noise = rng.standard_normal(64) * noise_scale
+            vec = gold[i] + random_noise
             drift.append(vec / np.linalg.norm(vec))
         drift = np.array(drift)
 
         gold_bound = compute_koopman_residual(gold) + (1 - compute_pca_energy(gold, k=3))
         drift_bound = compute_koopman_residual(drift) + (1 - compute_pca_energy(drift, k=3))
 
-        # Drift should have higher bound (less stable)
+        # Drift should have higher bound (less stable, less predictable)
         assert drift_bound > gold_bound, f"Drift bound {drift_bound} should exceed gold {gold_bound}"
 
 

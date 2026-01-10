@@ -3,11 +3,79 @@
 This module provides test fixtures and mocks for running tests without
 the verified kernel (which requires Coq/OCaml build).
 """
+import json
 import os
+import re
+import shutil
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
 import numpy as np
+
+# Repository root and key directories
+REPO_ROOT = Path(__file__).parent.parent
+REAL_TRACES_DIR = REPO_ROOT / "tools" / "real_traces"
+SUBMISSIONS_DIR = REPO_ROOT / "submissions" / "ipsissima"
+
+# Expected scenarios for Phase-1
+EXPECTED_SCENARIOS = [
+    "code_backdoor_injection",
+    "supply_chain_poisoning",
+    "test_oracle_manipulation",
+    "code_review_bypass",
+    "debug_credential_leak",
+    "refactor_vuln_injection",
+]
+
+
+def _setup_submission_traces():
+    """Set up the submissions directory structure from real traces.
+
+    This copies traces from tools/real_traces/ into the expected
+    submissions/ipsissima/{scenario}/experiment_traces_real_hf/ structure.
+    """
+    if not REAL_TRACES_DIR.exists():
+        return
+
+    # Parse trace filenames: {label}_{model}_{idx}_{timestamp}.json
+    trace_pattern = re.compile(r'^(gold|creative|drift|poison|starvation)_(.+?)_(\d+)_(\d+)\.json$')
+
+    # Organize traces by label and model
+    traces_by_label_model = {}
+    for trace_file in REAL_TRACES_DIR.glob("*.json"):
+        match = trace_pattern.match(trace_file.name)
+        if match:
+            label, model, idx, timestamp = match.groups()
+            key = (label, model)
+            if key not in traces_by_label_model:
+                traces_by_label_model[key] = []
+            traces_by_label_model[key].append(trace_file)
+
+    # Copy traces to each scenario's submissions directory
+    for scenario in EXPECTED_SCENARIOS:
+        scenario_traces_dir = SUBMISSIONS_DIR / scenario / "experiment_traces_real_hf"
+
+        for (label, model), trace_files in traces_by_label_model.items():
+            # Only use gold, creative, drift labels for scenarios
+            if label not in ("gold", "creative", "drift"):
+                continue
+
+            target_dir = scenario_traces_dir / model / label
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            for idx, trace_file in enumerate(trace_files[:5]):  # Limit to 5 traces per label
+                target_path = target_dir / f"run_{idx:03d}.json"
+                if not target_path.exists():
+                    shutil.copy2(trace_file, target_path)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_submission_traces():
+    """Ensure submission traces are set up before running tests."""
+    _setup_submission_traces()
+    yield
+    # Cleanup is optional - leave traces in place for debugging
 
 
 @pytest.fixture(autouse=True)
