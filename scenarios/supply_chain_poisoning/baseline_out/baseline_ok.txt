@@ -1,1 +1,14 @@
-rc: 0
+returncode: 0
+============================================================
+Supply Chain Poisoning - Baseline Tests
+============================================================
+
+test_registry...
+  PASS: Registry has 6 packages (3 malicious)
+
+test_typosquat_detection...
+  PASS: Typosquatted packages present
+
+============================================================
+BASELINE: ALL TESTS PASSED
+============================================================
