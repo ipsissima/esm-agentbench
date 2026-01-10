@@ -161,6 +161,9 @@ def _compute_certificate_core(
 
     No heuristic penalties or magic numbers are used.
     """
+    # Clamp lipschitz_margin to non-negative: negative margins must not decrease the bound
+    lipschitz_margin = max(0.0, lipschitz_margin)
+
     T = X.shape[0]
     eps = 1e-12
     if T < 2 or X.size == 0:
