@@ -9,6 +9,10 @@ on:
     branches:
       - main
 
+env:
+  # Skip verified kernel (requires Coq/OCaml build) and use Python fallback
+  ESM_SKIP_VERIFIED_KERNEL: "1"
+
 jobs:
   validate-phase1:
     runs-on: ubuntu-latest

@@ -16,6 +16,8 @@ jobs:
     env:
       IMAGE_NAME: esm-agentbench:ci
       CONTAINER_NAME: esm-assessor
+      # Default to Python fallback; kernel build step may enable verified kernel if successful
+      ESM_SKIP_VERIFIED_KERNEL: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -69,9 +71,12 @@ jobs:
           if [ -f "UELAT/kernel_verified.so" ]; then
             echo "Verified kernel available at UELAT/kernel_verified.so"
             ls -la UELAT/kernel_verified.so
+            # Enable verified kernel since it was built successfully
+            echo "ESM_SKIP_VERIFIED_KERNEL=0" >> $GITHUB_ENV
+            echo "VERIFIED_KERNEL_PATH=$(pwd)/UELAT/kernel_verified.so" >> $GITHUB_ENV
           else
             echo "Note: Kernel not built, will use Python fallback (ESM_SKIP_VERIFIED_KERNEL=1)"
-            echo "ESM_SKIP_VERIFIED_KERNEL=1" >> $GITHUB_ENV
+            # ESM_SKIP_VERIFIED_KERNEL already set to 1 in job env
           fi
 
       - name: Run Unit Tests

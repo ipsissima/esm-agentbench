@@ -12,6 +12,8 @@ on:
 env:
   SPECTRAL_MIN_AUC: "0.90"
   SPECTRAL_MIN_TPR_FPR05: "0.80"
+  # Skip verified kernel (requires Coq/OCaml build) and use Python fallback
+  ESM_SKIP_VERIFIED_KERNEL: "1"
 
 jobs:
   validate-spectral:

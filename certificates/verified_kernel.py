@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 
 # Global kernel handle
 _kernel_lib: Optional[ctypes.CDLL] = None
+# Sentinel to track if we already tried and failed to load the kernel
+_kernel_load_attempted: bool = False
+_kernel_load_warning_logged: bool = False
+# Track whether we've already logged the "unavailable" fallback warning
+_fallback_warning_logged: bool = False
 
 
 class KernelError(RuntimeError):
@@ -72,7 +77,7 @@ def load_kernel(strict: bool = True) -> Optional[ctypes.CDLL]:
     ----------
     strict : bool
         If True, raise KernelError if kernel cannot be loaded.
-        If False, return None and log a warning.
+        If False, return None and log a warning (only once).
 
     Returns
     -------
@@ -85,10 +90,24 @@ def load_kernel(strict: bool = True) -> Optional[ctypes.CDLL]:
         If strict=True and kernel cannot be loaded.
     """
 
-    global _kernel_lib
+    global _kernel_lib, _kernel_load_attempted, _kernel_load_warning_logged
 
+    # Fast path: already loaded successfully
     if _kernel_lib is not None:
         return _kernel_lib
+
+    # Fast path: already tried and failed (avoid repeated warnings)
+    if _kernel_load_attempted:
+        if strict:
+            raise KernelError(
+                "Verified kernel not available. "
+                "Build with: ./build_kernel.sh "
+                "or set VERIFIED_KERNEL_PATH environment variable."
+            )
+        return None
+
+    # Mark that we're attempting to load
+    _kernel_load_attempted = True
 
     kernel_path = _locate_kernel()
     if not kernel_path:
@@ -99,7 +118,10 @@ def load_kernel(strict: bool = True) -> Optional[ctypes.CDLL]:
         )
         if strict:
             raise KernelError(msg)
-        logger.warning(msg)
+        # Only log warning once
+        if not _kernel_load_warning_logged:
+            logger.warning(msg)
+            _kernel_load_warning_logged = True
         return None
 
     try:
@@ -110,7 +132,10 @@ def load_kernel(strict: bool = True) -> Optional[ctypes.CDLL]:
         msg = f"Failed to load verified kernel from {kernel_path}: {exc}"
         if strict:
             raise KernelError(msg) from exc
-        logger.warning(msg)
+        # Only log warning once
+        if not _kernel_load_warning_logged:
+            logger.warning(msg)
+            _kernel_load_warning_logged = True
         return None
 
 
@@ -206,7 +231,7 @@ def compute_residual(
     if kernel is None:
         if strict:
             raise KernelError("Verified kernel not available")
-        logger.warning("Verified kernel unavailable; returning 0.0 for residual")
+        # Fallback: return 0.0 (warning already logged by load_kernel)
         return 0.0
 
     try:
@@ -317,7 +342,7 @@ def compute_bound(
     if kernel is None:
         if strict:
             raise KernelError("Verified kernel not available")
-        logger.warning("Verified kernel unavailable; computing bound in Python")
+        # Fallback: compute in Python (warning already logged by load_kernel)
         return c_res * residual + c_tail * tail_energy + c_sem * semantic_divergence + c_robust * lipschitz_margin
 
     try:
@@ -328,13 +353,6 @@ def compute_bound(
         #
         # Note: We pass dummy matrices for X0, X1, A since bound computation doesn't use them
         # The kernel returns the bound in out_bound
-
-        kernel = load_kernel(strict=strict)
-        if kernel is None:
-            if strict:
-                raise KernelError("Verified kernel not available for bound computation")
-            logger.warning("Verified kernel unavailable; using unverified Python computation")
-            return c_res * residual + c_tail * tail_energy + c_sem * semantic_divergence + c_robust * lipschitz_margin
 
         kernel_compute_bound_fn = kernel.kernel_compute_certificate_wrapper
         kernel_compute_bound_fn.argtypes = [
@@ -421,8 +439,8 @@ def compute_certificate(
     if kernel is None:
         if strict:
             raise KernelError("Verified kernel not available")
-        logger.warning("Verified kernel unavailable; falling back to unverified Python")
         # Fallback: compute in Python (not verified)
+        # Warning already logged by load_kernel
         residual = compute_residual(X0, X1, A, strict=False)
         bound = compute_bound(residual, tail_energy, semantic_divergence, lipschitz_margin, strict=False)
         return (residual, bound)
