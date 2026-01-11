@@ -603,9 +603,13 @@ def _default_step_prompt() -> str:
     )
 
 
-def _sentence_model() -> Optional[Any]:
-    """Lazily load sentence-transformers with defensive guards."""
+def _sentence_model() -> Any:
+    """Lazily load sentence-transformers.
 
+    Raises RuntimeError if sentence-transformers is unavailable.
+    SBERT is the required primary embedding method - TF-IDF fallback
+    is only available via explicit ESM_FORCE_TFIDF=1 env var.
+    """
     global _sentence_model_cache
     if _sentence_model_cache is not None:
         return _sentence_model_cache
@@ -616,9 +620,11 @@ def _sentence_model() -> Optional[Any]:
         _sentence_model_cache = model
         return model
     except Exception as exc:  # pragma: no cover - optional dependency
-        logger.warning("sentence-transformers unavailable: %s. Falling back to TF-IDF.", exc)
-        _sentence_model_cache = None
-        return None
+        raise RuntimeError(
+            f"sentence-transformers required but unavailable: {exc}. "
+            "Install with: pip install sentence-transformers. "
+            "To force TF-IDF fallback (not recommended), set ESM_FORCE_TFIDF=1"
+        ) from exc
 
 
 def _tfidf_embeddings(texts: List[str]) -> np.ndarray:
@@ -743,7 +749,9 @@ def _normalize_and_check_embeddings(
 
 
 def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
-    """Embed trace steps with tiered fallbacks to avoid hard failures.
+    """Embed trace steps using semantic embeddings.
+
+    Preference order: OpenAI embeddings -> sentence-transformers (SBERT).
 
     Preference order: OpenAI embeddings -> sentence-transformers -> TF-IDF.
     All stages are exception-safe so missing or incompatible dependencies do
@@ -751,6 +759,8 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
 
     All embeddings are L2-normalized and checked for degeneracy before returning.
     """
+    # Check if TF-IDF is explicitly forced (for debugging only)
+    force_tfidf = os.environ.get("ESM_FORCE_TFIDF", "").lower() in ("1", "true", "yes")
 
     # MASK system/test noise with placeholder instead of filtering out.
     # This preserves temporal structure (trace length) while removing noise.
@@ -773,6 +783,20 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
     if not texts:
         texts = [str(step.get("text", "")) for step in trace]
 
+    # If TF-IDF is explicitly forced, use it directly (debugging/explainability only)
+    if force_tfidf:
+        logger.warning("ESM_FORCE_TFIDF=1: Using TF-IDF embeddings (not recommended for production)")
+        tfidf_arr = _tfidf_embeddings(texts)
+        tfidf_arr = np.asarray(tfidf_arr, dtype=float)
+        if tfidf_arr.ndim == 1:
+            tfidf_arr = tfidf_arr.reshape(len(texts), -1)
+        if tfidf_arr.shape[0] != len(texts):
+            tfidf_arr = np.resize(tfidf_arr, (len(texts), tfidf_arr.shape[1] if tfidf_arr.ndim > 1 else 1))
+        if tfidf_arr.size == 0:
+            tfidf_arr = np.zeros((len(texts), 1), dtype=float)
+        return tfidf_arr
+
+    # Try OpenAI embeddings first (if available)
     if OPENAI_KEY and openai is not None:
         try:  # pragma: no cover - external call
             if hasattr(openai, "OpenAI"):
