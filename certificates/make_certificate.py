@@ -38,6 +38,10 @@ from .verified_kernel import compute_certificate as kernel_compute_certificate, 
 logger = logging.getLogger(__name__)
 
 
+class DegenerateEmbeddingError(ValueError):
+    """Raised when embeddings collapse to near-constant vectors."""
+
+
 def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
     """Compute out-of-sample residual using time-series cross-validation.
 
@@ -355,13 +359,30 @@ def _compute_certificate_core(
 
     No heuristic penalties or magic numbers are used.
     """
+    X = np.asarray(X, dtype=float)
+    if X.ndim == 1:
+        X = X.reshape(-1, 1)
+
+    # Strict L2 normalization to enforce scaling invariance across traces
+    eps = 1e-12
+    norms = norm(X, axis=1, keepdims=True)
+    safe_norms = np.where(norms > eps, norms, 1.0)
+    X = X / safe_norms
+
     # Clamp lipschitz_margin to non-negative: negative margins must not decrease the bound
     lipschitz_margin = max(0.0, lipschitz_margin)
 
     T = X.shape[0]
-    eps = 1e-12
     if T < 2 or X.size == 0:
         return _initial_empty_certificate()
+
+    # Collapse detection: mean per-dimension variance for normalized embeddings
+    embedding_variance_ratio = float(np.var(X, axis=0).mean())
+    if embedding_variance_ratio < 1e-6:
+        raise DegenerateEmbeddingError(
+            "Degenerate embeddings detected: mean per-dimension variance "
+            f"{embedding_variance_ratio:.2e} < 1e-6."
+        )
 
     # === SEMANTIC DIVERGENCE ===
     # Compute semantic divergence BEFORE augmentation (use raw embeddings)
