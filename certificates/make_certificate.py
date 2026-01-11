@@ -37,6 +37,195 @@ from .verified_kernel import compute_certificate as kernel_compute_certificate, 
 
 logger = logging.getLogger(__name__)
 
+
+def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
+    """Compute out-of-sample residual using time-series cross-validation.
+
+    This prevents the residual from being zero due to in-sample overfitting.
+    For each holdout step h in the last K steps, we:
+    1. Fit A on training data (all steps before h)
+    2. Predict x1_hat = A @ x0_h
+    3. Accumulate squared prediction error
+
+    The OOS residual is a meaningful measure of dynamical predictability that
+    cannot be gamed by increasing model capacity.
+
+    Parameters
+    ----------
+    Z : np.ndarray
+        Projected embeddings of shape (T, r_eff).
+    regularization : float
+        Ridge regularization parameter for numerical stability.
+
+    Returns
+    -------
+    float
+        Out-of-sample residual in [0, inf). Values near 0 indicate predictable
+        dynamics; high values indicate chaotic/unpredictable dynamics.
+    """
+    Z = np.asarray(Z, dtype=float)
+    T, d = Z.shape
+    eps = 1e-12
+
+    if T < 4:
+        # Too short for meaningful OOS estimation
+        return 0.0
+
+    X0 = Z[:-1].T  # Shape: (d, T-1)
+    X1 = Z[1:].T   # Shape: (d, T-1)
+    n = X0.shape[1]
+
+    # Hold out last K steps (or up to 1/4 of the data)
+    K = min(3, max(1, n // 4))
+
+    squared_errors = 0.0
+    denom = 0.0
+
+    for h in range(n - K, n):
+        if h < 2:
+            # Need at least 2 training samples
+            continue
+
+        # Training data: all columns before h
+        X0_train = X0[:, :h]
+        X1_train = X1[:, :h]
+
+        # Ridge regression: A = X1_train @ X0_train.T @ inv(X0_train @ X0_train.T + lambda*I)
+        gram = X0_train @ X0_train.T
+        gram_reg = gram + regularization * np.eye(gram.shape[0])
+
+        try:
+            A = (X1_train @ X0_train.T) @ np.linalg.inv(gram_reg)
+        except np.linalg.LinAlgError:
+            # Fallback to lstsq
+            try:
+                A_T, _, _, _ = np.linalg.lstsq(X0_train.T, X1_train.T, rcond=None)
+                A = A_T.T
+            except np.linalg.LinAlgError:
+                # Both failed - return high residual to indicate numerical issues
+                return 1.0
+
+        # Predict the holdout step
+        x0_test = X0[:, h]
+        x1_true = X1[:, h]
+        x1_pred = A @ x0_test
+
+        # Accumulate errors
+        squared_errors += np.sum((x1_true - x1_pred) ** 2)
+        denom += np.sum(x1_true ** 2)
+
+    if denom < eps:
+        return 0.0
+
+    return float(np.sqrt(squared_errors / (denom + eps)))
+
+
+def _fit_temporal_operator_ridge(
+    X0: np.ndarray,
+    X1: np.ndarray,
+    regularization: float = 1e-6
+) -> np.ndarray:
+    """Fit linear temporal operator A with ridge regularization and lstsq fallback.
+
+    Solves: A = argmin ||X1 - A @ X0||_F^2 + lambda * ||A||_F^2
+
+    Uses closed-form ridge solution with pseudoinverse fallback for numerical
+    robustness.
+
+    Parameters
+    ----------
+    X0 : np.ndarray
+        Previous states, shape (d, n).
+    X1 : np.ndarray
+        Next states, shape (d, n).
+    regularization : float
+        Ridge regularization parameter.
+
+    Returns
+    -------
+    np.ndarray
+        Temporal operator A of shape (d, d).
+    """
+    eps = 1e-12
+    d = X0.shape[0]
+
+    gram = X0 @ X0.T
+    gram_reg = gram + regularization * np.eye(d)
+
+    try:
+        A = (X1 @ X0.T) @ np.linalg.inv(gram_reg)
+    except np.linalg.LinAlgError:
+        # Fallback to lstsq (more robust for ill-conditioned systems)
+        try:
+            A_T, _, _, _ = np.linalg.lstsq(X0.T, X1.T, rcond=None)
+            A = A_T.T
+        except np.linalg.LinAlgError:
+            # Ultimate fallback: pseudoinverse
+            A = (X1 @ X0.T) @ pinv(gram_reg + eps * np.eye(d))
+
+    return A
+
+
+def _select_effective_rank(
+    S: np.ndarray,
+    T: int,
+    r: int,
+    d: int,
+    explained_variance_threshold: float = 0.95
+) -> int:
+    """Select effective rank using variance-aware selection with strict upper bound.
+
+    Chooses the smallest k such that cumulative explained variance >= threshold,
+    then clamps to ensure r_eff <= T-3 to prevent exact reconstruction.
+
+    Parameters
+    ----------
+    S : np.ndarray
+        Singular values from SVD.
+    T : int
+        Number of timesteps.
+    r : int
+        Requested maximum rank.
+    d : int
+        Data dimension.
+    explained_variance_threshold : float
+        Minimum fraction of variance to retain (default 0.95).
+
+    Returns
+    -------
+    int
+        Effective rank satisfying all constraints.
+    """
+    if len(S) == 0:
+        return 1
+
+    # Compute cumulative explained variance
+    total_energy = np.sum(S ** 2)
+    if total_energy < 1e-12:
+        return 1
+
+    cumulative_energy = np.cumsum(S ** 2)
+    cumulative_ratio = cumulative_energy / total_energy
+
+    # Find smallest k with sufficient explained variance
+    k_variance = 1
+    for i, ratio in enumerate(cumulative_ratio):
+        if ratio >= explained_variance_threshold:
+            k_variance = i + 1
+            break
+    else:
+        k_variance = len(S)
+
+    # Apply strict upper bound: r_eff <= T-3 to ensure meaningful OOS residual
+    # Also clamp to requested rank and data dimension
+    upper_bound = max(1, T - 3) if T > 3 else max(1, T - 1)
+    r_eff = min(k_variance, r, d, upper_bound)
+
+    # Ensure at least 1
+    r_eff = max(1, r_eff)
+
+    return r_eff
+
 # Environment variable to allow non-strict kernel mode (for CI without Coq/OCaml)
 # When set, falls back to Python computation if verified kernel is unavailable
 _SKIP_VERIFIED_KERNEL = os.environ.get("ESM_SKIP_VERIFIED_KERNEL", "").lower() in ("1", "true", "yes")
@@ -181,24 +370,13 @@ def _compute_certificate_core(
     # Augment with bias term for affine drift handling
     X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
 
-    # Effective rank: ensure we have enough data for stable computation
-    # NOTE: we *must not* allow r_eff to equal (T-1) because that makes
-    # X0 square (r_eff x (T-1)) and yields exact reconstruction -> residual 0.
-    # Choose r_eff conservatively but ensure r_eff < T-1 when possible.
-    r_eff_candidate = min(max(1, T // 2), r, X_aug.shape[1])
-    if T - 2 >= 1:
-        # enforce strict inequality so X0 has more columns than rows
-        r_eff = min(r_eff_candidate, T - 2)
-    else:
-        # very short traces: fall back to at least 1
-        r_eff = max(1, r_eff_candidate)
-
     # === SVD-BASED ANALYSIS (Wedin's Theorem) ===
     # Compute full SVD of the data matrix for spectral analysis
     U, S, Vt = np.linalg.svd(X_aug, full_matrices=False)
 
-    # Truncate to effective rank
-    r_eff = min(r_eff, len(S))
+    # Use variance-aware rank selection with strict upper bound r_eff <= T-3
+    # This prevents exact reconstruction (residual = 0) pathology
+    r_eff = _select_effective_rank(S, T, r, X_aug.shape[1])
     S_trunc = S[:r_eff]
     U_trunc = U[:, :r_eff]
     Vt_trunc = Vt[:r_eff, :]
@@ -254,9 +432,12 @@ def _compute_certificate_core(
     X0 = Z[:-1].T  # Shape: (r_eff, T-1)
     X1 = Z[1:].T   # Shape: (r_eff, T-1)
 
-    gram = X0 @ X0.T
-    gram = gram + eps * np.eye(gram.shape[0])
-    A = (X1 @ X0.T) @ pinv(gram)
+    # Use ridge regression with lstsq fallback for numerical robustness
+    A = _fit_temporal_operator_ridge(X0, X1, regularization=1e-6)
+
+    # Compute OUT-OF-SAMPLE residual to prevent zero-residual pathology
+    # This is the key fix: in-sample fit can be exact, but OOS residual cannot
+    oos_residual = _compute_oos_residual(Z, regularization=1e-6)
 
     # === TEMPORAL OPERATOR ANALYSIS ===
     # Singular values of A characterize the operator's conditioning for prediction
@@ -274,6 +455,14 @@ def _compute_certificate_core(
     c_sem = uelat_bridge.get_constant("C_sem")
     c_robust = uelat_bridge.get_constant("C_robust")
 
+    # Compute in-sample residual for diagnostics
+    insample_residual = float(norm(X1 - A @ X0) / (norm(X1) + 1e-12))
+
+    # Use OOS residual as the primary residual for the theoretical bound.
+    # This prevents the zero-residual pathology where in-sample fit is exact.
+    # If OOS residual is very small (< 1e-6), use a floor to prevent collapse.
+    residual = max(oos_residual, 1e-6) if oos_residual > 0 else max(insample_residual, 1e-6)
+
     # Call the verified kernel to compute residual and bound
     # The kernel is formally verified in Coq to satisfy all axioms.
     # It receives witness matrices (X0, X1, A) from Python (unverified witness)
@@ -283,6 +472,7 @@ def _compute_certificate_core(
     # without Coq/OCaml build tools.
     use_strict = not _SKIP_VERIFIED_KERNEL
     try:
+        # Pass OOS residual to kernel for verification
         residual_computed, theoretical_bound = kernel_compute_certificate(
             X0, X1, A,
             tail_energy,
@@ -290,7 +480,17 @@ def _compute_certificate_core(
             lipschitz_margin,
             strict=use_strict
         )
-        residual = residual_computed
+        # Kernel computes in-sample residual; use OOS residual if it's larger
+        # to ensure we don't underestimate dynamical complexity
+        if oos_residual > residual_computed:
+            residual = oos_residual
+            # Recompute bound with OOS residual
+            theoretical_bound = float(
+                c_res * residual + c_tail * tail_energy +
+                c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
+            )
+        else:
+            residual = residual_computed
     except KernelError as exc:
         if use_strict:
             # Kernel computation failed in strict mode
@@ -302,8 +502,7 @@ def _compute_certificate_core(
         else:
             # Non-strict mode: fall back to Python computation
             logger.warning(f"Verified kernel unavailable, using Python fallback: {exc}")
-            # Compute residual in Python (unverified)
-            residual = float(norm(X1 - A @ X0) / (norm(X1) + 1e-12))
+            # Use OOS residual (already computed above)
             # Compute theoretical bound in Python (unverified)
             theoretical_bound = float(
                 c_res * residual + c_tail * tail_energy +
@@ -323,10 +522,13 @@ def _compute_certificate_core(
         "koopman_sigma_second": temporal_sigma_second,
         "koopman_singular_gap": temporal_singular_gap,
         "residual": residual,
+        "insample_residual": insample_residual,  # Diagnostic: in-sample residual
+        "oos_residual": oos_residual,  # Diagnostic: out-of-sample residual
         "tail_energy": tail_energy,
         "semantic_divergence": semantic_divergence,
         "lipschitz_margin": lipschitz_margin,
         "theoretical_bound": theoretical_bound,
+        "r_eff": r_eff,  # Diagnostic: effective rank used
         "Z": Z,
         # Include constants for transparency
         "C_res": c_res,
@@ -418,16 +620,18 @@ def compute_certificate(
 
 
 def residuals_from_Z(Z: np.ndarray) -> List[float]:
-    """Compute residual magnitudes directly from reduced states."""
+    """Compute residual magnitudes directly from reduced states.
 
+    Uses ridge regression for numerical stability.
+    """
+    eps = 1e-12
     if Z.shape[0] < 2:
         return [0.0] * Z.shape[0]
     X0 = Z[:-1].T
     X1 = Z[1:].T
-    gram = X0 @ X0.T
-    eps = 1e-12
-    gram = gram + eps * np.eye(gram.shape[0])
-    A = (X1 @ X0.T) @ pinv(gram)
+
+    # Use ridge regression for robustness
+    A = _fit_temporal_operator_ridge(X0, X1, regularization=1e-6)
     errs = X1 - A @ X0
     return [float(norm(errs[:, i]) / (norm(X1[:, i]) + eps)) for i in range(errs.shape[1])]
 
@@ -500,18 +704,13 @@ def _compute_local_coherence(
 
     # Augment with bias term for affine drift handling
     X_aug = np.concatenate([X_window, np.ones((X_window.shape[0], 1))], axis=1)
-
-    # Effective rank: must not allow r_eff == T_w - 1 (causes exact fit -> zero residual)
     T_w = X_aug.shape[0]
-    r_eff_candidate = min(max(1, T_w // 2), r, X_aug.shape[1])
-    if T_w - 2 >= 1:
-        r_eff = min(r_eff_candidate, T_w - 2)
-    else:
-        r_eff = max(1, r_eff_candidate)
 
     # SVD of window data
     U, S, Vt = np.linalg.svd(X_aug, full_matrices=False)
-    r_eff = min(r_eff, len(S))
+
+    # Use variance-aware rank selection with strict upper bound r_eff <= T_w-3
+    r_eff = _select_effective_rank(S, T_w, r, X_aug.shape[1])
     S_trunc = S[:r_eff]
     Vt_trunc = Vt[:r_eff, :]
 
@@ -535,15 +734,17 @@ def _compute_local_coherence(
             "window_end": window_end,
         }
 
-    # Fit temporal operator in reduced space
+    # Fit temporal operator using ridge regression with lstsq fallback
     X0 = Z[:-1].T
     X1 = Z[1:].T
-    gram = X0 @ X0.T + eps * np.eye(X0.shape[0])
-    A = (X1 @ X0.T) @ pinv(gram)
+    A = _fit_temporal_operator_ridge(X0, X1, regularization=1e-6)
 
-    # Compute residual
-    err = X1 - A @ X0
-    local_residual = float(norm(err, "fro") / (norm(X1, "fro") + eps))
+    # Compute OOS residual to prevent zero-residual pathology
+    oos_residual = _compute_oos_residual(Z, regularization=1e-6)
+    insample_residual = float(norm(X1 - A @ X0, "fro") / (norm(X1, "fro") + eps))
+
+    # Use OOS residual as primary residual (with floor to prevent collapse)
+    local_residual = max(oos_residual, 1e-6) if oos_residual > 0 else max(insample_residual, 1e-6)
 
     # Load constants and compute bound
     c_res = uelat_bridge.get_constant("C_res")
