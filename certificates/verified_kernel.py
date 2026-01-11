@@ -20,6 +20,8 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+from certificates.witness_checker import WitnessValidationError, check_witness
+
 logger = logging.getLogger(__name__)
 
 # Global kernel handle
@@ -432,7 +434,11 @@ def compute_certificate(
     ------
     KernelError
         If strict=True and kernel computation fails.
+    WitnessValidationError
+        If witness matrices fail numerical preconditions.
     """
+
+    check_witness(X0, X1, A, strict=True)
 
     # Load kernel once
     kernel = load_kernel(strict=strict)
@@ -516,4 +522,5 @@ __all__ = [
     "compute_bound",
     "compute_certificate",
     "KernelError",
+    "WitnessValidationError",
 ]
