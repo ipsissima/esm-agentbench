@@ -12,6 +12,21 @@ exponentiation) would incorrectly appear as "drift" with TF-IDF.
 """
 from __future__ import annotations
 
+# Suppress FutureWarning from transformers about deprecated torch pytree API
+# This must be done before importing sentence_transformers or transformers
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message=r".*_register_pytree_node.*is deprecated.*",
+    category=FutureWarning,
+)
+# Also suppress huggingface_hub deprecation warnings
+warnings.filterwarnings(
+    "ignore",
+    message=r".*resume_download.*is deprecated.*",
+    category=FutureWarning,
+)
+
 import json
 import sys
 import os
