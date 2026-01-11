@@ -182,7 +182,16 @@ def _compute_certificate_core(
     X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
 
     # Effective rank: ensure we have enough data for stable computation
-    r_eff = min(max(1, T // 2), r, T - 1, X_aug.shape[1])
+    # NOTE: we *must not* allow r_eff to equal (T-1) because that makes
+    # X0 square (r_eff x (T-1)) and yields exact reconstruction -> residual 0.
+    # Choose r_eff conservatively but ensure r_eff < T-1 when possible.
+    r_eff_candidate = min(max(1, T // 2), r, X_aug.shape[1])
+    if T - 2 >= 1:
+        # enforce strict inequality so X0 has more columns than rows
+        r_eff = min(r_eff_candidate, T - 2)
+    else:
+        # very short traces: fall back to at least 1
+        r_eff = max(1, r_eff_candidate)
 
     # === SVD-BASED ANALYSIS (Wedin's Theorem) ===
     # Compute full SVD of the data matrix for spectral analysis
@@ -492,9 +501,13 @@ def _compute_local_coherence(
     # Augment with bias term for affine drift handling
     X_aug = np.concatenate([X_window, np.ones((X_window.shape[0], 1))], axis=1)
 
-    # Effective rank
+    # Effective rank: must not allow r_eff == T_w - 1 (causes exact fit -> zero residual)
     T_w = X_aug.shape[0]
-    r_eff = min(max(1, T_w // 2), r, T_w - 1, X_aug.shape[1])
+    r_eff_candidate = min(max(1, T_w // 2), r, X_aug.shape[1])
+    if T_w - 2 >= 1:
+        r_eff = min(r_eff_candidate, T_w - 2)
+    else:
+        r_eff = max(1, r_eff_candidate)
 
     # SVD of window data
     U, S, Vt = np.linalg.svd(X_aug, full_matrices=False)
