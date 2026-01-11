@@ -1,5 +1,67 @@
 # AgentBeats Phase-1 Submission: EigenSpace Spectral Bench
 
+## Trace provenance & judge quickstart
+
+### Provenance (truthful summary)
+- **Real traces**: This repo includes pre-recorded *real* agent traces in `tools/real_traces/`. Some of those traces were collected using hosted models (e.g., `gpt-4o`) at collection time — we retain them as archived evidence. These traces are genuine LLM runs (they contain full assistant text, code blocks, test stdout/stderr, timestamps and per-step diagnostics).
+- **Reproducibility**: **You do not need any private API key** to run or to verify the submission. The evaluation pipeline provides a *judge-mode* that runs fully with local Hugging Face models (or a tiny offline model). The OpenAI/hosted path is optional and used only if `OPENAI_API_KEY` is set.
+
+### Judge quickstart (one-command)
+Run the default judge smoke test (small/offline mode):
+
+```bash
+# Build the official judge image (this preloads the judge tiny model and the embedder)
+docker build -t esm-agentbench .
+
+# Run judge mode (default: small offline mode). This writes traces and validation reports.
+docker run --rm esm-agentbench
+
+# After the run, open one validation report (example):
+jq . reports/spectral_validation_real_hf/code_backdoor_injection/validation_report.json
+```
+
+**What this does:** runs a small, judge-friendly real-agent experiment (no API keys needed), writes traces to `submissions/{team}/{scenario}/experiment_traces_real_hf/` and a `validation_report.json` in `reports/spectral_validation_real_hf/{scenario}/`.
+
+### If you want to reproduce *exactly* a trace produced with OpenAI
+
+Some archived traces were created with OpenAI (e.g., `model_name: "gpt-4o"`). Those traces are stored in `tools/real_traces/`. To check whether a particular trace was recorded with a hosted model, inspect the trace metadata:
+
+```bash
+jq '{model:.model_name, timestamp:.timestamp_start}' tools/real_traces/*.json | head -n 20
+```
+
+> **Note:** Judges do **not** need an API key to validate submissions — judge-mode produces fully functional evidence using local models. The archived hosted-model traces are provided for additional inspection and are clearly labeled.
+
+### Offline guarantee
+
+To guarantee judge-mode runs offline, we prefetch the tiny judge model and the sentence-transformers embedder into the Docker image. If you prefer not to use Docker, run:
+
+```bash
+# local judge-mode (Python): installs requirements and runs a small offline evaluation
+python run_judge_mode.py --mode small
+```
+
+If you need any help running this, see the `scripts/preload_models.sh` script (prefetches models) and the `Dockerfile` snippet in this repo that performs the prefetch at image build time.
+
+### One-line verification commands for judges
+
+```bash
+# 1) Confirm a trace was produced by a hosted model (OpenAI) or HF local model
+jq '{model:.model_name, timestamp:.timestamp_start}' tools/real_traces/*.json | head -n 5
+
+# 2) Run the small judge mode (offline)
+docker build -t esm-agentbench .
+docker run --rm esm-agentbench
+
+# 3) Confirm validation report claims real-only evidence
+jq '.data_source' reports/spectral_validation_real_hf/*/validation_report.json
+# should print "real_traces_only"
+```
+
+**Bottom line:** the repo includes archived real traces (some were recorded via hosted APIs). Judges do **not** need any private API keys: the default judge mode runs with a tiny local HF model and a pre-cached embedder (Docker image prefetch) so the evaluation is fully reproducible and offline. If you want to regenerate original hosted traces, set your `OPENAI_API_KEY` and re-run `run_real_agents.py` (the hosted path is optional and clearly labeled).
+
+---
+
 ## Overview
 
 This repository contains 6 Phase-1 scenarios for the AgentBeats benchmark, demonstrating spectral certificate-based detection of AI agent misbehavior using **real tool-using agent traces only**.

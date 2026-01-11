@@ -38,6 +38,11 @@ jobs:
         run: |
           python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
 
+      - name: Prefetch models for judge-mode
+        run: |
+          chmod +x ./scripts/preload_models.sh
+          ./scripts/preload_models.sh
+
       - name: Install build tools for verified kernel
         run: |
           sudo apt-get update

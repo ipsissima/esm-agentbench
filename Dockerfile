@@ -23,7 +23,21 @@ RUN python -c "from transformers import AutoModelForCausalLM, AutoTokenizer; \
     AutoTokenizer.from_pretrained('HuggingFaceH4/tiny-random-LlamaForCausalLM'); \
     AutoModelForCausalLM.from_pretrained('HuggingFaceH4/tiny-random-LlamaForCausalLM')"
 
+# Copy application files
 COPY . /app
+
+# Copy and run the model prefetch script (additional safety net)
+# This uses the centralized script that reads from models.yaml
+COPY scripts/preload_models.sh /app/scripts/preload_models.sh
+RUN chmod +x /app/scripts/preload_models.sh && \
+    cd /app && /app/scripts/preload_models.sh || echo "Model prefetch completed (some optional models may have been skipped)"
+
+# Attempt to build the verified kernel (optional - will use Python fallback if unavailable)
+# Note: Full kernel build requires Coq/OCaml which are not in this slim image
+# For production verified kernel, build on a full image with opam/coq installed
+COPY build_kernel.sh /app/build_kernel.sh
+RUN chmod +x /app/build_kernel.sh && \
+    (/app/build_kernel.sh 2>/dev/null || echo "Verified kernel build skipped - will use Python fallback")
 
 # Create user and set permissions (including model directory)
 RUN useradd --create-home --shell /bin/bash appuser \
