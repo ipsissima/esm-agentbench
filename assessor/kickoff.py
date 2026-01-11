@@ -603,9 +603,13 @@ def _default_step_prompt() -> str:
     )
 
 
-def _sentence_model() -> Optional[Any]:
-    """Lazily load sentence-transformers with defensive guards."""
+def _sentence_model() -> Any:
+    """Lazily load sentence-transformers.
 
+    Raises RuntimeError if sentence-transformers is unavailable.
+    SBERT is the required primary embedding method - TF-IDF fallback
+    is only available via explicit ESM_FORCE_TFIDF=1 env var.
+    """
     global _sentence_model_cache
     if _sentence_model_cache is not None:
         return _sentence_model_cache
@@ -616,9 +620,11 @@ def _sentence_model() -> Optional[Any]:
         _sentence_model_cache = model
         return model
     except Exception as exc:  # pragma: no cover - optional dependency
-        logger.warning("sentence-transformers unavailable: %s. Falling back to TF-IDF.", exc)
-        _sentence_model_cache = None
-        return None
+        raise RuntimeError(
+            f"sentence-transformers required but unavailable: {exc}. "
+            "Install with: pip install sentence-transformers. "
+            "To force TF-IDF fallback (not recommended), set ESM_FORCE_TFIDF=1"
+        ) from exc
 
 
 def _tfidf_embeddings(texts: List[str]) -> np.ndarray:
@@ -698,12 +704,18 @@ def _domain_aware_embeddings(texts: List[str]) -> np.ndarray:
 
 
 def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
-    """Embed trace steps with tiered fallbacks to avoid hard failures.
+    """Embed trace steps using semantic embeddings.
 
-    Preference order: OpenAI embeddings -> sentence-transformers -> TF-IDF.
-    All stages are exception-safe so missing or incompatible dependencies do
-    not break tests. Returns a numpy float array of shape (T, d).
+    Preference order: OpenAI embeddings -> sentence-transformers (SBERT).
+
+    SBERT is the required primary embedding method. TF-IDF is only used if
+    explicitly requested via ESM_FORCE_TFIDF=1 (for debugging/explainability).
+    If SBERT is unavailable and TF-IDF is not forced, raises RuntimeError.
+
+    Returns a numpy float array of shape (T, d).
     """
+    # Check if TF-IDF is explicitly forced (for debugging only)
+    force_tfidf = os.environ.get("ESM_FORCE_TFIDF", "").lower() in ("1", "true", "yes")
 
     # MASK system/test noise with placeholder instead of filtering out.
     # This preserves temporal structure (trace length) while removing noise.
@@ -726,6 +738,20 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
     if not texts:
         texts = [str(step.get("text", "")) for step in trace]
 
+    # If TF-IDF is explicitly forced, use it directly (debugging/explainability only)
+    if force_tfidf:
+        logger.warning("ESM_FORCE_TFIDF=1: Using TF-IDF embeddings (not recommended for production)")
+        tfidf_arr = _tfidf_embeddings(texts)
+        tfidf_arr = np.asarray(tfidf_arr, dtype=float)
+        if tfidf_arr.ndim == 1:
+            tfidf_arr = tfidf_arr.reshape(len(texts), -1)
+        if tfidf_arr.shape[0] != len(texts):
+            tfidf_arr = np.resize(tfidf_arr, (len(texts), tfidf_arr.shape[1] if tfidf_arr.ndim > 1 else 1))
+        if tfidf_arr.size == 0:
+            tfidf_arr = np.zeros((len(texts), 1), dtype=float)
+        return tfidf_arr
+
+    # Try OpenAI embeddings first (if available)
     if OPENAI_KEY and openai is not None:
         try:  # pragma: no cover - external call
             if hasattr(openai, "OpenAI"):
@@ -744,45 +770,23 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
             arr = arr / (norm(arr, axis=1, keepdims=True) + 1e-12)
             return np.asarray(arr, dtype=float)
         except Exception as exc:
-            logger.warning("OpenAI embedding failed; falling back: %s", exc)
+            logger.warning("OpenAI embedding failed; falling back to SBERT: %s", exc)
 
-    # Skip sentence-transformers if env var set (avoids slow network retries)
-    skip_st = os.environ.get("SKIP_SENTENCE_TRANSFORMERS", "").lower() in ("1", "true", "yes")
-    model = None
-    if not skip_st:
-        try:
-            model = _sentence_model()
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Sentence-transformers import failed; using domain-aware: %s", exc)
-            model = None
+    # Use sentence-transformers (SBERT) - this is the required primary method
+    # Raises RuntimeError if unavailable (no silent fallback to TF-IDF)
+    model = _sentence_model()  # Will raise if unavailable
 
-    if model is not None:
-        try:  # pragma: no cover - heavy dependency
-            arr = model.encode(texts, normalize_embeddings=True)
-            arr = np.asarray(arr, dtype=float)
-            if arr.ndim == 1:
-                arr = arr.reshape(len(texts), -1)
-            return arr
-        except Exception as exc:
-            logger.warning("sentence-transformers embedding failed; using TF-IDF: %s", exc)
-
-    # Use domain-aware embeddings for semantic understanding without network
-    # This distinguishes programming/math content from off-topic (food, weather, etc.)
-    logger.info("Using domain-aware embeddings for semantic fallback")
-    domain_arr = _domain_aware_embeddings(texts)
-    if domain_arr.size > 0 and np.any(domain_arr != 0):
-        return domain_arr
-
-    # Final fallback to TF-IDF if domain-aware produces all zeros
-    tfidf_arr = _tfidf_embeddings(texts)
-    tfidf_arr = np.asarray(tfidf_arr, dtype=float)
-    if tfidf_arr.ndim == 1:
-        tfidf_arr = tfidf_arr.reshape(len(texts), -1)
-    if tfidf_arr.shape[0] != len(texts):
-        tfidf_arr = np.resize(tfidf_arr, (len(texts), tfidf_arr.shape[1] if tfidf_arr.ndim > 1 else 1))
-    if tfidf_arr.size == 0:
-        tfidf_arr = np.zeros((len(texts), 1), dtype=float)
-    return tfidf_arr
+    try:  # pragma: no cover - heavy dependency
+        arr = model.encode(texts, normalize_embeddings=True)
+        arr = np.asarray(arr, dtype=float)
+        if arr.ndim == 1:
+            arr = arr.reshape(len(texts), -1)
+        return arr
+    except Exception as exc:
+        raise RuntimeError(
+            f"SBERT encoding failed: {exc}. "
+            "To force TF-IDF fallback (not recommended), set ESM_FORCE_TFIDF=1"
+        ) from exc
 
 
 def _local_embedding(text: str, dim: int = 64) -> List[float]:

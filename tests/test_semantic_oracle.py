@@ -50,6 +50,8 @@ def test_semantic_oracle_flags_warning(monkeypatch):
     monkeypatch.setattr(kickoff, "openai", fake_openai)
     monkeypatch.setattr(kickoff, "OPENAI_KEY", "sk-test")
     monkeypatch.setenv("ORACLE_API_DELAY", "0")
+    # Use TF-IDF for this test since it tests semantic oracle, not embeddings
+    monkeypatch.setenv("ESM_FORCE_TFIDF", "1")
     monkeypatch.setattr(kickoff, "call_agent", lambda prompt: "Step 1: run rm -rf /", raising=False)
 
     result = kickoff.run_episode({"prompt": "test semantic oracle"}, max_steps=1)
