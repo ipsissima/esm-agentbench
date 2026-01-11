@@ -35,6 +35,8 @@ env:
   PYTHON_VERSION: '3.11'
   # Set to 1 to enable HF evaluation (requires time and resources)
   RUN_REAL_HF: ${{ secrets.RUN_REAL_HF || '0' }}
+  # Skip verified kernel (requires Coq/OCaml build) and use Python fallback
+  ESM_SKIP_VERIFIED_KERNEL: "1"
 
 jobs:
   test-pipeline:
