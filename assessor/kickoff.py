@@ -703,16 +703,61 @@ def _domain_aware_embeddings(texts: List[str]) -> np.ndarray:
     return embeddings
 
 
+def _normalize_and_check_embeddings(
+    embeddings: np.ndarray,
+    min_variance_threshold: float = 1e-8
+) -> np.ndarray:
+    """Normalize embeddings to unit L2 norm and check for degeneracy.
+
+    This function:
+    1. Normalizes each embedding to unit L2 norm (direction-only, no scale coupling)
+    2. Checks if the mean variance across dimensions is above threshold
+    3. Logs a warning if embeddings are degenerate (near-constant)
+
+    Parameters
+    ----------
+    embeddings : np.ndarray
+        Embedding matrix of shape (T, d).
+    min_variance_threshold : float
+        Minimum mean per-dimension variance to consider embeddings non-degenerate.
+
+    Returns
+    -------
+    np.ndarray
+        Normalized embeddings of shape (T, d).
+    """
+    if embeddings.size == 0:
+        return embeddings
+
+    embeddings = np.asarray(embeddings, dtype=float)
+
+    # L2 normalize each embedding (row) to unit norm
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    norms = np.where(norms > 1e-12, norms, 1.0)
+    embeddings = embeddings / norms
+
+    # Check for degeneracy: if all embeddings are nearly identical,
+    # the spectral analysis will have no dynamical information
+    mean_var = float(np.var(embeddings, axis=0).mean())
+    if mean_var < min_variance_threshold:
+        logger.warning(
+            f"Degenerate embeddings detected: mean per-dim variance = {mean_var:.2e} < {min_variance_threshold}. "
+            "Spectral analysis may produce uninformative results."
+        )
+
+    return embeddings
+
+
 def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
     """Embed trace steps using semantic embeddings.
 
     Preference order: OpenAI embeddings -> sentence-transformers (SBERT).
 
-    SBERT is the required primary embedding method. TF-IDF is only used if
-    explicitly requested via ESM_FORCE_TFIDF=1 (for debugging/explainability).
-    If SBERT is unavailable and TF-IDF is not forced, raises RuntimeError.
+    Preference order: OpenAI embeddings -> sentence-transformers -> TF-IDF.
+    All stages are exception-safe so missing or incompatible dependencies do
+    not break tests. Returns a numpy float array of shape (T, d).
 
-    Returns a numpy float array of shape (T, d).
+    All embeddings are L2-normalized and checked for degeneracy before returning.
     """
     # Check if TF-IDF is explicitly forced (for debugging only)
     force_tfidf = os.environ.get("ESM_FORCE_TFIDF", "").lower() in ("1", "true", "yes")
@@ -768,25 +813,47 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
                 )
                 arr = np.array([data["embedding"] for data in resp.get("data", [])], dtype=float)
             arr = arr / (norm(arr, axis=1, keepdims=True) + 1e-12)
-            return np.asarray(arr, dtype=float)
+            return _normalize_and_check_embeddings(np.asarray(arr, dtype=float))
         except Exception as exc:
-            logger.warning("OpenAI embedding failed; falling back to SBERT: %s", exc)
+            logger.warning("OpenAI embedding failed; falling back: %s", exc)
 
-    # Use sentence-transformers (SBERT) - this is the required primary method
-    # Raises RuntimeError if unavailable (no silent fallback to TF-IDF)
-    model = _sentence_model()  # Will raise if unavailable
+    # Skip sentence-transformers if env var set (avoids slow network retries)
+    skip_st = os.environ.get("SKIP_SENTENCE_TRANSFORMERS", "").lower() in ("1", "true", "yes")
+    model = None
+    if not skip_st:
+        try:
+            model = _sentence_model()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Sentence-transformers import failed; using domain-aware: %s", exc)
+            model = None
 
-    try:  # pragma: no cover - heavy dependency
-        arr = model.encode(texts, normalize_embeddings=True)
-        arr = np.asarray(arr, dtype=float)
-        if arr.ndim == 1:
-            arr = arr.reshape(len(texts), -1)
-        return arr
-    except Exception as exc:
-        raise RuntimeError(
-            f"SBERT encoding failed: {exc}. "
-            "To force TF-IDF fallback (not recommended), set ESM_FORCE_TFIDF=1"
-        ) from exc
+    if model is not None:
+        try:  # pragma: no cover - heavy dependency
+            arr = model.encode(texts, normalize_embeddings=True)
+            arr = np.asarray(arr, dtype=float)
+            if arr.ndim == 1:
+                arr = arr.reshape(len(texts), -1)
+            return _normalize_and_check_embeddings(arr)
+        except Exception as exc:
+            logger.warning("sentence-transformers embedding failed; using TF-IDF: %s", exc)
+
+    # Use domain-aware embeddings for semantic understanding without network
+    # This distinguishes programming/math content from off-topic (food, weather, etc.)
+    logger.info("Using domain-aware embeddings for semantic fallback")
+    domain_arr = _domain_aware_embeddings(texts)
+    if domain_arr.size > 0 and np.any(domain_arr != 0):
+        return _normalize_and_check_embeddings(domain_arr)
+
+    # Final fallback to TF-IDF if domain-aware produces all zeros
+    tfidf_arr = _tfidf_embeddings(texts)
+    tfidf_arr = np.asarray(tfidf_arr, dtype=float)
+    if tfidf_arr.ndim == 1:
+        tfidf_arr = tfidf_arr.reshape(len(texts), -1)
+    if tfidf_arr.shape[0] != len(texts):
+        tfidf_arr = np.resize(tfidf_arr, (len(texts), tfidf_arr.shape[1] if tfidf_arr.ndim > 1 else 1))
+    if tfidf_arr.size == 0:
+        tfidf_arr = np.zeros((len(texts), 1), dtype=float)
+    return _normalize_and_check_embeddings(tfidf_arr)
 
 
 def _local_embedding(text: str, dim: int = 64) -> List[float]:

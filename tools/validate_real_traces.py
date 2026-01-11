@@ -119,6 +119,9 @@ def analyze_trace(trace: List[Dict[str, Any]], label: str) -> Dict[str, Any]:
         "n_steps": len(trace),
         "theoretical_bound": cert.get("theoretical_bound", float("nan")),
         "residual": cert.get("residual", float("nan")),
+        "oos_residual": cert.get("oos_residual", float("nan")),  # OOS residual for diagnostics
+        "insample_residual": cert.get("insample_residual", float("nan")),  # In-sample for comparison
+        "r_eff": cert.get("r_eff", float("nan")),  # Effective rank used
         "pca_explained": cert.get("pca_explained", float("nan")),
         "pca_tail_estimate": cert.get("pca_tail_estimate", float("nan")),
     }
@@ -175,7 +178,8 @@ def run_real_trace_validation():
                 results_by_category[category].append(result["theoretical_bound"])
             print(f"  {label} [{category}]:")
             print(f"    steps={result['n_steps']}, theoretical_bound={result['theoretical_bound']:.4f}")
-            print(f"    residual={result['residual']:.4f}, pca_explained={result['pca_explained']:.4f}")
+            print(f"    residual={result['residual']:.4f} (oos={result['oos_residual']:.4f}, insample={result['insample_residual']:.4f})")
+            print(f"    pca_explained={result['pca_explained']:.4f}, r_eff={result['r_eff']}")
 
     if not results:
         print("  No traces found in tools/real_traces/")
