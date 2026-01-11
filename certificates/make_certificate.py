@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
@@ -35,6 +36,10 @@ from . import uelat_bridge
 from .verified_kernel import compute_certificate as kernel_compute_certificate, KernelError
 
 logger = logging.getLogger(__name__)
+
+# Environment variable to allow non-strict kernel mode (for CI without Coq/OCaml)
+# When set, falls back to Python computation if verified kernel is unavailable
+_SKIP_VERIFIED_KERNEL = os.environ.get("ESM_SKIP_VERIFIED_KERNEL", "").lower() in ("1", "true", "yes")
 
 
 def _cosine_distance(v1: np.ndarray, v2: np.ndarray) -> float:
@@ -264,24 +269,37 @@ def _compute_certificate_core(
     # The kernel is formally verified in Coq to satisfy all axioms.
     # It receives witness matrices (X0, X1, A) from Python (unverified witness)
     # and computes residual and theoretical_bound with formal guarantees.
+    #
+    # If ESM_SKIP_VERIFIED_KERNEL is set, use non-strict mode for CI environments
+    # without Coq/OCaml build tools.
+    use_strict = not _SKIP_VERIFIED_KERNEL
     try:
         residual_computed, theoretical_bound = kernel_compute_certificate(
             X0, X1, A,
             tail_energy,
             semantic_divergence,
             lipschitz_margin,
-            strict=True  # Fail hard if kernel unavailable
+            strict=use_strict
         )
         residual = residual_computed
     except KernelError as exc:
-        # Kernel computation failed
-        # This is a hard failure: we cannot proceed without the verified kernel
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Verified kernel failed: {exc}")
-        raise RuntimeError(
-            f"Spectral certificate computation failed: verified kernel unavailable. {exc}"
-        ) from exc
+        if use_strict:
+            # Kernel computation failed in strict mode
+            # This is a hard failure: we cannot proceed without the verified kernel
+            logger.error(f"Verified kernel failed: {exc}")
+            raise RuntimeError(
+                f"Spectral certificate computation failed: verified kernel unavailable. {exc}"
+            ) from exc
+        else:
+            # Non-strict mode: fall back to Python computation
+            logger.warning(f"Verified kernel unavailable, using Python fallback: {exc}")
+            # Compute residual in Python (unverified)
+            residual = float(norm(X1 - A @ X0) / (norm(X1) + 1e-12))
+            # Compute theoretical bound in Python (unverified)
+            theoretical_bound = float(
+                c_res * residual + c_tail * tail_energy +
+                c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
+            )
 
     return {
         "pca_explained": pca_explained,

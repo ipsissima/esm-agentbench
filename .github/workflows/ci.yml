@@ -31,7 +31,48 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install --upgrade "sentence-transformers>=2.3.0" scikit-learn
+
+      - name: Pre-download sentence-transformers model
+        run: |
+          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+
+      - name: Install build tools for verified kernel
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake python3-dev opam
+          # Initialize opam and install Coq + OCaml
+          opam init --bare --disable-sandboxing -y
+          eval $(opam env)
+          opam switch create 4.14.1 || opam switch 4.14.1
+          eval $(opam env)
+          opam install -y coq ocamlfind
+        continue-on-error: true
+
+      - name: Build verified kernel
+        id: build_kernel
+        run: |
+          if command -v opam &> /dev/null; then
+            eval $(opam env)
+          fi
+          chmod +x ./build_kernel.sh
+          if ./build_kernel.sh; then
+            echo "kernel_built=true" >> $GITHUB_OUTPUT
+            echo "Verified kernel built successfully"
+          else
+            echo "kernel_built=false" >> $GITHUB_OUTPUT
+            echo "Kernel build failed - will use Python fallback"
+          fi
+        continue-on-error: true
+
+      - name: Check kernel status
+        run: |
+          if [ -f "UELAT/kernel_verified.so" ]; then
+            echo "Verified kernel available at UELAT/kernel_verified.so"
+            ls -la UELAT/kernel_verified.so
+          else
+            echo "Note: Kernel not built, will use Python fallback (ESM_SKIP_VERIFIED_KERNEL=1)"
+            echo "ESM_SKIP_VERIFIED_KERNEL=1" >> $GITHUB_ENV
+          fi
 
       - name: Run Unit Tests
         run: pytest -q
