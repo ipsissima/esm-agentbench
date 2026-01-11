@@ -51,6 +51,9 @@ def _locate_kernel() -> Optional[str]:
         repo_root / "build" / "kernel_verified.so",
         repo_root / "build" / "kernel_verified.dylib",
         repo_root / "build" / "kernel_verified.dll",
+        # build_kernel.sh outputs to UELAT/kernel_verified.so
+        repo_root / "UELAT" / "kernel_verified.so",
+        repo_root / "UELAT" / "kernel_verified.dylib",
         repo_root / "UELAT" / "_build" / "kernel_verified.so",
         repo_root / "UELAT" / "_build" / "kernel_verified.dylib",
     ]
