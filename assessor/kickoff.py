@@ -821,11 +821,7 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
     skip_st = os.environ.get("SKIP_SENTENCE_TRANSFORMERS", "").lower() in ("1", "true", "yes")
     model = None
     if not skip_st:
-        try:
-            model = _sentence_model()
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Sentence-transformers import failed; using domain-aware: %s", exc)
-            model = None
+        model = _sentence_model()
 
     if model is not None:
         try:  # pragma: no cover - heavy dependency
@@ -835,7 +831,7 @@ def embed_trace_steps(trace: List[Dict[str, Any]]) -> np.ndarray:
                 arr = arr.reshape(len(texts), -1)
             return _normalize_and_check_embeddings(arr)
         except Exception as exc:
-            logger.warning("sentence-transformers embedding failed; using TF-IDF: %s", exc)
+            raise RuntimeError(f"SBERT encoding failed: {exc}") from exc
 
     # Use domain-aware embeddings for semantic understanding without network
     # This distinguishes programming/math content from off-topic (food, weather, etc.)

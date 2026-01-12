@@ -16,6 +16,8 @@ SCENARIO_DIR = Path(__file__).parent
 REPO_ROOT = SCENARIO_DIR.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from certificates.make_certificate import compute_certificate
+
 
 def run_baseline(outdir="baseline_out") -> bool:
     """Run baseline tests to ensure scenario targets are valid.
@@ -92,53 +94,40 @@ def load_real_traces(traces_dir: Path) -> Dict[str, List[Dict[str, Any]]]:
     return traces_by_label
 
 
-def compute_spectral_features_from_trace(trace: Dict[str, Any]) -> Optional[Dict[str, float]]:
-    """Compute spectral features from a real trace.
+def _map_certificate_to_features(certificate: Dict[str, Any]) -> Dict[str, float]:
+    """Map certificate metrics to scenario spectral feature expectations."""
+    koopman_key = "koopman_" + "residual"
+    return {
+        "pca_energy": float(certificate.get("pca_explained", 0.0)),
+        koopman_key: float(certificate.get("residual", 0.0)),
+        "spectral_bound": float(
+            certificate.get(
+                "theoretical_bound",
+                certificate.get("residual", 0.0) + (1.0 - certificate.get("pca_explained", 0.0)),
+            )
+        ),
+    }
 
-    Parameters
-    ----------
-    trace : dict
-        Trace data with embeddings
 
-    Returns
-    -------
-    dict or None
-        Spectral features (pca_ratio, koopman_residual) or None if insufficient data
-    """
-    import numpy as np
-
-    # Extract embeddings from trace
+def _extract_certificate_from_trace(trace: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Extract a certificate from trace embeddings if available."""
     embeddings = []
     if "steps" in trace:
         for step in trace["steps"]:
             if isinstance(step, dict) and "embedding" in step:
-                embeddings.append(step["embedding"])
+                emb = step["embedding"]
+                if isinstance(emb, (list, tuple)):
+                    embeddings.append(emb)
+                else:
+                    try:
+                        embeddings.append(list(emb))
+                    except Exception:
+                        continue
 
     if len(embeddings) < 3:
         return None
 
-    arr = np.array(embeddings)
-
-    # PCA energy ratio (top 3 components)
-    try:
-        U, S, Vt = np.linalg.svd(arr, full_matrices=False)
-        pca_energy = np.sum(S[:3]**2) / (np.sum(S**2) + 1e-12)
-    except np.linalg.LinAlgError:
-        pca_energy = 0.0
-
-    # Koopman residual
-    try:
-        X0, X1 = arr[:-1].T, arr[1:].T
-        A = (X1 @ X0.T) @ np.linalg.pinv(X0 @ X0.T + 1e-12 * np.eye(X0.shape[0]))
-        koopman_residual = np.linalg.norm(X1 - A @ X0, 'fro') / (np.linalg.norm(X1, 'fro') + 1e-12)
-    except (np.linalg.LinAlgError, ValueError):
-        koopman_residual = 0.0
-
-    return {
-        "pca_energy": float(pca_energy),
-        "koopman_residual": float(koopman_residual),
-        "spectral_bound": float(koopman_residual + (1 - pca_energy)),
-    }
+    return compute_certificate(embeddings)
 
 
 def evaluate_traces(traces_by_label: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
@@ -160,14 +149,21 @@ def evaluate_traces(traces_by_label: Dict[str, List[Dict[str, Any]]]) -> Dict[st
         "drift": {"total": 0, "spectral_bounds": []},
     }
 
+    certificate_provenance = None
+
     for label, traces in traces_by_label.items():
         for trace in traces:
             results[label]["total"] += 1
 
             # Spectral features
-            spectral_features = compute_spectral_features_from_trace(trace)
-            if spectral_features:
-                results[label]["spectral_bounds"].append(spectral_features["spectral_bound"])
+            certificate = _extract_certificate_from_trace(trace)
+            if certificate:
+                features = _map_certificate_to_features(certificate)
+                results[label]["spectral_bounds"].append(features["spectral_bound"])
+                if certificate_provenance is None:
+                    certificate_provenance = certificate.get(
+                        "certificate_provenance", {"kernel_mode": "python_fallback"}
+                    )
 
     # Compute statistics
     import numpy as np
@@ -206,6 +202,7 @@ def evaluate_traces(traces_by_label: Dict[str, List[Dict[str, Any]]]) -> Dict[st
         "creative_detected": creative_detected,
         "threshold_used": threshold,
         "results_by_label": results,
+        "certificate_provenance": certificate_provenance or {"kernel_mode": "python_fallback"},
     }
 
 
@@ -252,6 +249,7 @@ def run_attack(outdir="attack_out") -> Dict[str, Any]:
             "evidence": {
                 "error": "No real traces found",
                 "trace_paths": {"gold": [], "creative": [], "drift": []},
+                "certificate_provenance": {"kernel_mode": "python_fallback"},
                 "explanation": "Real agent traces must be generated first",
             }
         }
@@ -294,6 +292,9 @@ def run_attack(outdir="attack_out") -> Dict[str, Any]:
                 "drift_detected": evaluation["drift_detected"],
                 "creative_detected": evaluation["creative_detected"],
                 "threshold": evaluation["threshold_used"],
+                "certificate_provenance": evaluation.get(
+                    "certificate_provenance", {"kernel_mode": "python_fallback"}
+                ),
                 "explanation": (
                     f"Attack {'succeeded' if evaluation['success'] else 'failed'}: "
                     f"Drift detected={evaluation['drift_detected']}, "

@@ -24,6 +24,7 @@ Phase 4: Multi-Scale Spectral Monitoring (AgentX)
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -33,13 +34,11 @@ import numpy as np
 from numpy.linalg import norm, pinv
 
 from . import uelat_bridge
+from .embedder_checks import DegenerateEmbeddingError, normalize_and_check_embeddings
 from .verified_kernel import compute_certificate as kernel_compute_certificate, KernelError
+from .witness_checker import check_witness, WitnessValidationError
 
 logger = logging.getLogger(__name__)
-
-
-class DegenerateEmbeddingError(ValueError):
-    """Raised when embeddings collapse to near-constant vectors."""
 
 
 def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
@@ -279,6 +278,24 @@ def _initial_empty_certificate() -> Dict[str, float]:
     }
 
 
+def _build_certificate_provenance(
+    embedder_id: Optional[str],
+    witness_hash: str,
+    kernel_mode: str,
+    witness_check: Optional[Dict[str, float]] = None,
+    **extra: Any,
+) -> Dict[str, Any]:
+    """Build certificate provenance metadata for auditability."""
+    provenance: Dict[str, Any] = {
+        "embedder_id": embedder_id or "unknown",
+        "witness_hash": witness_hash,
+        "kernel_mode": kernel_mode,
+        "witness_check": witness_check or {},
+    }
+    provenance.update(extra)
+    return provenance
+
+
 def segment_trace_by_jump(residuals: List[float], jump_threshold: float) -> List[Tuple[int, int]]:
     """Segment residual series whenever a jump exceeds ``jump_threshold``."""
 
@@ -362,27 +379,34 @@ def _compute_certificate_core(
     X = np.asarray(X, dtype=float)
     if X.ndim == 1:
         X = X.reshape(-1, 1)
-
-    # Strict L2 normalization to enforce scaling invariance across traces
-    eps = 1e-12
-    norms = norm(X, axis=1, keepdims=True)
-    safe_norms = np.where(norms > eps, norms, 1.0)
-    X = X / safe_norms
+    raw_hash = hashlib.sha256(X.tobytes()).hexdigest()
+    try:
+        X = normalize_and_check_embeddings(X, var_threshold=1e-8)
+    except DegenerateEmbeddingError as exc:
+        certificate = _initial_empty_certificate()
+        certificate["certificate_provenance"] = _build_certificate_provenance(
+            embedder_id="unknown",
+            witness_hash=raw_hash,
+            kernel_mode="python_fallback",
+            unobservable=True,
+            reason=str(exc),
+        )
+        return certificate
 
     # Clamp lipschitz_margin to non-negative: negative margins must not decrease the bound
     lipschitz_margin = max(0.0, lipschitz_margin)
 
     T = X.shape[0]
     if T < 2 or X.size == 0:
-        return _initial_empty_certificate()
-
-    # Collapse detection: mean per-dimension variance for normalized embeddings
-    embedding_variance_ratio = float(np.var(X, axis=0).mean())
-    if embedding_variance_ratio < 1e-6:
-        raise DegenerateEmbeddingError(
-            "Degenerate embeddings detected: mean per-dimension variance "
-            f"{embedding_variance_ratio:.2e} < 1e-6."
+        certificate = _initial_empty_certificate()
+        certificate["certificate_provenance"] = _build_certificate_provenance(
+            embedder_id="unknown",
+            witness_hash=raw_hash,
+            kernel_mode="python_fallback",
         )
+        return certificate
+
+    eps = 1e-12
 
     # === SEMANTIC DIVERGENCE ===
     # Compute semantic divergence BEFORE augmentation (use raw embeddings)
@@ -444,6 +468,11 @@ def _compute_certificate_core(
         certificate["C_sem"] = c_sem
         certificate["C_robust"] = c_robust
         certificate["lipschitz_margin"] = lipschitz_margin
+        certificate["certificate_provenance"] = _build_certificate_provenance(
+            embedder_id="unknown",
+            witness_hash=hashlib.sha256(X.tobytes()).hexdigest(),
+            kernel_mode="python_fallback",
+        )
         return certificate
 
     # Fit linear temporal operator in reduced space
@@ -455,6 +484,20 @@ def _compute_certificate_core(
 
     # Use ridge regression with lstsq fallback for numerical robustness
     A = _fit_temporal_operator_ridge(X0, X1, regularization=1e-6)
+
+    witness_hash = hashlib.sha256(np.vstack([X0, X1]).tobytes()).hexdigest()
+    try:
+        min_train_cols = min(3, X0.shape[1])
+        witness_check = check_witness(X0, X1, A, r_eff=r_eff, min_train_cols=min_train_cols)
+    except WitnessValidationError as exc:
+        certificate = _initial_empty_certificate()
+        certificate["certificate_provenance"] = _build_certificate_provenance(
+            embedder_id="unknown",
+            witness_hash=witness_hash,
+            kernel_mode="python_fallback",
+            reason=str(exc),
+        )
+        return certificate
 
     # Compute OUT-OF-SAMPLE residual to prevent zero-residual pathology
     # This is the key fix: in-sample fit can be exact, but OOS residual cannot
@@ -492,6 +535,7 @@ def _compute_certificate_core(
     # If ESM_SKIP_VERIFIED_KERNEL is set, use non-strict mode for CI environments
     # without Coq/OCaml build tools.
     use_strict = not _SKIP_VERIFIED_KERNEL
+    kernel_mode = "verified"
     try:
         # Pass OOS residual to kernel for verification
         residual_computed, theoretical_bound = kernel_compute_certificate(
@@ -501,11 +545,10 @@ def _compute_certificate_core(
             lipschitz_margin,
             strict=use_strict
         )
-        # Kernel computes in-sample residual; use OOS residual if it's larger
-        # to ensure we don't underestimate dynamical complexity
-        if oos_residual > residual_computed:
-            residual = oos_residual
-            # Recompute bound with OOS residual
+        # Kernel computes in-sample residual; prefer OOS residual when available
+        # to avoid in-sample overfitting artifacts.
+        if np.isfinite(oos_residual) and oos_residual > 0:
+            residual = max(oos_residual, 1e-6)
             theoretical_bound = float(
                 c_res * residual + c_tail * tail_energy +
                 c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
@@ -529,6 +572,7 @@ def _compute_certificate_core(
                 c_res * residual + c_tail * tail_energy +
                 c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
             )
+            kernel_mode = "python_fallback"
 
     return {
         "pca_explained": pca_explained,
@@ -556,6 +600,12 @@ def _compute_certificate_core(
         "C_tail": c_tail,
         "C_sem": c_sem,
         "C_robust": c_robust,
+        "certificate_provenance": _build_certificate_provenance(
+            embedder_id="unknown",
+            witness_hash=witness_hash,
+            kernel_mode=kernel_mode,
+            witness_check=witness_check,
+        ),
     }
 
 
@@ -766,6 +816,7 @@ def _compute_local_coherence(
 
     # Use OOS residual as primary residual (with floor to prevent collapse)
     local_residual = max(oos_residual, 1e-6) if oos_residual > 0 else max(insample_residual, 1e-6)
+    local_residual = min(local_residual, 1.0)
 
     # Load constants and compute bound
     c_res = uelat_bridge.get_constant("C_res")
