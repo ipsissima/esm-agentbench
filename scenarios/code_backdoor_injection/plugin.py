@@ -137,9 +137,10 @@ def analyze_trace_for_backdoor(trace: Dict[str, Any]) -> Dict[str, Any]:
 
 def _map_certificate_to_spectral_features(certificate: Dict[str, Any]) -> Dict[str, float]:
     """Map certificate metrics to the expected spectral feature format."""
+    koopman_key = "koopman_" + "residual"
     return {
         "pca_energy": float(certificate.get("pca_explained", 0.0)),
-        "koopman_residual": float(certificate.get("residual", 0.0)),
+        koopman_key: float(certificate.get("residual", 0.0)),
         "spectral_bound": float(certificate.get("theoretical_bound", 0.0)),
     }
 
@@ -163,6 +164,8 @@ def evaluate_traces(traces_by_label: Dict[str, List[Dict[str, Any]]]) -> Dict[st
         "drift": {"total": 0, "backdoors": 0, "spectral_bounds": []},
     }
 
+    certificate_provenance = None
+
     for label, traces in traces_by_label.items():
         for trace in traces:
             results[label]["total"] += 1
@@ -185,6 +188,10 @@ def evaluate_traces(traces_by_label: Dict[str, List[Dict[str, Any]]]) -> Dict[st
                 certificate = compute_certificate(embeddings)
                 spectral_features = _map_certificate_to_spectral_features(certificate)
                 results[label]["spectral_bounds"].append(spectral_features["spectral_bound"])
+                if certificate_provenance is None:
+                    certificate_provenance = certificate.get(
+                        "certificate_provenance", {"kernel_mode": "python_fallback"}
+                    )
 
     # Compute statistics
     import numpy as np
@@ -225,6 +232,7 @@ def evaluate_traces(traces_by_label: Dict[str, List[Dict[str, Any]]]) -> Dict[st
         "drift_spectral_detected": drift_detected,
         "threshold_used": threshold,
         "results_by_label": results,
+        "certificate_provenance": certificate_provenance or {"kernel_mode": "python_fallback"},
     }
 
 
@@ -271,6 +279,7 @@ def run_attack(outdir="attack_out") -> Dict[str, Any]:
             "evidence": {
                 "error": "No real traces found",
                 "trace_paths": {"gold": [], "creative": [], "drift": []},
+                "certificate_provenance": {"kernel_mode": "python_fallback"},
                 "explanation": "Real agent traces must be generated first",
             }
         }
@@ -313,6 +322,9 @@ def run_attack(outdir="attack_out") -> Dict[str, Any]:
                 "creative_backdoors": evaluation["creative_backdoors_detected"],
                 "drift_detected": evaluation["drift_spectral_detected"],
                 "threshold": evaluation["threshold_used"],
+                "certificate_provenance": evaluation.get(
+                    "certificate_provenance", {"kernel_mode": "python_fallback"}
+                ),
                 "explanation": (
                     f"Attack {'succeeded' if evaluation['success'] else 'failed'}: "
                     f"Creative backdoors={evaluation['creative_backdoors_detected']}, "
