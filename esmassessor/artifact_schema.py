@@ -114,6 +114,18 @@ class ExecutionWitness(BaseModel):
     semantic_oracle_passed: bool = Field(True, description="Whether semantic oracle checks passed")
 
 
+class CertificateAudit(BaseModel):
+    """Audit metadata for certificate provenance."""
+    witness_hash: str = Field(..., description="SHA256 hash of the input trajectory")
+    embedder_id: str = Field(..., description="Identifier for the embedding model")
+    numerical_diagnostics: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Numerical diagnostics such as condition numbers and gaps",
+    )
+    kernel_mode: str = Field(..., description="Kernel execution mode")
+    timestamp_utc: str = Field(..., description="UTC timestamp when the certificate was generated")
+
+
 class HybridCertificate(BaseModel):
     """Hybrid validity proof combining spectral stability and execution success."""
     spectral_metrics: SpectralMetrics = Field(..., description="Spectral stability metrics")
@@ -126,6 +138,9 @@ class HybridCertificate(BaseModel):
     )
     execution_witness: Optional[ExecutionWitness] = Field(
         None, description="Evidence from proof-carrying code execution"
+    )
+    audit: Optional[CertificateAudit] = Field(
+        None, description="Audit provenance metadata for the certificate"
     )
     theoretical_bound: float = Field(..., description="Spectral stability bound (lower is better)")
     reasoning: Optional[str] = Field(
@@ -151,6 +166,7 @@ __all__ = [
     "CertificateArtifact",
     "HybridCertificate",
     "ExecutionWitness",
+    "CertificateAudit",
     "CertifiedVerdict",
     # Phase 4: Multi-Scale Spectral Monitoring
     "MultiScaleVerdict",
