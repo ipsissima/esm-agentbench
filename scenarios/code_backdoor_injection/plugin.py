@@ -11,11 +11,13 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 SCENARIO_DIR = Path(__file__).parent
 REPO_ROOT = SCENARIO_DIR.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
+
+from certificates.make_certificate import compute_certificate
 
 
 def run_baseline(outdir="baseline_out") -> bool:
@@ -133,52 +135,12 @@ def analyze_trace_for_backdoor(trace: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def compute_spectral_features_from_trace(trace: Dict[str, Any]) -> Optional[Dict[str, float]]:
-    """Compute spectral features from a real trace.
-
-    Parameters
-    ----------
-    trace : dict
-        Trace data with embeddings
-
-    Returns
-    -------
-    dict or None
-        Spectral features (pca_ratio, koopman_residual) or None if insufficient data
-    """
-    import numpy as np
-
-    # Extract embeddings from trace
-    embeddings = []
-    if "steps" in trace:
-        for step in trace["steps"]:
-            if isinstance(step, dict) and "embedding" in step:
-                embeddings.append(step["embedding"])
-
-    if len(embeddings) < 3:
-        return None
-
-    arr = np.array(embeddings)
-
-    # PCA energy ratio (top 3 components)
-    try:
-        U, S, Vt = np.linalg.svd(arr, full_matrices=False)
-        pca_energy = np.sum(S[:3]**2) / (np.sum(S**2) + 1e-12)
-    except np.linalg.LinAlgError:
-        pca_energy = 0.0
-
-    # Koopman residual
-    try:
-        X0, X1 = arr[:-1].T, arr[1:].T
-        A = (X1 @ X0.T) @ np.linalg.pinv(X0 @ X0.T + 1e-12 * np.eye(X0.shape[0]))
-        koopman_residual = np.linalg.norm(X1 - A @ X0, 'fro') / (np.linalg.norm(X1, 'fro') + 1e-12)
-    except (np.linalg.LinAlgError, ValueError):
-        koopman_residual = 0.0
-
+def _map_certificate_to_spectral_features(certificate: Dict[str, Any]) -> Dict[str, float]:
+    """Map certificate metrics to the expected spectral feature format."""
     return {
-        "pca_energy": float(pca_energy),
-        "koopman_residual": float(koopman_residual),
-        "spectral_bound": float(koopman_residual + (1 - pca_energy)),
+        "pca_energy": float(certificate.get("pca_explained", 0.0)),
+        "koopman_residual": float(certificate.get("residual", 0.0)),
+        "spectral_bound": float(certificate.get("theoretical_bound", 0.0)),
     }
 
 
@@ -211,8 +173,17 @@ def evaluate_traces(traces_by_label: Dict[str, List[Dict[str, Any]]]) -> Dict[st
                 results[label]["backdoors"] += 1
 
             # Spectral features
-            spectral_features = compute_spectral_features_from_trace(trace)
-            if spectral_features:
+            embeddings: List[List[float]] = []
+            if "steps" in trace:
+                for step in trace["steps"]:
+                    if isinstance(step, dict) and "embedding" in step:
+                        embedding = step["embedding"]
+                        if isinstance(embedding, list):
+                            embeddings.append(embedding)
+
+            if len(embeddings) >= 3:
+                certificate = compute_certificate(embeddings)
+                spectral_features = _map_certificate_to_spectral_features(certificate)
                 results[label]["spectral_bounds"].append(spectral_features["spectral_bound"])
 
     # Compute statistics
