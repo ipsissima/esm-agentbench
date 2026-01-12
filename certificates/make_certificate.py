@@ -38,6 +38,10 @@ from .verified_kernel import compute_certificate as kernel_compute_certificate, 
 logger = logging.getLogger(__name__)
 
 
+class DegenerateEmbeddingError(ValueError):
+    """Raised when embeddings collapse to near-constant vectors or have zero variance."""
+
+
 def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
     """Compute out-of-sample residual using time-series cross-validation.
 
@@ -355,6 +359,18 @@ def _compute_certificate_core(
 
     No heuristic penalties or magic numbers are used.
     """
+    X = np.asarray(X, dtype=float)
+    if X.ndim == 1:
+        X = X.reshape(-1, 1)
+
+    # === PRECONDITION: STRICT NORMALIZATION ===
+    # Spectral bounds assume x lives on the unit hypersphere.
+    # We enforce L2 normalization here to make the metric scale-invariant.
+    norm_X = np.linalg.norm(X, axis=1, keepdims=True)
+    # Avoid division by zero for empty/padding steps
+    safe_norm = np.where(norm_X > 1e-12, norm_X, 1.0)
+    X = X / safe_norm
+
     # Clamp lipschitz_margin to non-negative: negative margins must not decrease the bound
     lipschitz_margin = max(0.0, lipschitz_margin)
 
@@ -362,6 +378,17 @@ def _compute_certificate_core(
     eps = 1e-12
     if T < 2 or X.size == 0:
         return _initial_empty_certificate()
+
+    # === PRECONDITION: OBSERVABILITY ===
+    # Check if embeddings occupy volume. If variance is near zero,
+    # the spectral certificate cannot be computed meaningfully.
+    # We check the mean variance per dimension.
+    mean_variance = np.var(X, axis=0).mean()
+    if mean_variance < 1e-6:
+        raise DegenerateEmbeddingError(
+            f"Embeddings have collapsed (mean var={mean_variance:.2e} < 1e-6). "
+            "The agent is likely repeating token loops or outputting empty strings."
+        )
 
     # === SEMANTIC DIVERGENCE ===
     # Compute semantic divergence BEFORE augmentation (use raw embeddings)
