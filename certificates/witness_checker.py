@@ -1,16 +1,11 @@
 """Witness validation for spectral certificate kernel inputs.
 
 This module provides strict checks to ensure numerical preconditions
-for Wedin's Theorem and verified kernel calls are satisfied.
+for verified kernel calls are satisfied.
 """
 from __future__ import annotations
 
-import logging
-from typing import Optional
-
 import numpy as np
-
-logger = logging.getLogger(__name__)
 
 
 class WitnessValidationError(ValueError):
@@ -29,15 +24,12 @@ def _require_matrix(name: str, value: np.ndarray) -> None:
         raise WitnessValidationError(f"{name} must be 2D, got shape {value.shape}")
 
 
-def check_witness(
+def check_witness_properties(
     X0: np.ndarray,
     X1: np.ndarray,
     A: np.ndarray,
     *,
-    k: Optional[int] = None,
-    cond_threshold: float = 1e4,
-    gap_threshold: Optional[float] = None,
-    strict: bool = True,
+    min_singular_gap: float = 1e-5,
 ) -> None:
     """Validate witness matrices before kernel evaluation.
 
@@ -45,14 +37,8 @@ def check_witness(
     ----------
     X0, X1, A : np.ndarray
         Witness matrices passed to the verified kernel.
-    k : Optional[int]
-        Rank used for truncation; defaults to X0.shape[0].
-    cond_threshold : float
-        Maximum acceptable condition number for A.
-    gap_threshold : Optional[float]
-        Minimum acceptable singular gap; defaults to machine epsilon scale.
-    strict : bool
-        If True, raise on violations. If False, log warnings for gap issues.
+    min_singular_gap : float
+        Minimum acceptable singular gap between sigma_k and sigma_{k+1}.
 
     Raises
     ------
@@ -81,30 +67,25 @@ def check_witness(
             f"A is {A.shape}, X0 is {X0.shape}"
         )
 
-    k_eff = k if k is not None else X0.shape[0]
+    k_eff = A.shape[0]
     if k_eff < 1:
-        raise WitnessValidationError(f"k must be positive, got {k_eff}")
+        raise WitnessValidationError(f"A must be non-empty, got shape {A.shape}")
 
     if k_eff > min(X0.shape[0], X0.shape[1]):
         raise WitnessValidationError(
-            f"k={k_eff} exceeds witness dimensions {X0.shape}"
+            f"A dimension k={k_eff} exceeds witness dimensions {X0.shape}"
         )
 
-    # Dimensionality check: T > 2k to avoid overfitting
-    T = X0.shape[1] + 1
-    if T <= 2 * k_eff:
+    # Rank verification: A should be full rank relative to its dimensions.
+    rank_A = np.linalg.matrix_rank(A)
+    if rank_A != k_eff:
         raise WitnessValidationError(
-            f"Insufficient timesteps: T={T} must exceed 2k={2 * k_eff}"
-        )
-
-    # Rank verification
-    rank_X0 = np.linalg.matrix_rank(X0)
-    if k_eff > rank_X0:
-        raise WitnessValidationError(
-            f"Effective rank k={k_eff} exceeds numerical rank of X0 ({rank_X0})"
+            "Effective rank mismatch: "
+            f"rank(A)={rank_A} does not match A dimension k={k_eff}"
         )
 
     # Condition number check
+    cond_threshold = 1e4
     cond_A = float(np.linalg.cond(A))
     if not np.isfinite(cond_A):
         raise WitnessValidationError("Condition number of A is not finite")
@@ -113,7 +94,7 @@ def check_witness(
             f"Condition number of A too large: cond(A)={cond_A:.3e}"
         )
 
-    # Singular gap check for Wedin's theorem
+    # Singular gap check between sigma_k and sigma_{k+1}
     singular_values = np.linalg.svd(A, compute_uv=False)
     if k_eff > len(singular_values):
         raise WitnessValidationError(
@@ -124,15 +105,9 @@ def check_witness(
     sigma_k_plus_1 = float(singular_values[k_eff]) if k_eff < len(singular_values) else 0.0
     singular_gap = sigma_k - sigma_k_plus_1
 
-    eps = np.finfo(singular_values.dtype).eps
-    gap_floor = gap_threshold if gap_threshold is not None else eps * max(1.0, sigma_k)
-
-    if singular_gap <= gap_floor:
-        message = (
-            "Singular gap too small for Wedin's theorem: "
+    if singular_gap <= min_singular_gap:
+        raise WitnessValidationError(
+            "Singular gap too small: "
             f"sigma_k={sigma_k:.3e}, sigma_k+1={sigma_k_plus_1:.3e}, "
-            f"gap={singular_gap:.3e}"
+            f"gap={singular_gap:.3e}, min_gap={min_singular_gap:.3e}"
         )
-        if strict:
-            raise WitnessValidationError(message)
-        logger.warning(message)

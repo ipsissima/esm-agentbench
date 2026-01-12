@@ -20,7 +20,10 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from certificates.witness_checker import WitnessValidationError, check_witness
+from certificates.witness_checker import (
+    WitnessValidationError,
+    check_witness_properties,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -438,7 +441,7 @@ def compute_certificate(
         If witness matrices fail numerical preconditions.
     """
 
-    check_witness(X0, X1, A, strict=True)
+    check_witness_properties(X0, X1, A)
 
     # Load kernel once
     kernel = load_kernel(strict=strict)
