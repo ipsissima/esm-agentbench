@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 class DegenerateEmbeddingError(ValueError):
-    """Raised when embeddings collapse to near-constant vectors or have zero variance."""
+    """Raised when embeddings collapse to near-constant vectors."""
 
 
 def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
@@ -363,31 +363,25 @@ def _compute_certificate_core(
     if X.ndim == 1:
         X = X.reshape(-1, 1)
 
-    # === PRECONDITION: STRICT NORMALIZATION ===
-    # Spectral bounds assume x lives on the unit hypersphere.
-    # We enforce L2 normalization here to make the metric scale-invariant.
-    norm_X = np.linalg.norm(X, axis=1, keepdims=True)
-    # Avoid division by zero for empty/padding steps
-    safe_norm = np.where(norm_X > 1e-12, norm_X, 1.0)
-    X = X / safe_norm
+    # Strict L2 normalization to enforce scaling invariance across traces
+    eps = 1e-12
+    norms = norm(X, axis=1, keepdims=True)
+    safe_norms = np.where(norms > eps, norms, 1.0)
+    X = X / safe_norms
 
     # Clamp lipschitz_margin to non-negative: negative margins must not decrease the bound
     lipschitz_margin = max(0.0, lipschitz_margin)
 
     T = X.shape[0]
-    eps = 1e-12
     if T < 2 or X.size == 0:
         return _initial_empty_certificate()
 
-    # === PRECONDITION: OBSERVABILITY ===
-    # Check if embeddings occupy volume. If variance is near zero,
-    # the spectral certificate cannot be computed meaningfully.
-    # We check the mean variance per dimension.
-    mean_variance = np.var(X, axis=0).mean()
-    if mean_variance < 1e-6:
+    # Collapse detection: mean per-dimension variance for normalized embeddings
+    embedding_variance_ratio = float(np.var(X, axis=0).mean())
+    if embedding_variance_ratio < 1e-6:
         raise DegenerateEmbeddingError(
-            f"Embeddings have collapsed (mean var={mean_variance:.2e} < 1e-6). "
-            "The agent is likely repeating token loops or outputting empty strings."
+            "Degenerate embeddings detected: mean per-dimension variance "
+            f"{embedding_variance_ratio:.2e} < 1e-6."
         )
 
     # === SEMANTIC DIVERGENCE ===
