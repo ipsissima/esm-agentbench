@@ -494,8 +494,7 @@ def _compute_certificate_core(
     A = _fit_temporal_operator_ridge(X0, X1, regularization=1e-6)
 
     try:
-        min_train_cols = min(3, X0.shape[1])
-        witness_check = check_witness(X0, X1, A, r_eff=r_eff, min_train_cols=min_train_cols)
+        witness_check = check_witness(X0, X1, A, k=r_eff)
     except WitnessValidationError as exc:
         certificate = _initial_empty_certificate()
         certificate["certificate_provenance"] = _build_certificate_provenance(

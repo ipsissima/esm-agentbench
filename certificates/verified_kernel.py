@@ -22,7 +22,7 @@ import numpy as np
 
 from certificates.witness_checker import (
     WitnessValidationError,
-    check_witness_properties,
+    check_witness,
 )
 
 logger = logging.getLogger(__name__)
@@ -441,7 +441,8 @@ def compute_certificate(
         If witness matrices fail numerical preconditions.
     """
 
-    check_witness_properties(X0, X1, A)
+    k = min(X0.shape[0], X0.shape[1]) if isinstance(X0, np.ndarray) and X0.ndim == 2 else 1
+    check_witness(X0, X1, A, k=k)
 
     # Load kernel once
     kernel = load_kernel(strict=strict)

@@ -18,10 +18,9 @@ def check_witness(
     X0: np.ndarray,
     X1: np.ndarray,
     A: np.ndarray,
-    r_eff: int,
-    cond_thresh: float = 1e8,
+    k: int,
+    cond_thresh: float = 1e4,
     gap_thresh: float = 1e-12,
-    min_train_cols: int = 3,
 ) -> Dict[str, float]:
     """Validate numerical preconditions for the verified kernel.
 
@@ -43,8 +42,6 @@ def check_witness(
         raise WitnessValidationError("X0 and X1 must have same number of columns (timesteps)")
 
     n_cols = X0.shape[1]
-    if n_cols < min_train_cols:
-        raise WitnessValidationError(f"Not enough training columns: {n_cols} < {min_train_cols}")
 
     gram = X0 @ X0.T
     try:
@@ -66,13 +63,13 @@ def check_witness(
             f"Singular value gap too small: {spectral_gap:.3e} < {gap_thresh:.3e}"
         )
 
-    if not (1 <= r_eff <= min(X0.shape[0], X0.shape[1])):
-        raise WitnessValidationError(f"r_eff ({r_eff}) inconsistent with shapes {X0.shape}")
+    if not (1 <= k <= min(X0.shape[0], X0.shape[1])):
+        raise WitnessValidationError(f"k ({k}) inconsistent with shapes {X0.shape}")
 
     return {
         "condition_number": float(cond),
         "spectral_gap": float(spectral_gap),
-        "r_eff_checked": int(r_eff),
+        "r_eff_checked": int(k),
         "n_train_cols": int(n_cols),
     }
 
@@ -81,9 +78,8 @@ def check_witness_properties(
     X0: np.ndarray,
     X1: np.ndarray,
     A: np.ndarray,
-    cond_thresh: float = 1e8,
+    cond_thresh: float = 1e4,
     gap_thresh: float = 1e-12,
-    min_train_cols: int = 3,
 ) -> Dict[str, float]:
     """Backward-compatible witness validation wrapper for kernel bridge."""
     r_eff = min(X0.shape[0], X0.shape[1]) if isinstance(X0, np.ndarray) and X0.ndim == 2 else 1
@@ -91,8 +87,7 @@ def check_witness_properties(
         X0,
         X1,
         A,
-        r_eff=r_eff,
+        k=r_eff,
         cond_thresh=cond_thresh,
         gap_thresh=gap_thresh,
-        min_train_cols=min_train_cols,
     )
