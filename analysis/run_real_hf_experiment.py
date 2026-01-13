@@ -52,6 +52,7 @@ from analysis.run_experiment import (
     plot_roc_curve,
     compute_tpr_at_fpr,
 )
+from analysis.stat_inference import bootstrap_auc, permutation_test_score
 
 # Optional imports
 try:
@@ -484,6 +485,10 @@ def run_scenario(
     X_all = features_df_valid[feature_cols].fillna(0).values
     y_all = features_df_valid['is_drift'].values
 
+    auc_ci_lower = float("nan")
+    auc_ci_upper = float("nan")
+    separation_p_value = float("nan")
+
     if len(np.unique(y_all)) >= 2 and HAS_SKLEARN:
         scaler_all = StandardScaler()
         X_all_scaled = scaler_all.fit_transform(X_all)
@@ -495,6 +500,13 @@ def run_scenario(
         fpr_all, tpr_all, _ = roc_curve(y_all, y_all_proba)
         overall_auc = auc(fpr_all, tpr_all)
         overall_tpr_at_fpr05, _ = compute_tpr_at_fpr(fpr_all, tpr_all, 0.05)
+
+        auc_ci_lower, auc_ci_upper = bootstrap_auc(y_all, y_all_proba)
+
+        labels_all = features_df_valid['label'].values
+        gold_scores = y_all_proba[labels_all == 'gold']
+        drift_scores = y_all_proba[labels_all == 'drift']
+        separation_p_value = permutation_test_score(gold_scores, drift_scores)
     else:
         overall_auc = 0.5
         overall_tpr_at_fpr05 = 0.0
@@ -506,6 +518,9 @@ def run_scenario(
         'models': models,
         'overall_auc': float(overall_auc),
         'overall_tpr_at_fpr05': float(overall_tpr_at_fpr05),
+        'auc_ci_lower': auc_ci_lower,
+        'auc_ci_upper': auc_ci_upper,
+        'separation_p_value': separation_p_value,
         'per_model': per_model_results,
         'num_traces': {
             'gold': len(traces['gold']),
