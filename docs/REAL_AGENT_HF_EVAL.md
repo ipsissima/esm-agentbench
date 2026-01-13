@@ -739,3 +739,212 @@ If you use this framework, cite the ESM AgentBench submission:
 - GitHub Issues: https://github.com/ipsissima/esm-agentbench/issues
 - Documentation: docs/REAL_AGENT_HF_EVAL.md
 - Phase-1 Specs: submissions/README.md
+
+---
+
+## Phase-1 Attestation and Verified Kernel
+
+### Overview
+
+All Phase-1 judge runs are now fully auditable and reproducible through:
+
+1. **Trace Attestation**: Each `index.json` includes cryptographic witness hash and embedder provenance
+2. **Ed25519 Signatures**: Detached signatures ensure trace integrity
+3. **Verified Kernel**: CI enforces use of formally verified (Coq/OCaml) certificate computation
+4. **Embedder Provenance**: Model version and file hashes tracked for reproducibility
+
+### Trace Attestation
+
+When traces are saved, `index.json` now contains an `audit` field:
+
+```json
+{
+  "created": "2024-01-01T00:00:00",
+  "counts": {"gold": 5, "creative": 10, "drift": 10, "total": 25},
+  "audit": {
+    "embedder_id": "BAAI/bge-small-en-v1.5|abc123def456...",
+    "witness_hash": "sha256_of_augmented_trajectory_matrix",
+    "kernel_mode": "unknown"
+  }
+}
+```
+
+#### Fields
+
+- **embedder_id**: Canonical model identifier with file hash for provenance
+  - Format: `{model_name}|{model_files_sha256}`
+  - Example: `BAAI/bge-small-en-v1.5|abc123...`
+  - Falls back to `{model_name}|unknown` if local files unavailable
+
+- **witness_hash**: SHA256 of the augmented trajectory matrix used by the certificate kernel
+  - Computed deterministically over float64 contiguous arrays
+  - Concatenates all gold trace embeddings in sorted filename order
+  - Ensures reproducibility: same traces = same hash
+
+- **kernel_mode**: Set to `true` when certificates use verified kernel, `false` for Python fallback
+
+### Ed25519 Signatures
+
+Sign and verify trace indices using detached signatures:
+
+#### Signing
+
+```bash
+# Generate a keypair (testing only)
+python -c "import nacl.signing; k=nacl.signing.SigningKey.generate(); \
+           open('private.key','wb').write(bytes(k)); \
+           open('public.key','wb').write(bytes(k.verify_key))"
+
+# Sign an index
+python tools/sign_index.py \
+  --index submissions/team/scenario/experiment_traces_real_hf/index.json \
+  --key private.key \
+  --out submissions/team/scenario/experiment_traces_real_hf/index.json.sig
+```
+
+#### Verification
+
+```bash
+# Verify signature
+python tools/verify_signature.py \
+  --index submissions/team/scenario/experiment_traces_real_hf/index.json \
+  --sig submissions/team/scenario/experiment_traces_real_hf/index.json.sig \
+  --pubkey public.key
+```
+
+Exit code 0 = valid, 1 = invalid.
+
+#### Automatic Signing
+
+Set `SIGN_INDEX_WITH` environment variable to automatically sign indices when created:
+
+```bash
+export SIGN_INDEX_WITH=/path/to/private.key
+python tools/real_agents_hf/run_real_agents.py ...
+```
+
+### Verified Kernel in Certificates
+
+Certificates now include full audit trail:
+
+```python
+from certificates.make_certificate import compute_certificate
+
+cert = compute_certificate(
+    embeddings,
+    embedder_id="BAAI/bge-small-en-v1.5|abc123...",
+    kernel_strict=True,  # Require verified kernel (default)
+)
+
+# Returns:
+{
+    "theoretical_bound": 0.42,
+    "residual": 0.15,
+    "tail_energy": 0.08,
+    "audit": {
+        "embedder_id": "BAAI/bge-small-en-v1.5|abc123...",
+        "witness_hash": "def456...",
+        "kernel_mode": true,  # True = verified kernel, False = Python fallback
+        "witness_check": {
+            "condition_number": 123.45,
+            "spectral_gap": 0.67,
+            "r_eff_checked": 10
+        }
+    }
+}
+```
+
+#### Kernel Strict Mode
+
+- `kernel_strict=True` (default): Requires verified kernel; raises error if unavailable
+- `kernel_strict=False`: Falls back to Python computation if kernel missing
+
+In CI, the verified kernel is built from Coq proofs and enforced for Phase-1 validation.
+
+### CI: Verified Kernel Build
+
+The `.github/workflows/agentbeats_phase1.yml` workflow now:
+
+1. **Builds the kernel** from Coq/OCaml sources in a `build_verified_kernel` job
+2. **Uploads** `kernel_verified.so` as an artifact
+3. **Downloads** the kernel in the `validate-phase1` job
+4. **Sets** `VERIFIED_KERNEL_PATH` environment variable
+5. **Enforces** kernel usage (no longer skips by default)
+
+If the kernel fails to build, the entire workflow fails — ensuring official Phase-1 validation always uses formally verified computation.
+
+#### Building the Kernel Locally
+
+```bash
+# Install dependencies (Ubuntu/Debian)
+sudo apt-get install coq ocaml ocaml-native-compilers ocaml-findlib opam
+
+# Build kernel
+./build_kernel.sh
+
+# Kernel output: UELAT/kernel_verified.so
+```
+
+Set `VERIFIED_KERNEL_PATH` to use it:
+
+```bash
+export VERIFIED_KERNEL_PATH="$PWD/UELAT/kernel_verified.so"
+pytest tests/
+```
+
+### Calibration with Real Traces
+
+Threshold calibration now prefers real gold traces:
+
+```bash
+# Use real traces from submissions/
+python tools/calibrate_thresholds.py \
+  --team your_team \
+  --scenario scenario_name \
+  --backend sentence-transformers
+
+# Falls back to synthetic traces with warning if real traces unavailable
+```
+
+This ensures calibration reflects actual agent behavior, not synthetic data.
+
+### Reproducing Phase-1 Results
+
+To verify Phase-1 submissions:
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/ipsissima/esm-agentbench
+   cd esm-agentbench
+   git checkout agentbeats/phase1-submission-{team}
+   ```
+
+2. **Build the verified kernel**:
+   ```bash
+   ./build_kernel.sh
+   export VERIFIED_KERNEL_PATH="$PWD/UELAT/kernel_verified.so"
+   ```
+
+3. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Verify signatures** (if provided):
+   ```bash
+   python tools/verify_signature.py \
+     --index submissions/{team}/{scenario}/experiment_traces_real_hf/index.json \
+     --sig submissions/{team}/{scenario}/experiment_traces_real_hf/index.json.sig \
+     --pubkey submissions/{team}/public.key
+   ```
+
+5. **Re-run validation**:
+   ```bash
+   pytest tests/test_phase1_submission.py -v
+   ```
+
+All computations should produce identical results due to:
+- Deterministic witness hashing
+- Verified kernel computation
+- Signed trace indices
+- Tracked embedder provenance
