@@ -63,7 +63,7 @@ jobs:
       run: |
         python -m venv .venv
         . .venv/bin/activate
-        pip install --no-cache-dir "huggingface-hub==0.13.5" "sentence-transformers==2.3.0"
+        pip install --no-cache-dir "huggingface-hub<0.14,>=0.4.0" "sentence-transformers==2.2.2"
         pip install -r requirements.txt
         pip install pytest
         pip install -e .
