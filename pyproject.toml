@@ -72,8 +72,8 @@ Issues = "https://github.com/ipsissima/esm-agentbench/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["assessor*", "certificates*", "esmassessor*", "scenarios*", "benchmarks*"]
-exclude = ["tests*", "tools*", "analysis*", "demo_swe*", "legacy*"]
+include = ["assessor*", "certificates*", "esmassessor*", "scenarios*", "benchmarks*", "tools*"]
+exclude = ["tests*", "analysis*", "demo_swe*", "legacy*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.json", "*.md"]
