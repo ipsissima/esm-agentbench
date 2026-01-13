@@ -211,6 +211,7 @@ python tools/real_agents_hf/run_real_agents.py \
 - `--team`: Team name for output directory
 - `--embedding-model`: Embedding model (default: BAAI/bge-small-en-v1.5)
 - `--cache-dir`: Cache directory for embeddings
+- `--seed`: Base random seed for reproducibility (per-run seed = base + run_num)
 
 **Output:**
 ```
@@ -421,6 +422,64 @@ For judges to reproduce your results:
 - [x] All prompts committed to repo
 - [x] Trace format documented
 - [x] Dependencies pinned in requirements.txt
+- [x] Embedder version + model SHA recorded
+- [x] Docker image digest recorded
+- [x] Verified-kernel mode logged for formal certificates
+
+## Exact Reproducibility Manifest (Required Fields)
+
+Capture these values alongside your archived run:
+
+- **Embedding model**: name + exact revision SHA (e.g., `BAAI/bge-small-en-v1.5@<sha>`)
+- **sentence-transformers**: package version + model commit SHA
+- **Random seeds**: base seed used in `run_real_agents.py --seed`
+- **Docker image digest**: `repo:tag@sha256:...`
+- **HF model SHAs**: exact revisions for each model in `models.yaml`
+
+### One-shot manifest collector
+
+```bash
+python - <<'PY'
+from huggingface_hub import model_info
+import json
+import sentence_transformers
+import torch
+import transformers
+
+models = [
+    "BAAI/bge-small-en-v1.5",
+    "deepseek-ai/deepseek-coder-7b-instruct-v1.5",
+    "codellama/CodeLlama-13b-Instruct-hf",
+    "bigcode/starcoder2-15b",
+]
+
+manifest = {
+    "sentence_transformers_version": sentence_transformers.__version__,
+    "transformers_version": transformers.__version__,
+    "torch_version": torch.__version__,
+    "model_shas": {m: model_info(m).sha for m in models},
+}
+
+print(json.dumps(manifest, indent=2))
+PY
+```
+
+```bash
+# Docker digest (replace IMAGE with your tag)
+docker inspect --format='{{index .RepoDigests 0}}' IMAGE
+```
+
+## Trace Attestation (Auditability)
+
+Each run writes `index.json` with a hash chain over trace files so judges can
+detect tampering or trace injection:
+
+- `run_generator`: path to the generator script (`tools/real_agents_hf/run_real_agents.py`)
+- `attestation.trace_hashes`: SHA-256 + timestamps for each trace file
+- `attestation.hash_chain`: rolling hash chain in trace order
+- `attestation.run_signature`: signature over the chain tail + generator metadata
+
+Judges can recompute the hashes to confirm no fabricated traces were added.
 
 ## Example: Full Evaluation Run
 
@@ -446,6 +505,32 @@ python analysis/run_real_hf_experiment.py \
 # 4. Review reports
 ls reports/spectral_validation_real_hf/*/validation_report.json
 ```
+
+### Verified-kernel full run (for formal certificate claims)
+
+```bash
+# Build the verified kernel (Coq/OCaml)
+./build_kernel.sh
+
+# Ensure strict mode (no python fallback)
+unset ESM_SKIP_VERIFIED_KERNEL
+
+# Run full evaluation with reproducible seeds and trace attestation
+python tools/real_agents_hf/run_real_agents.py \
+  --all-scenarios \
+  --mode full \
+  --seed 1337 \
+  --team ipsissima
+
+# Run validation
+python analysis/run_real_hf_experiment.py \
+  --all-scenarios \
+  --cross-model
+```
+
+Archive the resulting `submissions/{team}/{scenario}/experiment_traces_real_hf/`
+directories and `reports/` outputs so judges can verify kernel provenance and
+attestation data.
 
 ## Troubleshooting
 

@@ -13,6 +13,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +24,7 @@ from .embeddings import EmbeddingModel, embed_trace_steps
 from .inference import ModelConfig
 
 logger = logging.getLogger(__name__)
+RUN_GENERATOR = "tools/real_agents_hf/run_real_agents.py"
 
 
 @dataclass
@@ -187,7 +189,9 @@ def organize_traces_by_label(trace_dir: Path) -> Dict[str, List[Path]]:
     """
     traces = {'gold': [], 'creative': [], 'drift': []}
 
-    for trace_file in sorted(trace_dir.glob("*.json")):
+    for trace_file in sorted(trace_dir.glob("**/*.json")):
+        if trace_file.name == "index.json":
+            continue
         try:
             with open(trace_file) as f:
                 data = json.load(f)
@@ -198,6 +202,51 @@ def organize_traces_by_label(trace_dir: Path) -> Dict[str, List[Path]]:
             logger.warning(f"Error loading {trace_file}: {e}")
 
     return traces
+
+
+def _compute_sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def collect_trace_entries(trace_dir: Path) -> List[Dict[str, Any]]:
+    """Collect trace metadata and hashes for attestation."""
+    entries: List[Dict[str, Any]] = []
+    for trace_file in sorted(trace_dir.glob("**/*.json")):
+        if trace_file.name == "index.json":
+            continue
+        try:
+            raw = trace_file.read_bytes()
+            digest = _compute_sha256(raw)
+            data = json.loads(raw.decode("utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(f"Error reading {trace_file}: {exc}")
+            continue
+
+        label = data.get("label")
+        entries.append(
+            {
+                "file": str(trace_file.relative_to(trace_dir)),
+                "sha256": digest,
+                "size_bytes": len(raw),
+                "label": label,
+                "timestamp": data.get("timestamp"),
+                "run_id": data.get("run_id"),
+                "model": data.get("model", {}).get("name"),
+            }
+        )
+
+    return entries
+
+
+def build_hash_chain(entries: List[Dict[str, Any]]) -> List[str]:
+    """Build a simple hash chain across trace hashes."""
+    chain: List[str] = []
+    prev = "genesis"
+    for entry in sorted(entries, key=lambda e: e["file"]):
+        payload = f"{prev}:{entry['sha256']}:{entry['file']}".encode("utf-8")
+        prev = _compute_sha256(payload)
+        chain.append(prev)
+    return chain
 
 
 def create_index(trace_dir: Path, metadata: Dict[str, Any]) -> Path:
@@ -215,11 +264,27 @@ def create_index(trace_dir: Path, metadata: Dict[str, Any]) -> Path:
     Path
         Path to index file
     """
+    safe_metadata = {
+        key: value
+        for key, value in metadata.items()
+        if key not in ("run_generator", "attestation")
+    }
     traces = organize_traces_by_label(trace_dir)
+    trace_entries = collect_trace_entries(trace_dir)
+    hash_chain = build_hash_chain(trace_entries)
+    run_signature_payload = {
+        "created": datetime.now().isoformat(),
+        "run_generator": metadata.get("run_generator", RUN_GENERATOR),
+        "hash_chain_tail": hash_chain[-1] if hash_chain else "genesis",
+    }
+    run_signature = _compute_sha256(
+        json.dumps(run_signature_payload, sort_keys=True).encode("utf-8")
+    )
 
     index = {
-        'created': datetime.now().isoformat(),
+        'created': run_signature_payload["created"],
         'trace_dir': str(trace_dir),
+        'run_generator': run_signature_payload["run_generator"],
         'counts': {
             'gold': len(traces['gold']),
             'creative': len(traces['creative']),
@@ -230,7 +295,13 @@ def create_index(trace_dir: Path, metadata: Dict[str, Any]) -> Path:
             label: [str(f.name) for f in files]
             for label, files in traces.items()
         },
-        **metadata,
+        'attestation': {
+            'algorithm': 'sha256',
+            'trace_hashes': trace_entries,
+            'hash_chain': hash_chain,
+            'run_signature': run_signature,
+        },
+        **safe_metadata,
     }
 
     index_file = trace_dir / "index.json"

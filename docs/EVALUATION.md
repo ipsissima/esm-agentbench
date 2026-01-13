@@ -23,3 +23,15 @@ python tools/generate_seed_traces.py --trials 10
 python tools/calibrate_thresholds.py --trials 30
 
 After calibration, `evaluation_config.yaml` will contain `calibration.residual_threshold` and `calibration.jump_factor` set for the canonical backend. Per-backend calibration artifacts are stored under `certificates/calibration_{backend}.json`.
+
+## Reproducibility notes for `make_certificate`
+
+When generating certificates, record the following in your run log or archive:
+
+- Embedder package version and model revision SHA
+- sentence-transformers model commit SHA
+- Random seeds used for trace generation
+- Docker image digest used for the run
+
+This information should accompany any `make_certificate` outputs so judges can
+reproduce the formal certificate computation end-to-end.

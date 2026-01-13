@@ -13,6 +13,8 @@ from unittest.mock import patch, MagicMock
 import pytest
 import numpy as np
 
+from tools.real_agents_hf.trace import RUN_GENERATOR, create_index
+
 # Repository root and key directories
 REPO_ROOT = Path(__file__).parent.parent
 REAL_TRACES_DIR = REPO_ROOT / "tools" / "real_traces"
@@ -55,6 +57,7 @@ def _setup_submission_traces():
     # Copy traces to each scenario's submissions directory
     for scenario in EXPECTED_SCENARIOS:
         scenario_traces_dir = SUBMISSIONS_DIR / scenario / "experiment_traces_real_hf"
+        scenario_traces_dir.mkdir(parents=True, exist_ok=True)
 
         for (label, model), trace_files in traces_by_label_model.items():
             # Only use gold, creative, drift labels for scenarios
@@ -68,6 +71,14 @@ def _setup_submission_traces():
                 target_path = target_dir / f"run_{idx:03d}.json"
                 if not target_path.exists():
                     shutil.copy2(trace_file, target_path)
+
+        create_index(
+            scenario_traces_dir,
+            {
+                "run_generator": RUN_GENERATOR,
+                "test_fixture": True,
+            },
+        )
 
 
 @pytest.fixture(scope="session", autouse=True)
