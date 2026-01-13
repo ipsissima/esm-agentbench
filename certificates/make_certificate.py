@@ -360,7 +360,8 @@ def _compute_semantic_divergence(
 
 def _compute_certificate_core(
     X: np.ndarray, r: int, task_embedding: Optional[np.ndarray] = None,
-    lipschitz_margin: float = 0.0
+    lipschitz_margin: float = 0.0,
+    strict: bool = True,
 ) -> Dict[str, float]:
     """Compute spectral certificate using SVD (not eigenvalues).
 
@@ -538,47 +539,67 @@ def _compute_certificate_core(
     # It receives witness matrices (X0, X1, A) from Python (unverified witness)
     # and computes residual and theoretical_bound with formal guarantees.
     #
-    # If ESM_SKIP_VERIFIED_KERNEL is set, use non-strict mode for CI environments
-    # without Coq/OCaml build tools.
-    use_strict = not _SKIP_VERIFIED_KERNEL
+    # If strict=False, allow Python fallback when kernel is unavailable
+    use_strict = strict and not _SKIP_VERIFIED_KERNEL
     kernel_mode = "verified"
-    try:
-        # Pass OOS residual to kernel for verification
-        residual_computed, theoretical_bound = kernel_compute_certificate(
-            X0, X1, A,
-            tail_energy,
-            semantic_divergence,
-            lipschitz_margin,
-            strict=use_strict
+    
+    # Check if kernel is available before attempting computation
+    from . import verified_kernel
+    kernel_available = verified_kernel.load_kernel(strict=False) is not None
+    
+    if not kernel_available and not use_strict:
+        # Kernel not available and non-strict mode: use Python fallback directly
+        logger.warning("Verified kernel unavailable, using Python fallback")
+        theoretical_bound = float(
+            c_res * residual + c_tail * tail_energy +
+            c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
         )
-        # Kernel computes in-sample residual; prefer OOS residual when available
-        # to avoid in-sample overfitting artifacts.
-        if np.isfinite(oos_residual) and oos_residual > 0:
-            residual = max(oos_residual, 1e-6)
-            theoretical_bound = float(
-                c_res * residual + c_tail * tail_energy +
-                c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
+        kernel_mode = "python_fallback"
+    elif not kernel_available and use_strict:
+        # Kernel not available and strict mode: fail hard
+        raise RuntimeError(
+            "Spectral certificate computation failed: verified kernel unavailable. "
+            "Build with: ./build_kernel.sh or set VERIFIED_KERNEL_PATH environment variable."
+        )
+    else:
+        # Kernel available: use it
+        try:
+            # Pass OOS residual to kernel for verification
+            residual_computed, theoretical_bound = kernel_compute_certificate(
+                X0, X1, A,
+                tail_energy,
+                semantic_divergence,
+                lipschitz_margin,
+                strict=use_strict
             )
-        else:
-            residual = residual_computed
-    except KernelError as exc:
-        if use_strict:
-            # Kernel computation failed in strict mode
-            # This is a hard failure: we cannot proceed without the verified kernel
-            logger.error(f"Verified kernel failed: {exc}")
-            raise RuntimeError(
-                f"Spectral certificate computation failed: verified kernel unavailable. {exc}"
-            ) from exc
-        else:
-            # Non-strict mode: fall back to Python computation
-            logger.warning(f"Verified kernel unavailable, using Python fallback: {exc}")
-            # Use OOS residual (already computed above)
-            # Compute theoretical bound in Python (unverified)
-            theoretical_bound = float(
-                c_res * residual + c_tail * tail_energy +
-                c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
-            )
-            kernel_mode = "python_fallback"
+            # Kernel computes in-sample residual; prefer OOS residual when available
+            # to avoid in-sample overfitting artifacts.
+            if np.isfinite(oos_residual) and oos_residual > 0:
+                residual = max(oos_residual, 1e-6)
+                theoretical_bound = float(
+                    c_res * residual + c_tail * tail_energy +
+                    c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
+                )
+            else:
+                residual = residual_computed
+        except KernelError as exc:
+            if use_strict:
+                # Kernel computation failed in strict mode
+                # This is a hard failure: we cannot proceed without the verified kernel
+                logger.error(f"Verified kernel failed: {exc}")
+                raise RuntimeError(
+                    f"Spectral certificate computation failed: verified kernel unavailable. {exc}"
+                ) from exc
+            else:
+                # Non-strict mode: fall back to Python computation
+                logger.warning(f"Verified kernel unavailable, using Python fallback: {exc}")
+                # Use OOS residual (already computed above)
+                # Compute theoretical bound in Python (unverified)
+                theoretical_bound = float(
+                    c_res * residual + c_tail * tail_energy +
+                    c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
+                )
+                kernel_mode = "python_fallback"
 
     return {
         "pca_explained": pca_explained,
@@ -621,6 +642,8 @@ def compute_certificate(
     r: int = 10,
     task_embedding: Optional[Iterable[float]] = None,
     lipschitz_margin: float = 0.0,
+    embedder_id: Optional[str] = None,
+    kernel_strict: bool = True,
 ) -> Dict[str, float]:
     """Compute SVD-based spectral certificate with rigorous bounds.
 
@@ -645,6 +668,11 @@ def compute_certificate(
     lipschitz_margin : float, optional
         Maximum embedding divergence under semantic perturbations.
         Quantifies robustness of the embedding function. Default is 0.0.
+    embedder_id : Optional[str], optional
+        Canonical identifier for the embedding model. Used for audit trail.
+    kernel_strict : bool, optional
+        If True, require verified kernel (strict mode). If False, allow
+        Python fallback when kernel is unavailable. Default is True.
 
     Returns
     -------
@@ -658,6 +686,7 @@ def compute_certificate(
         - sigma_max, sigma_second: Leading singular values
         - singular_gap: Gap between top two singular values
         - pca_explained: Fraction of variance retained
+        - audit: Audit trail with embedder_id, witness_hash, kernel_mode
     """
 
     X = _safe_array(embeddings)
@@ -665,8 +694,24 @@ def compute_certificate(
     task_emb = None
     if task_embedding is not None:
         task_emb = np.asarray(list(task_embedding), dtype=float)
-    base = _compute_certificate_core(X, r, task_embedding=task_emb, lipschitz_margin=lipschitz_margin)
+    
+    # Call _compute_certificate_core with the strict parameter
+    base = _compute_certificate_core(X, r, task_embedding=task_emb, lipschitz_margin=lipschitz_margin, strict=kernel_strict)
+    
     certificate = {k: v for k, v in base.items() if k != "Z"}
+    
+    # Update audit field with provided embedder_id
+    if "certificate_provenance" in certificate:
+        provenance = certificate["certificate_provenance"]
+        if embedder_id:
+            provenance["embedder_id"] = embedder_id
+        # Expose audit at top level for convenience
+        certificate["audit"] = {
+            "embedder_id": provenance.get("embedder_id", "unknown"),
+            "witness_hash": provenance.get("witness_hash", ""),
+            "kernel_mode": provenance.get("kernel_mode") == "verified",
+            "witness_check": provenance.get("witness_check", {}),
+        }
 
     Z = base.get("Z")
     if Z is None or not isinstance(Z, np.ndarray):
@@ -681,7 +726,7 @@ def compute_certificate(
             for start, end in segments:
                 if end - start < 2:
                     continue
-                cert_seg = _compute_certificate_core(Z[start:end], r=min(r, end - start), lipschitz_margin=0.0)
+                cert_seg = _compute_certificate_core(Z[start:end], r=min(r, end - start), lipschitz_margin=0.0, strict=False)
                 segment_meta.append({
                     "start": start,
                     "end": end,
@@ -1031,7 +1076,7 @@ def compute_adaptive_certificate(
     # === STEP 1: SEGMENTATION ===
     # Use residual jumps to identify context switches
     # First compute full certificate to get Z
-    base_cert = _compute_certificate_core(X, r, task_embedding=task_emb)
+    base_cert = _compute_certificate_core(X, r, task_embedding=task_emb, strict=False)
     Z = base_cert.get("Z")
 
     segments: List[Tuple[int, int]] = [(0, T)]

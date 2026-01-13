@@ -9,13 +9,39 @@ on:
     branches:
       - main
 
-env:
-  # Skip verified kernel (requires Coq/OCaml build) and use Python fallback
-  ESM_SKIP_VERIFIED_KERNEL: "1"
-
 jobs:
+  build_verified_kernel:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Coq and OCaml
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y coq ocaml ocaml-native-compilers ocaml-findlib opam
+        # Initialize opam if needed
+        opam init -y --disable-sandboxing || true
+        eval $(opam env)
+
+    - name: Build verified kernel
+      run: |
+        ./build_kernel.sh || {
+          echo "ERROR: Kernel build failed. Phase-1 validation requires verified kernel."
+          echo "The build_kernel.sh script needs Coq and OCaml to compile formal proofs."
+          echo "If building on a local runner, ensure Coq/OCaml are installed."
+          exit 1
+        }
+
+    - name: Upload kernel artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: verified-kernel
+        path: UELAT/kernel_verified.so
+        if-no-files-found: error
+
   validate-phase1:
     runs-on: ubuntu-latest
+    needs: build_verified_kernel
     strategy:
       matrix:
         python-version: ["3.11"]
@@ -27,12 +53,31 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
+    - name: Download kernel artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: verified-kernel
+        path: UELAT/
+
     - name: Install dependencies
       run: |
         python -m venv .venv
         . .venv/bin/activate
         pip install -r requirements.txt
         pip install pytest
+
+    - name: Verify kernel is available
+      run: |
+        . .venv/bin/activate
+        export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
+        ls -la "${VERIFIED_KERNEL_PATH}"
+        # Test kernel loading
+        python -c "from certificates.verified_kernel import load_kernel; load_kernel(strict=True)" || {
+          echo "ERROR: Kernel failed to load"
+          exit 1
+        }
+      env:
+        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
     - name: Start green assessor (background)
       run: |
@@ -45,7 +90,8 @@ jobs:
     - name: Validate scenarios
       run: |
         . .venv/bin/activate
-        echo "Validating Phase-1 scenarios..."
+        export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
+        echo "Validating Phase-1 scenarios with verified kernel..."
         for s in scenarios/*; do
           if [ -d "$s" ]; then
             echo "==> Running baseline for $s"
@@ -67,16 +113,24 @@ jobs:
           fi
         done
         echo "All scenarios validated successfully!"
+      env:
+        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
     - name: Run Phase-1 submission tests
       run: |
         . .venv/bin/activate
+        export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
         pytest tests/test_phase1_submission.py -v
+      env:
+        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
     - name: Run repository validation demo
       run: |
         . .venv/bin/activate
+        export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
         python tools/run_demo.py || true
+      env:
+        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
     - name: Upload scenario artifacts
       uses: actions/upload-artifact@v3
