@@ -116,14 +116,16 @@ class ExecutionWitness(BaseModel):
 
 class CertificateAudit(BaseModel):
     """Audit metadata for certificate provenance."""
-    witness_hash: str = Field(..., description="SHA256 hash of the input trajectory")
     embedder_id: str = Field(..., description="Identifier for the embedding model")
+    witness_hash: str = Field(..., description="SHA256 hash of the input trajectory matrix X")
     numerical_diagnostics: Dict[str, float] = Field(
         default_factory=dict,
-        description="Numerical diagnostics such as condition numbers and gaps",
+        description="Diagnostics: condition_number, spectral_gap, oos_residual",
     )
-    kernel_mode: str = Field(..., description="Kernel execution mode")
-    timestamp_utc: str = Field(..., description="UTC timestamp when the certificate was generated")
+    kernel_mode: bool = Field(
+        ...,
+        description="True if verified kernel was used, False if Python fallback",
+    )
 
 
 class HybridCertificate(BaseModel):

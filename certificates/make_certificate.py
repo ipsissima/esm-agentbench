@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -271,6 +272,7 @@ def _initial_empty_certificate() -> Dict[str, float]:
         "sigma_max": float("nan"),
         "sigma_second": float("nan"),
         "singular_gap": 0.0,
+        "condition_number": float("inf"),
         "residual": 1.0,
         "tail_energy": 1.0,
         "semantic_divergence": 1.0,  # Conservative: assume divergent
@@ -443,6 +445,11 @@ def _compute_certificate_core(
     sigma_max = float(S_trunc[0]) if len(S_trunc) > 0 else float("nan")
     sigma_second = float(S_trunc[1]) if len(S_trunc) > 1 else 0.0
     singular_gap = float(sigma_max - sigma_second) if not np.isnan(sigma_max) else 0.0
+    sigma_min = float(S_trunc[-1]) if len(S_trunc) > 0 else 0.0
+    if sigma_min <= eps or np.isnan(sigma_max):
+        condition_number = float("inf")
+    else:
+        condition_number = float(sigma_max / sigma_min)
 
     if Z.shape[0] < 2:
         certificate = _initial_empty_certificate()
@@ -453,6 +460,7 @@ def _compute_certificate_core(
             "sigma_max": sigma_max,
             "sigma_second": sigma_second,
             "singular_gap": singular_gap,
+            "condition_number": condition_number,
         })
         # Load constants from Coq/verification bridge
         c_res = uelat_bridge.get_constant("C_res")
@@ -470,7 +478,7 @@ def _compute_certificate_core(
         certificate["lipschitz_margin"] = lipschitz_margin
         certificate["certificate_provenance"] = _build_certificate_provenance(
             embedder_id="unknown",
-            witness_hash=hashlib.sha256(X.tobytes()).hexdigest(),
+            witness_hash=raw_hash,
             kernel_mode="python_fallback",
         )
         return certificate
@@ -485,7 +493,6 @@ def _compute_certificate_core(
     # Use ridge regression with lstsq fallback for numerical robustness
     A = _fit_temporal_operator_ridge(X0, X1, regularization=1e-6)
 
-    witness_hash = hashlib.sha256(np.vstack([X0, X1]).tobytes()).hexdigest()
     try:
         min_train_cols = min(3, X0.shape[1])
         witness_check = check_witness(X0, X1, A, r_eff=r_eff, min_train_cols=min_train_cols)
@@ -493,7 +500,7 @@ def _compute_certificate_core(
         certificate = _initial_empty_certificate()
         certificate["certificate_provenance"] = _build_certificate_provenance(
             embedder_id="unknown",
-            witness_hash=witness_hash,
+            witness_hash=raw_hash,
             kernel_mode="python_fallback",
             reason=str(exc),
         )
@@ -579,6 +586,7 @@ def _compute_certificate_core(
         "sigma_max": sigma_max,
         "sigma_second": sigma_second,
         "singular_gap": singular_gap,
+        "condition_number": condition_number,
         "temporal_sigma_max": temporal_sigma_max,
         "temporal_sigma_second": temporal_sigma_second,
         "temporal_singular_gap": temporal_singular_gap,
@@ -602,7 +610,7 @@ def _compute_certificate_core(
         "C_robust": c_robust,
         "certificate_provenance": _build_certificate_provenance(
             embedder_id="unknown",
-            witness_hash=witness_hash,
+            witness_hash=raw_hash,
             kernel_mode=kernel_mode,
             witness_check=witness_check,
         ),
@@ -1184,6 +1192,7 @@ def certify_episode(
     """
     from esmassessor.artifact_schema import (
         CertifiedVerdict,
+        CertificateAudit,
         ExecutionWitness,
         HybridCertificate,
         SpectralMetrics,
@@ -1289,6 +1298,34 @@ def certify_episode(
         semantic_compliance=semantic_compliance_score,
         certified_verdict=verdict,
         execution_witness=execution_witness,
+        audit=CertificateAudit(
+            embedder_id=spectral_certificate.get("certificate_provenance", {}).get(
+                "embedder_id", "unknown"
+            ),
+            witness_hash=spectral_certificate.get("certificate_provenance", {}).get(
+                "witness_hash", ""
+            ),
+            numerical_diagnostics={
+                "condition_number": float(
+                    spectral_certificate.get(
+                        "condition_number",
+                        float("inf")
+                        if not math.isfinite(float(spectral_certificate.get("sigma_second", 0.0)))
+                        or float(spectral_certificate.get("sigma_second", 0.0)) <= 0.0
+                        else float(spectral_certificate.get("sigma_max", 0.0))
+                        / float(spectral_certificate.get("sigma_second", 1.0)),
+                    )
+                ),
+                "spectral_gap": float(singular_gap),
+                "oos_residual": float(
+                    spectral_certificate.get("oos_residual", residual)
+                ),
+            },
+            kernel_mode=(
+                spectral_certificate.get("certificate_provenance", {}).get("kernel_mode")
+                == "verified"
+            ),
+        ),
         theoretical_bound=theoretical_bound,
         reasoning=certification_reasoning,
     )
