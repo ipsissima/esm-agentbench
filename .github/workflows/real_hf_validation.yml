@@ -60,8 +60,9 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install --no-cache-dir "huggingface-hub<0.14,>=0.4.0" "sentence-transformers==2.2.2"
-          pip install -r requirements.txt
+          python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
+          python -m pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2"
+          pip install --no-cache-dir -r requirements.txt --no-deps
 
           # Install minimal transformers (CPU-only for CI)
           pip install torch --index-url https://download.pytorch.org/whl/cpu
