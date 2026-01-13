@@ -1,102 +1,59 @@
-"""Statistical inference utilities for evaluation metrics."""
+"""Statistical inference utilities for spectral validation."""
 from __future__ import annotations
 
-from itertools import combinations
 from typing import Iterable, Tuple
 
 import numpy as np
-
-try:
-    from sklearn.metrics import roc_auc_score
-    HAS_SKLEARN = True
-except ImportError:  # pragma: no cover - optional dependency
-    HAS_SKLEARN = False
+from sklearn.metrics import roc_auc_score
+from sklearn.utils import resample
 
 
 def bootstrap_auc(
-    y_true: Iterable[int],
-    y_score: Iterable[float],
-    n_boot: int = 1000,
+    y_true: Iterable[int], y_score: Iterable[float], n_boot: int = 1000
 ) -> Tuple[float, float]:
-    """Compute a 95% bootstrap confidence interval for AUC.
-
-    Parameters
-    ----------
-    y_true : iterable of int
-        Ground-truth binary labels.
-    y_score : iterable of float
-        Model scores or probabilities.
-    n_boot : int, optional
-        Number of bootstrap resamples.
-
-    Returns
-    -------
-    tuple of float
-        Lower and upper bounds of the 95% confidence interval.
-    """
-    if not HAS_SKLEARN:
-        return float("nan"), float("nan")
-
+    """Compute a bootstrap 95% confidence interval for ROC AUC."""
     y_true_arr = np.asarray(list(y_true))
     y_score_arr = np.asarray(list(y_score))
-
     if y_true_arr.size == 0 or y_true_arr.size != y_score_arr.size:
-        return float("nan"), float("nan")
+        return (float("nan"), float("nan"))
 
     rng = np.random.default_rng(0)
-    auc_samples = []
+    boot_scores = []
+    indices = np.arange(y_true_arr.size)
     for _ in range(n_boot):
-        indices = rng.integers(0, y_true_arr.size, size=y_true_arr.size)
-        sample_true = y_true_arr[indices]
-        sample_score = y_score_arr[indices]
-        if np.unique(sample_true).size < 2:
+        sample_idx = resample(indices, replace=True, n_samples=len(indices), random_state=rng.integers(1 << 32))
+        sample_y = y_true_arr[sample_idx]
+        sample_score = y_score_arr[sample_idx]
+        if len(np.unique(sample_y)) < 2:
             continue
-        auc_samples.append(roc_auc_score(sample_true, sample_score))
+        boot_scores.append(roc_auc_score(sample_y, sample_score))
 
-    if not auc_samples:
-        return float("nan"), float("nan")
+    if not boot_scores:
+        return (float("nan"), float("nan"))
 
-    lower, upper = np.percentile(auc_samples, [2.5, 97.5])
-    return float(lower), float(upper)
+    low, high = np.percentile(boot_scores, [2.5, 97.5])
+    return (float(low), float(high))
 
 
 def permutation_test_score(
-    group_a: Iterable[float],
-    group_b: Iterable[float],
+    group_a: Iterable[float], group_b: Iterable[float], n_perm: int = 1000
 ) -> float:
-    """Exact permutation test for separation between two distributions.
-
-    Parameters
-    ----------
-    group_a : iterable of float
-        Scores from group A (e.g., Gold).
-    group_b : iterable of float
-        Scores from group B (e.g., Drift).
-
-    Returns
-    -------
-    float
-        Two-sided exact p-value based on difference in means.
-    """
+    """Compute a one-sided permutation p-value for mean(group_a) > mean(group_b)."""
     a = np.asarray(list(group_a), dtype=float)
     b = np.asarray(list(group_b), dtype=float)
-
     if a.size == 0 or b.size == 0:
         return float("nan")
 
-    observed = abs(a.mean() - b.mean())
-    pooled = np.concatenate([a, b])
+    rng = np.random.default_rng(0)
+    observed = float(np.mean(a) - np.mean(b))
+    combined = np.concatenate([a, b])
     n_a = a.size
-
     count = 0
-    total = 0
-    for indices in combinations(range(pooled.size), n_a):
-        indices = np.asarray(indices)
-        sample_a = pooled[indices]
-        sample_b = np.delete(pooled, indices)
-        stat = abs(sample_a.mean() - sample_b.mean())
-        if stat >= observed:
-            count += 1
-        total += 1
 
-    return float(count / total)
+    for _ in range(n_perm):
+        rng.shuffle(combined)
+        diff = float(np.mean(combined[:n_a]) - np.mean(combined[n_a:]))
+        if diff >= observed:
+            count += 1
+
+    return (count + 1) / (n_perm + 1)

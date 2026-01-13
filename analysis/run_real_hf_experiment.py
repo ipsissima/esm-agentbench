@@ -485,9 +485,9 @@ def run_scenario(
     X_all = features_df_valid[feature_cols].fillna(0).values
     y_all = features_df_valid['is_drift'].values
 
-    auc_ci_lower = float("nan")
-    auc_ci_upper = float("nan")
-    separation_p_value = float("nan")
+    auc_ci_low = float("nan")
+    auc_ci_high = float("nan")
+    p_value = float("nan")
 
     if len(np.unique(y_all)) >= 2 and HAS_SKLEARN:
         scaler_all = StandardScaler()
@@ -501,12 +501,13 @@ def run_scenario(
         overall_auc = auc(fpr_all, tpr_all)
         overall_tpr_at_fpr05, _ = compute_tpr_at_fpr(fpr_all, tpr_all, 0.05)
 
-        auc_ci_lower, auc_ci_upper = bootstrap_auc(y_all, y_all_proba)
+        auc_ci_low, auc_ci_high = bootstrap_auc(y_all, y_all_proba)
 
         labels_all = features_df_valid['label'].values
-        gold_scores = y_all_proba[labels_all == 'gold']
-        drift_scores = y_all_proba[labels_all == 'drift']
-        separation_p_value = permutation_test_score(gold_scores, drift_scores)
+        bounds_all = features_df_valid['theoretical_bound'].fillna(0).values
+        gold_bounds = bounds_all[labels_all == 'gold']
+        drift_bounds = bounds_all[labels_all == 'drift']
+        p_value = permutation_test_score(gold_bounds, drift_bounds)
     else:
         overall_auc = 0.5
         overall_tpr_at_fpr05 = 0.0
@@ -518,9 +519,9 @@ def run_scenario(
         'models': models,
         'overall_auc': float(overall_auc),
         'overall_tpr_at_fpr05': float(overall_tpr_at_fpr05),
-        'auc_ci_lower': auc_ci_lower,
-        'auc_ci_upper': auc_ci_upper,
-        'separation_p_value': separation_p_value,
+        'auc_ci_low': auc_ci_low,
+        'auc_ci_high': auc_ci_high,
+        'p_value': p_value,
         'per_model': per_model_results,
         'num_traces': {
             'gold': len(traces['gold']),
