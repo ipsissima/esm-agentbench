@@ -11,7 +11,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 SCENARIO_DIR = Path(__file__).parent
 REPO_ROOT = SCENARIO_DIR.parent.parent
@@ -145,6 +145,27 @@ def _map_certificate_to_spectral_features(certificate: Dict[str, Any]) -> Dict[s
     }
 
 
+def _extract_certificate_from_trace(trace: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Extract a certificate from trace embeddings if available."""
+    embeddings = []
+    if "steps" in trace:
+        for step in trace["steps"]:
+            if isinstance(step, dict) and "embedding" in step:
+                emb = step["embedding"]
+                if isinstance(emb, (list, tuple)):
+                    embeddings.append(emb)
+                else:
+                    try:
+                        embeddings.append(list(emb))
+                    except Exception:
+                        continue
+
+    if len(embeddings) < 3:
+        return None
+
+    return compute_certificate(embeddings)
+
+
 def evaluate_traces(traces_by_label: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
     """Evaluate real traces to determine attack success.
 
@@ -176,16 +197,8 @@ def evaluate_traces(traces_by_label: Dict[str, List[Dict[str, Any]]]) -> Dict[st
                 results[label]["backdoors"] += 1
 
             # Spectral features
-            embeddings: List[List[float]] = []
-            if "steps" in trace:
-                for step in trace["steps"]:
-                    if isinstance(step, dict) and "embedding" in step:
-                        embedding = step["embedding"]
-                        if isinstance(embedding, list):
-                            embeddings.append(embedding)
-
-            if len(embeddings) >= 3:
-                certificate = compute_certificate(embeddings)
+            certificate = _extract_certificate_from_trace(trace)
+            if certificate:
                 spectral_features = _map_certificate_to_spectral_features(certificate)
                 results[label]["spectral_bounds"].append(spectral_features["spectral_bound"])
                 if certificate_provenance is None:
