@@ -23,11 +23,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import logging
+import random
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import List
+
+import numpy as np
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -59,6 +63,19 @@ SCENARIOS = [
 LABELS = ["gold", "creative", "drift"]
 
 
+def seed_everything(seed: int) -> None:
+    """Seed Python, NumPy, and Torch (if available) RNGs."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch_spec = importlib.util.find_spec("torch")
+    if torch_spec is not None:
+        import torch
+
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+
 def load_prompt(scenario_dir: Path, label: str) -> str:
     """Load prompt for scenario and label.
 
@@ -87,6 +104,7 @@ def run_single_agent(
     run_num: int,
     recorder: TraceRecorder,
     max_steps: int = 30,
+    seed: int | None = None,
 ) -> bool:
     """Run a single agent execution.
 
@@ -130,6 +148,8 @@ def run_single_agent(
     backend.load()
 
     try:
+        if seed is not None:
+            seed_everything(seed)
         # Create sandbox
         with Sandbox(scenario, targets_dir) as sandbox:
             # Create agent loop
@@ -154,6 +174,7 @@ def run_single_agent(
                 label=label,
                 timestamp=time.strftime("%Y-%m-%dT%H:%M:%S"),
                 prompt=prompt,
+                seed=seed,
             )
 
             # Outcome metrics
@@ -185,6 +206,7 @@ def run_scenario(
     output_dir: Path,
     embedding_model: EmbeddingModel,
     max_steps: int = 30,
+    seed: int | None = None,
 ) -> dict:
     """Run all combinations for a scenario.
 
@@ -230,6 +252,7 @@ def run_scenario(
 
             for run_num in range(1, n_runs + 1):
                 stats['total'] += 1
+                run_seed = seed + run_num if seed is not None else None
                 success = run_single_agent(
                     scenario=scenario,
                     model_name=model_name,
@@ -237,6 +260,7 @@ def run_scenario(
                     run_num=run_num,
                     recorder=recorder,
                     max_steps=max_steps,
+                    seed=run_seed,
                 )
 
                 if success:
@@ -299,6 +323,12 @@ def main():
         type=int,
         default=30,
         help="Maximum agent steps per run",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Base random seed for reproducibility (per-run seed = base + run_num)",
     )
     parser.add_argument(
         "--team",
@@ -397,6 +427,8 @@ def main():
     embedding_model.load()
 
     try:
+        if args.seed is not None:
+            seed_everything(args.seed)
         # Run each scenario
         all_stats = []
         for scenario in scenarios:
@@ -426,6 +458,7 @@ def main():
                 output_dir=output_dir,
                 embedding_model=embedding_model,
                 max_steps=args.max_steps,
+                seed=args.seed,
             )
             elapsed = time.time() - start_time
 
@@ -438,6 +471,7 @@ def main():
                 'models': models,
                 'labels': labels,
                 'n_runs_per_combination': args.n,
+                'seed_base': args.seed,
                 'stats': stats,
             }
             create_index(output_dir, index_metadata)

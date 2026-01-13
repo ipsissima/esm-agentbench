@@ -3,7 +3,8 @@
 This module provides functions for computing spectral certificates using SVD,
 Davis-Kahan/Wedin subspace perturbation bounds, and Koopman operator fitting.
 
-All data used in validation are synthetic. No real secrets or external network calls.
+Validation operates on caller-provided embeddings and traces. Synthetic data is
+used only in dedicated numerical tests; production runs rely on real traces.
 
 Mathematical Foundations:
 - Wedin's Theorem: Bounds singular subspace perturbation under matrix noise
