@@ -65,6 +65,7 @@ jobs:
         . .venv/bin/activate
         pip install -r requirements.txt
         pip install pytest
+        pip install -e .
 
     - name: Verify kernel is available
       run: |
