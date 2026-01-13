@@ -32,6 +32,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install --no-cache-dir "huggingface-hub<0.14,>=0.4.0" "sentence-transformers==2.2.2"
           pip install -r requirements.txt
           # Ensure spectral validation dependencies are installed
           pip install scipy seaborn jupyter nbconvert
@@ -150,6 +151,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install --no-cache-dir "huggingface-hub<0.14,>=0.4.0" "sentence-transformers==2.2.2"
           pip install -r requirements.txt
           pip install scipy seaborn
 
