@@ -621,6 +621,8 @@ def compute_certificate(
     r: int = 10,
     task_embedding: Optional[Iterable[float]] = None,
     lipschitz_margin: float = 0.0,
+    embedder_id: Optional[str] = None,
+    kernel_strict: bool = True,
 ) -> Dict[str, float]:
     """Compute SVD-based spectral certificate with rigorous bounds.
 
@@ -645,6 +647,11 @@ def compute_certificate(
     lipschitz_margin : float, optional
         Maximum embedding divergence under semantic perturbations.
         Quantifies robustness of the embedding function. Default is 0.0.
+    embedder_id : Optional[str], optional
+        Canonical identifier for the embedding model. Used for audit trail.
+    kernel_strict : bool, optional
+        If True, require verified kernel (strict mode). If False, allow
+        Python fallback when kernel is unavailable. Default is True.
 
     Returns
     -------
@@ -658,6 +665,7 @@ def compute_certificate(
         - sigma_max, sigma_second: Leading singular values
         - singular_gap: Gap between top two singular values
         - pca_explained: Fraction of variance retained
+        - audit: Audit trail with embedder_id, witness_hash, kernel_mode
     """
 
     X = _safe_array(embeddings)
@@ -665,8 +673,38 @@ def compute_certificate(
     task_emb = None
     if task_embedding is not None:
         task_emb = np.asarray(list(task_embedding), dtype=float)
-    base = _compute_certificate_core(X, r, task_embedding=task_emb, lipschitz_margin=lipschitz_margin)
+    
+    # Pass kernel_strict down to _compute_certificate_core via environment
+    # (The _compute_certificate_core reads _SKIP_VERIFIED_KERNEL)
+    # If kernel_strict is False, we allow fallback
+    original_skip = os.environ.get("ESM_SKIP_VERIFIED_KERNEL")
+    if not kernel_strict:
+        os.environ["ESM_SKIP_VERIFIED_KERNEL"] = "1"
+    
+    try:
+        base = _compute_certificate_core(X, r, task_embedding=task_emb, lipschitz_margin=lipschitz_margin)
+    finally:
+        # Restore original environment
+        if not kernel_strict:
+            if original_skip is None:
+                os.environ.pop("ESM_SKIP_VERIFIED_KERNEL", None)
+            else:
+                os.environ["ESM_SKIP_VERIFIED_KERNEL"] = original_skip
+    
     certificate = {k: v for k, v in base.items() if k != "Z"}
+    
+    # Update audit field with provided embedder_id
+    if "certificate_provenance" in certificate:
+        provenance = certificate["certificate_provenance"]
+        if embedder_id:
+            provenance["embedder_id"] = embedder_id
+        # Expose audit at top level for convenience
+        certificate["audit"] = {
+            "embedder_id": provenance.get("embedder_id", "unknown"),
+            "witness_hash": provenance.get("witness_hash", ""),
+            "kernel_mode": provenance.get("kernel_mode") == "verified",
+            "witness_check": provenance.get("witness_check", {}),
+        }
 
     Z = base.get("Z")
     if Z is None or not isinstance(Z, np.ndarray):

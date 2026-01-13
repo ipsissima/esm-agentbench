@@ -158,6 +158,70 @@ class EmbeddingModel:
         embeddings.sort(key=lambda x: x[0])
         return [emb for _, emb in embeddings]
 
+    def get_embedder_id(self) -> str:
+        """Get canonical embedder ID for provenance tracking.
+        
+        Computes embedder_id as "{model_name}|{model_files_sha256}" where
+        model_files_sha256 is the SHA256 over the concatenation of file SHA256s
+        in the local model folder. Falls back to "unknown" if files are not cached.
+        
+        Returns
+        -------
+        str
+            Embedder ID in format "model_name|hash" or "model_name|unknown"
+        """
+        model_files_sha = "unknown"
+        
+        # Try to compute hash of local model files if available
+        if self.model is not None:
+            try:
+                # Get the model cache directory from sentence-transformers
+                # The model stores its path in various places depending on version
+                model_cache_path = None
+                
+                # Try multiple approaches to find the cache directory
+                if hasattr(self.model, '_first_module'):
+                    first_module = self.model._first_module()
+                    if hasattr(first_module, 'auto_model'):
+                        if hasattr(first_module.auto_model, 'config'):
+                            config = first_module.auto_model.config
+                            if hasattr(config, '_name_or_path'):
+                                model_cache_path = Path(config._name_or_path)
+                
+                # Fallback: check if cache_dir was explicitly provided
+                if model_cache_path is None and self.cache_dir is not None:
+                    # This is embedding cache, not model cache, but try anyway
+                    potential_model_cache = self.cache_dir.parent / "models" / self.model_name.replace("/", "--")
+                    if potential_model_cache.exists():
+                        model_cache_path = potential_model_cache
+                
+                # Compute hash if we found a valid cache directory
+                if model_cache_path and model_cache_path.exists() and model_cache_path.is_dir():
+                    # Collect all files in sorted order
+                    all_files = sorted(model_cache_path.rglob("*"))
+                    file_hashes = []
+                    
+                    for file_path in all_files:
+                        if file_path.is_file():
+                            # Compute SHA256 of file content
+                            file_hash = hashlib.sha256()
+                            with open(file_path, 'rb') as f:
+                                # Read in chunks to handle large files
+                                while chunk := f.read(8192):
+                                    file_hash.update(chunk)
+                            file_hashes.append(file_hash.digest())
+                    
+                    if file_hashes:
+                        # Concatenate all file hashes and compute final SHA256
+                        combined_hash = hashlib.sha256(b''.join(file_hashes))
+                        model_files_sha = combined_hash.hexdigest()
+                        
+            except Exception as e:
+                logger.warning(f"Could not compute model file hash: {e}")
+                model_files_sha = "unknown"
+        
+        return f"{self.model_name}|{model_files_sha}"
+
     def unload(self):
         """Unload model to free memory."""
         if self.model is not None:

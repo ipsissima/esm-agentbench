@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
@@ -110,6 +111,11 @@ class TraceRecorder:
         trace = metadata.to_dict()
         trace['steps'] = steps_dict
         trace['embeddings'] = [emb.tolist() for emb in embeddings]
+        
+        # Add embedder_id to metadata
+        embedder_id = self.embedding_model.get_embedder_id()
+        trace['metadata'] = trace.get('metadata', {})
+        trace['metadata']['embedder_id'] = embedder_id
 
         if outcome:
             trace['outcome'] = outcome
@@ -208,6 +214,45 @@ def _compute_sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def compute_witness_hash(embeddings: List[List[float]]) -> str:
+    """Compute deterministic witness hash for trajectory matrix.
+    
+    This hash is computed over the augmented trajectory matrix (with bias column)
+    as used by the certificate kernel. The computation is deterministic:
+    - Uses float64 dtype for consistency
+    - Uses contiguous memory layout
+    - Augments with bias column (ones) as in certificate pipeline
+    
+    Parameters
+    ----------
+    embeddings : list of list of float
+        Embedding vectors for trace steps
+        
+    Returns
+    -------
+    str
+        SHA256 hex digest of the augmented trajectory matrix
+    """
+    # Convert to numpy array with float64 dtype (as certificates expect)
+    X = np.asarray(embeddings, dtype=np.float64)
+    
+    if X.ndim == 1:
+        X = X.reshape(-1, 1)
+    
+    T = X.shape[0]
+    
+    # Augment with bias column (as certificate pipeline does)
+    X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
+    
+    # Ensure contiguous layout for deterministic byte representation
+    X_aug = np.ascontiguousarray(X_aug, dtype=np.float64)
+    
+    # Compute SHA256 of the raw bytes
+    sha = hashlib.sha256(X_aug.tobytes()).hexdigest()
+    
+    return sha
+
+
 def collect_trace_entries(trace_dir: Path) -> List[Dict[str, Any]]:
     """Collect trace metadata and hashes for attestation."""
     entries: List[Dict[str, Any]] = []
@@ -257,7 +302,7 @@ def create_index(trace_dir: Path, metadata: Dict[str, Any]) -> Path:
     trace_dir : Path
         Directory containing traces
     metadata : dict
-        Additional metadata (counts, runtime, etc.)
+        Additional metadata (counts, runtime, embedder_id, etc.)
 
     Returns
     -------
@@ -267,7 +312,7 @@ def create_index(trace_dir: Path, metadata: Dict[str, Any]) -> Path:
     safe_metadata = {
         key: value
         for key, value in metadata.items()
-        if key not in ("run_generator", "attestation")
+        if key not in ("run_generator", "attestation", "audit")
     }
     traces = organize_traces_by_label(trace_dir)
     trace_entries = collect_trace_entries(trace_dir)
@@ -280,6 +325,37 @@ def create_index(trace_dir: Path, metadata: Dict[str, Any]) -> Path:
     run_signature = _compute_sha256(
         json.dumps(run_signature_payload, sort_keys=True).encode("utf-8")
     )
+
+    # Compute witness_hash from gold traces
+    witness_hash = "no_gold_traces"
+    gold_traces = traces.get('gold', [])
+    
+    if gold_traces:
+        # Load embeddings from all gold traces in sorted order
+        gold_embeddings_list = []
+        for gold_file in sorted(gold_traces):
+            try:
+                with open(gold_file) as f:
+                    trace_data = json.load(f)
+                    embeddings = trace_data.get('embeddings', [])
+                    if embeddings:
+                        gold_embeddings_list.extend(embeddings)
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Error loading embeddings from {gold_file}: {e}")
+        
+        if gold_embeddings_list:
+            # Compute witness hash over concatenated gold embeddings
+            # Convert to augmented matrix as in certificate pipeline
+            X = np.asarray(gold_embeddings_list, dtype=np.float64)
+            if X.ndim == 1:
+                X = X.reshape(-1, 1)
+            T = X.shape[0]
+            X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
+            X_aug = np.ascontiguousarray(X_aug, dtype=np.float64)
+            witness_hash = hashlib.sha256(X_aug.tobytes()).hexdigest()
+
+    # Extract embedder_id from metadata
+    embedder_id = metadata.get("embedder_id", "unknown")
 
     index = {
         'created': run_signature_payload["created"],
@@ -301,12 +377,47 @@ def create_index(trace_dir: Path, metadata: Dict[str, Any]) -> Path:
             'hash_chain': hash_chain,
             'run_signature': run_signature,
         },
+        'audit': {
+            'embedder_id': embedder_id,
+            'witness_hash': witness_hash,
+            'kernel_mode': 'unknown',  # Will be set by certificate code
+        },
         **safe_metadata,
     }
 
     index_file = trace_dir / "index.json"
+    
+    # Write index.json with canonical formatting
+    index_json = json.dumps(index, indent=2, sort_keys=True, cls=NumpyEncoder)
     with open(index_file, 'w') as f:
-        json.dump(index, f, indent=2, cls=NumpyEncoder)
+        f.write(index_json)
+
+    # Sign index.json if SIGN_INDEX_WITH environment variable is set
+    sign_key_path = os.environ.get("SIGN_INDEX_WITH")
+    if sign_key_path and Path(sign_key_path).exists():
+        try:
+            # Canonical JSON for signing (no whitespace)
+            canonical_json = json.dumps(index, sort_keys=True, separators=(',', ':')).encode('utf-8')
+            
+            # Read signing key
+            with open(sign_key_path, 'rb') as kf:
+                key_bytes = kf.read()
+                
+            # Sign with ed25519
+            import nacl.signing
+            signing_key = nacl.signing.SigningKey(key_bytes)
+            signed = signing_key.sign(canonical_json)
+            signature = signed.signature
+            
+            # Write signature to index.json.sig
+            sig_file = trace_dir / "index.json.sig"
+            with open(sig_file, 'wb') as sf:
+                sf.write(signature)
+                
+            logger.info(f"Signed index with key from {sign_key_path}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to sign index: {e}")
 
     logger.info(f"Created index at {index_file}")
     return index_file
