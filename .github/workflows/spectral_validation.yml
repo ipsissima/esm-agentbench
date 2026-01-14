@@ -48,6 +48,30 @@ jobs:
           . .venv/bin/activate
           python -c "import sys, importlib; importlib.invalidate_caches(); import tools; print('tools at', tools.__file__)"
 
+      - name: Sanity check: ensure real traces exist (Phase1 mode)
+        run: |
+          if [ "${{ env.PHASE1_EVIDENCE }}" = "1" ]; then
+            echo "Phase-1 evidence run: checking for real traces in submissions/ipsissima."
+            missing=0
+            for s in scenarios/*; do
+              if [ -d "$s" ]; then
+                scenario=$(basename "$s")
+                pattern="submissions/ipsissima/${scenario}/experiment_traces_real_hf/*/*/*.json"
+                count=$(bash -lc "ls $pattern 2>/dev/null | wc -l")
+                if [ "$count" -eq 0 ]; then
+                  echo "Missing real traces for scenario ${scenario}"
+                  missing=1
+                fi
+              fi
+            done
+            if [ "$missing" -eq 1 ]; then
+              echo "ERROR: Missing real traces for one or more Phase-1 scenarios. Aborting."
+              exit 2
+            fi
+          else
+            echo "Not a Phase-1 evidence run: skipping strict real-trace check."
+          fi
+
       - name: Run spectral prover unit tests
         run: |
           . .venv/bin/activate

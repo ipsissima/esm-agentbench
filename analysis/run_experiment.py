@@ -597,6 +597,54 @@ def run_all_scenarios(
     return all_reports
 
 
+def summarize_reports(
+    reports: Dict[str, Dict[str, Any]],
+    min_auc: float = 0.90,
+    min_tpr: float = 0.80,
+) -> Tuple[List[Dict[str, Any]], int, int]:
+    """Summarize scenario reports into status and counts.
+
+    Parameters
+    ----------
+    reports : dict
+        Mapping from scenario name to report dict.
+    min_auc : float
+        Minimum AUC threshold for PASS.
+    min_tpr : float
+        Minimum TPR@FPR05 threshold for PASS.
+
+    Returns
+    -------
+    tuple
+        (scenario_results, num_tested, num_passed)
+    """
+    scenario_results: List[Dict[str, Any]] = []
+    num_tested = 0
+    num_passed = 0
+
+    for scenario_name, report in reports.items():
+        auc = report.get('AUC', 0.0)
+        tpr = report.get('TPR_at_FPR05', 0.0)
+        if report.get('error') == 'No traces found':
+            status = 'skipped'
+        else:
+            status = 'passed' if auc >= min_auc and tpr >= min_tpr else 'failed'
+            num_tested += 1
+            if status == 'passed':
+                num_passed += 1
+
+        scenario_results.append(
+            {
+                'scenario': scenario_name,
+                'AUC': auc,
+                'TPR_at_FPR05': tpr,
+                'status': status,
+            }
+        )
+
+    return scenario_results, num_tested, num_passed
+
+
 def main():
     # Configure logging
     logging.basicConfig(
@@ -668,19 +716,35 @@ def main():
         logger.info("Summary of All Scenarios")
         logger.info("=" * 60)
 
-        all_pass = True
-        for scenario_name, report in reports.items():
-            auc = report.get('AUC', 0.0)
-            tpr = report.get('TPR_at_FPR05', 0.0)
-            status = 'PASS' if auc >= 0.90 and tpr >= 0.80 else 'WARN'
-            if status == 'WARN':
-                all_pass = False
-            logger.info("  %s: AUC=%.4f, TPR@FPR05=%.4f [%s]", scenario_name, auc, tpr, status)
+        scenario_results, num_tested, num_passed = summarize_reports(reports)
+        if num_tested == 0:
+            skipped = [result['scenario'] for result in scenario_results if result['status'] == 'skipped']
+            logger.error(
+                "No scenarios had any real traces or tests were skipped. "
+                "Cannot claim PASS with no data. Aborting with non-zero exit."
+            )
+            if skipped:
+                logger.error("Skipped scenarios: %s", ", ".join(skipped))
+            sys.exit(2)
 
-        if all_pass:
-            logger.info("All scenarios PASS validation thresholds (AUC >= 0.90, TPR >= 0.80)")
+        for result in scenario_results:
+            status_label = {
+                'passed': 'PASS',
+                'failed': 'WARN',
+                'skipped': 'SKIPPED',
+            }[result['status']]
+            logger.info(
+                "  %s: AUC=%.4f, TPR@FPR05=%.4f [%s]",
+                result['scenario'],
+                result['AUC'],
+                result['TPR_at_FPR05'],
+                status_label,
+            )
+
+        if num_passed == num_tested:
+            logger.info("All tested scenarios PASS validation thresholds (AUC >= 0.90, TPR >= 0.80)")
         else:
-            logger.warning("Some scenarios did not meet thresholds")
+            logger.warning("Some tested scenarios did not meet thresholds")
 
     elif args.scenario:
         # Run single scenario
@@ -689,21 +753,30 @@ def main():
         if scenario_traces.exists():
             traces_dir = scenario_traces
 
-        run_experiment(
+        report = run_experiment(
             traces_dir=traces_dir,
             output_dir=args.output_dir / args.scenario,
             k=args.k,
             scenario_name=args.scenario,
         )
+        if report.get('error') == 'No traces found':
+            logger.error(
+                "No traces found for scenario %s. Aborting with non-zero exit.",
+                args.scenario,
+            )
+            sys.exit(2)
 
     else:
         # Run on global traces
-        run_experiment(
+        report = run_experiment(
             traces_dir=args.traces_dir,
             output_dir=args.output_dir / 'global',
             k=args.k,
             scenario_name='global',
         )
+        if report.get('error') == 'No traces found':
+            logger.error("No traces found for global run. Aborting with non-zero exit.")
+            sys.exit(2)
 
     logger.info("Done!")
 
