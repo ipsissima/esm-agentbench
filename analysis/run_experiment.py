@@ -398,12 +398,8 @@ def run_experiment(
     )
 
     if not any(traces.values()):
-        return {
-            'scenario': scenario_name,
-            'error': 'No traces found',
-            'AUC': 0.0,
-            'TPR_at_FPR05': 0.0,
-        }
+        logger.error("No traces found for scenario %s. Aborting with non-zero exit.", scenario_name)
+        sys.exit(2)
 
     # First pass: compute features for gold traces to get baseline
     gold_features = [
@@ -467,7 +463,9 @@ def run_experiment(
     data_sources = set()
     for label in ['gold', 'creative', 'drift']:
         for trace in traces[label]:
-            ds = trace.get('data_source', 'unknown')
+            ds = trace.get('data_source')
+            if ds is None:
+                ds = trace.get('metadata', {}).get('data_source', 'unknown')
             data_sources.add(ds)
     
     # Determine overall data source
@@ -779,7 +777,7 @@ def main():
         if num_passed == num_tested:
             logger.info("All tested scenarios PASS validation thresholds (AUC >= 0.90, TPR >= 0.80)")
         else:
-            logger.warning("Some tested scenarios did not meet thresholds")
+            logger.warning("Not all tested scenarios meet thresholds.")
 
     elif args.scenario:
         # Run single scenario

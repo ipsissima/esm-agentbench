@@ -42,6 +42,8 @@ jobs:
   validate-phase1:
     runs-on: ubuntu-latest
     needs: build_verified_kernel
+    env:
+      PHASE1_EVIDENCE: "1"
     strategy:
       matrix:
         python-version: ["3.11"]
@@ -59,16 +61,34 @@ jobs:
         name: verified-kernel
         path: UELAT/
 
-    - name: Install dependencies
+    - name: Setup Python venv
       run: |
         python -m venv .venv
         . .venv/bin/activate
-        python -m pip install --upgrade pip
+        python -m pip install --upgrade pip setuptools wheel
+
+    - name: Install HF stack + project
+      run: |
+        . .venv/bin/activate
         python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
+        # canonical HF stack
         python -m pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2"
         python -m pip install --no-cache-dir -r requirements.txt --no-deps
-        python -m pip install pytest
         python -m pip install -e .
+
+    - name: Verify importability
+      run: |
+        . .venv/bin/activate
+        python - <<'PY'
+import sys, importlib
+importlib.invalidate_caches()
+try:
+    import tools
+    print("tools importable:", tools.__file__)
+except Exception as e:
+    print("ERROR: tools not importable:", e, file=sys.stderr)
+    raise
+PY
 
     - name: Verify kernel is available
       run: |
@@ -135,6 +155,24 @@ jobs:
         python tools/run_demo.py || true
       env:
         VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
+
+    - name: Enforce real-only evidence (Phase-1)
+      run: |
+        . .venv/bin/activate
+        missing=0
+        for report in reports/spectral_validation/*/validation_report.json; do
+          if [ -f "$report" ]; then
+            ds=$(jq -r '.data_source // "MISSING"' "$report")
+            if [ "$ds" != "real_traces_only" ]; then
+              echo "ERROR: $report has data_source=$ds (expected real_traces_only)"
+              missing=1
+            fi
+          fi
+        done
+        if [ "$missing" -eq 1 ]; then
+          echo "One or more reports are not real_traces_only. Failing Phase-1 evidence job."
+          exit 2
+        fi
 
     - name: Upload scenario artifacts
       uses: actions/upload-artifact@v3

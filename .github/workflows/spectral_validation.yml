@@ -33,20 +33,34 @@ jobs:
           python-version: "3.11"
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Setup Python venv
         run: |
           python -m venv .venv
           . .venv/bin/activate
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
+
+      - name: Install HF stack + project
+        run: |
+          . .venv/bin/activate
           python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
+          # canonical HF stack
           python -m pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2"
           python -m pip install --no-cache-dir -r requirements.txt --no-deps
           python -m pip install -e .
 
-      - name: Verify tools and python
+      - name: Verify importability
         run: |
           . .venv/bin/activate
-          python -c "import sys, importlib; importlib.invalidate_caches(); import tools; print('tools at', tools.__file__)"
+          python - <<'PY'
+import sys, importlib
+importlib.invalidate_caches()
+try:
+    import tools
+    print("tools importable:", tools.__file__)
+except Exception as e:
+    print("ERROR: tools not importable:", e, file=sys.stderr)
+    raise
+PY
 
       - name: Sanity check: ensure real traces exist (Phase1 mode)
         run: |
@@ -86,14 +100,10 @@ jobs:
           fi
           echo "✓ Synthetic trace generator found"
 
-      - name: Generate synthetic traces
+      - name: Generate synthetic traces (dev-only)
         if: ${{ env.ALLOW_SYNTHETIC_TRACES == '1' }}
         run: |
           . .venv/bin/activate
-          echo "⚠️  WARNING: Generating SYNTHETIC traces for development testing"
-          echo "⚠️  These traces are NOT suitable for Phase-1 evidence"
-          echo "⚠️  All generated traces will be marked with data_source: synthetic"
-          echo "NOTE: All data are synthetic. No real secrets or external network calls."
           python tools/dev/generate_synthetic_traces.py --n 30 --seed 42 --out-dir dev_artifacts/experiment_traces
 
       - name: Run spectral validation experiments
@@ -212,7 +222,11 @@ jobs:
         run: |
           echo "## Spectral Validation Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Note:** All data are synthetic. No real secrets or external network calls." >> $GITHUB_STEP_SUMMARY
+          if [ "${{ env.ALLOW_SYNTHETIC_TRACES }}" = "1" ]; then
+            echo "**Note:** Synthetic traces were generated for this run (dev-only)." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Note:** Synthetic trace generation was disabled (ALLOW_SYNTHETIC_TRACES=0)." >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "| Scenario | AUC | TPR@FPR05 | Status |" >> $GITHUB_STEP_SUMMARY

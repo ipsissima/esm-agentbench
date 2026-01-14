@@ -21,6 +21,18 @@ Fibonacci reproduction case) and generate spectral certificates:
 python tools/run_demo.py
 ```
 
+### Developer setup & tests
+Bootstrap a local dev environment with the canonical HF stack:
+```bash
+scripts/bootstrap-dev.sh
+. .venv/bin/activate
+```
+
+Run the test suite:
+```bash
+pytest -q
+```
+
 ### Run the end-to-end demo
 1. Start the assessor: `python -m esmassessor.green_server --show-logs`
 2. Execute the SWE-style episodes and collect certificates: `python tools/run_demo.py`

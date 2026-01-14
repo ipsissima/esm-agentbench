@@ -2,17 +2,15 @@
 """
 Developer-only synthetic trace generator.
 
-THIS FILE IS FOR DEV/CI TESTS ONLY. It MUST NOT be placed under analysis/ because
-analysis/ is reserved for evidence generation and must not include synthetic
-trace producers.
+This file MUST NOT live under analysis/; it is dev-only and emits traces
+tagged with data_source: "synthetic". Use only when ALLOW_SYNTHETIC_TRACES=1.
 
-Usage (developer CI):
-  ALLOW_SYNTHETIC_TRACES=1 python tools/dev/generate_synthetic_traces.py --n 30 --seed 42 --out-dir dev_artifacts/experiment_traces
+Usage:
+  python tools/dev/generate_synthetic_traces.py --n 30 --seed 42 --out-dir dev_artifacts/experiment_traces
 """
 from pathlib import Path
 import argparse
 import json
-
 import numpy as np
 
 
@@ -22,15 +20,14 @@ def make_trace(run_id: str, label: str, T: int, D: int, rng: np.random.Generator
         "run_id": run_id,
         "label": label,
         "embeddings": base.tolist(),
-        "data_source": "synthetic",
-        "metadata": {"generator": "tools/dev/generate_synthetic_traces.py"},
+        "metadata": {"data_source": "synthetic", "generator": "tools/dev/generate_synthetic_traces.py"},
     }
 
 
 def generate_synthetic(n: int, seed: int, out_dir: Path):
     rng = np.random.default_rng(seed)
     D = 16
-    counts = {"gold": max(1, n // 3), "creative": max(1, n // 3), "drift": n - 2 * (n // 3)}
+    counts = {"gold": max(1, n//3), "creative": max(1, n//3), "drift": n - 2*(n//3)}
     out_dir = Path(out_dir)
     for label, cnt in counts.items():
         (out_dir / label).mkdir(parents=True, exist_ok=True)
