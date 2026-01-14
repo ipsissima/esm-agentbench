@@ -23,15 +23,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import logging
-import random
 import sys
 import time
 from pathlib import Path
 from typing import List
-
-import numpy as np
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -62,19 +58,6 @@ SCENARIOS = [
 ]
 
 LABELS = ["gold", "creative", "drift"]
-
-
-def seed_everything(seed: int) -> None:
-    """Seed Python, NumPy, and Torch (if available) RNGs."""
-    random.seed(seed)
-    np.random.seed(seed)
-    torch_spec = importlib.util.find_spec("torch")
-    if torch_spec is not None:
-        import torch
-
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
 
 
 def load_prompt(scenario_dir: Path, label: str) -> str:
@@ -149,8 +132,6 @@ def run_single_agent(
     backend.load()
 
     try:
-        if seed is not None:
-            seed_everything(seed)
         # Create sandbox
         with Sandbox(scenario, targets_dir) as sandbox:
             # Create agent loop
@@ -428,8 +409,6 @@ def main():
     embedding_model.load()
 
     try:
-        if args.seed is not None:
-            seed_everything(args.seed)
         # Run each scenario
         all_stats = []
         for scenario in scenarios:
