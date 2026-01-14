@@ -710,6 +710,9 @@ def main():
             traces_base=args.traces_dir,
             k=args.k,
         )
+        if not reports:
+            logger.error("No traces found for any scenario. Aborting with non-zero exit.")
+            sys.exit(2)
 
         # Log summary
         logger.info("=" * 60)
