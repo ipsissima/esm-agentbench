@@ -468,13 +468,22 @@ def run_experiment(
             data_sources.add(ds)
     
     # Determine overall data source
-    if 'synthetic' in data_sources:
+    if len(data_sources) == 0:
+        data_source = 'unknown'
+    elif len(data_sources) > 1:
+        # Mixed data sources - this is a problem
+        logger.error("Mixed data sources detected: %s", data_sources)
+        raise ValueError(
+            f"Traces have mixed data sources: {data_sources}. "
+            "All traces must have the same data_source field (real_traces_only or synthetic)."
+        )
+    elif 'synthetic' in data_sources:
         data_source = 'synthetic'
-    elif 'real_traces_only' in data_sources or all(ds == 'unknown' for ds in data_sources):
-        # If all are unknown (legacy traces), assume real for backward compatibility
-        # Otherwise, if any are explicitly real_traces_only, mark as real
-        data_source = 'real_traces_only' if 'real_traces_only' in data_sources else 'unknown'
+    elif 'real_traces_only' in data_sources:
+        data_source = 'real_traces_only'
     else:
+        # All are 'unknown' (legacy traces without data_source field)
+        logger.warning("Traces missing data_source field, defaulting to 'unknown'")
         data_source = 'unknown'
 
     # Build report

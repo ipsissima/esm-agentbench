@@ -129,7 +129,13 @@ jobs:
             # Check all validation reports
             for report in reports/spectral_validation/*/validation_report.json; do
               if [ -f "$report" ]; then
-                ds=$(python -c "import json; print(json.load(open('$report')).get('data_source', 'MISSING'))" 2>/dev/null || echo "MISSING")
+                # Try to parse JSON, if it fails the report is invalid
+                if ! python -c "import json; json.load(open('$report'))" 2>/dev/null; then
+                  echo "ERROR: $report is not valid JSON"
+                  missing=1
+                  continue
+                fi
+                ds=$(python -c "import json; print(json.load(open('$report')).get('data_source', 'MISSING'))")
                 if [ "$ds" != "real_traces_only" ]; then
                   echo "ERROR: $report has data_source=$ds (expected real_traces_only)"
                   missing=1
@@ -140,7 +146,13 @@ jobs:
             # Check all experiment traces
             for trace in experiment_traces/*/*.json; do
               if [ -f "$trace" ]; then
-                ds=$(python -c "import json; print(json.load(open('$trace')).get('data_source', 'MISSING'))" 2>/dev/null || echo "MISSING")
+                # Try to parse JSON, if it fails the trace is invalid
+                if ! python -c "import json; json.load(open('$trace'))" 2>/dev/null; then
+                  echo "ERROR: $trace is not valid JSON"
+                  missing=1
+                  continue
+                fi
+                ds=$(python -c "import json; print(json.load(open('$trace')).get('data_source', 'MISSING'))")
                 if [ "$ds" != "real_traces_only" ]; then
                   echo "ERROR: synthetic or missing data_source in $trace: $ds"
                   missing=1
