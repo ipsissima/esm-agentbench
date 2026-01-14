@@ -46,6 +46,7 @@ from tools.real_agents_hf.trace import (
     TraceRecorder,
     create_run_id,
     create_index,
+    compute_kernel_modes_from_traces,
 )
 
 logger = logging.getLogger(__name__)
@@ -474,7 +475,13 @@ def main():
                 'seed_base': args.seed,
                 'stats': stats,
             }
-            create_index(output_dir, index_metadata)
+            logger.info("Computing certificate provenance for kernel mode...")
+            kernel_modes = compute_kernel_modes_from_traces(output_dir)
+            if not kernel_modes:
+                logger.warning(
+                    "No certificate kernel modes found; leaving audit.kernel_mode as unknown."
+                )
+            create_index(output_dir, index_metadata, kernel_modes=kernel_modes)
 
             logger.info(f"\nScenario {scenario} completed in {elapsed:.1f}s")
             logger.info(f"Success: {stats['success']}/{stats['total']}")

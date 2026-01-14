@@ -290,7 +290,75 @@ def build_hash_chain(entries: List[Dict[str, Any]]) -> List[str]:
     return chain
 
 
-def create_index(trace_dir: Path, metadata: Dict[str, Any]) -> Path:
+def compute_kernel_modes_from_traces(trace_dir: Path) -> Dict[str, str]:
+    """Compute certificate kernel modes for traces in a directory.
+
+    Parameters
+    ----------
+    trace_dir : Path
+        Directory containing trace JSON files.
+
+    Returns
+    -------
+    dict
+        Mapping of trace filenames (relative to trace_dir) to kernel_mode strings.
+    """
+    from certificates.make_certificate import compute_certificate
+
+    kernel_modes: Dict[str, str] = {}
+    for trace_file in sorted(trace_dir.glob("**/*.json")):
+        if trace_file.name == "index.json":
+            continue
+        try:
+            with open(trace_file) as f:
+                trace_data = json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"Failed to load trace for kernel mode: {trace_file}: {e}")
+            continue
+
+        embeddings = trace_data.get("embeddings", [])
+        if not embeddings and isinstance(trace_data.get("steps"), list):
+            embeddings = [
+                step.get("embedding")
+                for step in trace_data["steps"]
+                if isinstance(step, dict) and step.get("embedding") is not None
+            ]
+
+        if len(embeddings) < 3:
+            continue
+
+        embedder_id = (
+            trace_data.get("metadata", {}).get("embedder_id")
+            or trace_data.get("embedder_id")
+            or "unknown"
+        )
+
+        try:
+            cert = compute_certificate(
+                embeddings,
+                embedder_id=embedder_id,
+                kernel_strict=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to compute certificate for %s: %s",
+                trace_file,
+                exc,
+            )
+            continue
+
+        kernel_mode = cert.get("certificate_provenance", {}).get("kernel_mode")
+        if kernel_mode:
+            kernel_modes[str(trace_file.relative_to(trace_dir))] = kernel_mode
+
+    return kernel_modes
+
+
+def create_index(
+    trace_dir: Path,
+    metadata: Dict[str, Any],
+    kernel_modes: Optional[Dict[str, str]] = None,
+) -> Path:
     """Create index.json for trace directory.
 
     Parameters
@@ -374,6 +442,11 @@ def create_index(trace_dir: Path, metadata: Dict[str, Any]) -> Path:
         },
         **safe_metadata,
     }
+
+    if kernel_modes:
+        index['audit']['kernel_mode'] = all(
+            mode == "verified" for mode in kernel_modes.values()
+        )
 
     index_file = trace_dir / "index.json"
     
