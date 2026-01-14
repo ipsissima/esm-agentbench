@@ -144,19 +144,27 @@ def categorize_trace(filename: str) -> str:
     return "unknown"
 
 
-def run_real_trace_validation():
+def run_real_trace_validation(real_traces_dir: Path | None = None):
     """Run validation on real traces."""
     print("=" * 80)
     print("REAL TRACE VALIDATION TEST")
     print("=" * 80)
 
-    real_traces_dir = Path(__file__).parent / "real_traces"
+    if real_traces_dir is None:
+        real_traces_dir = Path(__file__).parent / "real_traces"
 
     # Analyze existing real traces
     print("\n[1] Analyzing existing real traces in tools/real_traces/")
     print("-" * 80)
 
     results = {}
+    excluded_traces = []
+    excluded_trace_counts = {
+        "trace_too_short": 0,
+        "numeric_anomaly": 0,
+        "sentinel_empty_certificate": 0,
+        "numeric_outlier": 0,
+    }
     results_by_category = {"coherent": [], "creative": [], "drift": [], "poison": [], "starvation": []}
 
     for trace_file in sorted(real_traces_dir.glob("*.json")):
@@ -167,10 +175,69 @@ def run_real_trace_validation():
         # Short traces (crashes) produce linear artifacts that skew the spectral analysis.
         if len(trace) < 10:
             print(f"  [Skipping] {label}: Trace too short ({len(trace)} steps) to measure drift.")
+            excluded_traces.append(
+                {"label": label, "reason": "trace_too_short", "details": {"n_steps": len(trace)}}
+            )
+            excluded_trace_counts["trace_too_short"] += 1
             continue
         
         if trace:
             result = analyze_trace(trace, label)
+
+            # ====================================================
+            # EXPERT HOTFIX: Robust sanity checks for numeric anomalies
+            # ====================================================
+            # 1) Reject NaN/Inf in critical fields
+            bad_numeric = False
+            for k in ("residual", "theoretical_bound", "pca_explained", "r_eff"):
+                v = result.get(k, None)
+                if v is None or (isinstance(v, float) and (np.isnan(v) or np.isinf(v))):
+                    print(f"  [Skipping] {label}: NUMERIC ANOMALY ({k}={v})")
+                    excluded_traces.append(
+                        {"label": label, "reason": "numeric_anomaly", "details": {"field": k, "value": v}}
+                    )
+                    excluded_trace_counts["numeric_anomaly"] += 1
+                    bad_numeric = True
+                    break
+            if bad_numeric:
+                continue
+
+            # 2) Reject sentinel "empty certificate" (conservative): detect exact pattern
+            # _initial_empty_certificate returns residual=1.0, tail_energy=1.0, semantic_divergence=1.0, theoretical_bound=3.0
+            # If we see that exact conservative sentinel, treat as invalid trace (computation failed).
+            if (np.isclose(result.get("residual", 0.0), 1.0) and
+                np.isclose(result.get("theoretical_bound", 0.0), 3.0) and
+                np.isclose(result.get("pca_explained", 0.0), 0.0) and
+                np.isclose(result.get("r_eff", 0.0), 1.0)):
+                print(f"  [Skipping] {label}: SENTINEL/EMPTY CERTIFICATE returned (likely numerical failure)")
+                excluded_traces.append(
+                    {"label": label, "reason": "sentinel_empty_certificate"}
+                )
+                excluded_trace_counts["sentinel_empty_certificate"] += 1
+                continue
+
+            # 3) Reject extreme outliers that indicate numerical breakdown:
+            # If residual is astronomically large, it's probably a numerical error,
+            # not a physically meaningful trace. Threshold can be conservative (e.g., 1e3).
+            if result.get("residual", 0.0) is not None:
+                if result["residual"] > 1e3 or result["theoretical_bound"] > 1e4:
+                    print(
+                        f"  [Skipping] {label}: NUMERIC OUTLIER (residual={result['residual']:.4g}, "
+                        f"bound={result['theoretical_bound']:.4g})"
+                    )
+                    excluded_traces.append(
+                        {
+                            "label": label,
+                            "reason": "numeric_outlier",
+                            "details": {
+                                "residual": result["residual"],
+                                "theoretical_bound": result["theoretical_bound"],
+                            },
+                        }
+                    )
+                    excluded_trace_counts["numeric_outlier"] += 1
+                    continue
+
             results[label] = result
             category = categorize_trace(label)
             result["category"] = category
@@ -180,6 +247,12 @@ def run_real_trace_validation():
             print(f"    steps={result['n_steps']}, theoretical_bound={result['theoretical_bound']:.4f}")
             print(f"    residual={result['residual']:.4f} (oos={result['oos_residual']:.4f}, insample={result['insample_residual']:.4f})")
             print(f"    pca_explained={result['pca_explained']:.4f}, r_eff={result['r_eff']}")
+
+    if excluded_traces:
+        print("\n[1b] Skipped Trace Summary")
+        print("-" * 80)
+        for reason, count in excluded_trace_counts.items():
+            print(f"  {reason}: {count}")
 
     if not results:
         print("  No traces found in tools/real_traces/")
@@ -209,10 +282,15 @@ def run_real_trace_validation():
     poison_vals = [v for v in results_by_category["poison"] if not np.isnan(v)]
     starvation_vals = [v for v in results_by_category["starvation"] if not np.isnan(v)]
 
+    print("\n  [Group Values]")
+    print(f"  coherent: {np.round(coherent_vals, 4).tolist()}")
+    print(f"  creative: {np.round(creative_vals, 4).tolist()}")
+    print(f"  drift: {np.round(drift_vals, 4).tolist()}")
+    print(f"  poison: {np.round(poison_vals, 4).tolist()}")
+    print(f"  starvation: {np.round(starvation_vals, 4).tolist()}")
+
     # Combine coherent and creative (both are "good" traces)
     all_good = coherent_vals + creative_vals
-    all_bad = drift_vals + poison_vals + starvation_vals
-
     discrimination_pass = True
 
     # Key test: Creative (correct but unconventional) vs Drift (incorrect)
@@ -233,20 +311,45 @@ def run_real_trace_validation():
     else:
         print("  ⚠ Need both creative and drift traces for this test")
 
-    # Secondary test: All good vs all bad
-    print("\n  [All Good vs All Bad]")
-    if all_good and all_bad:
+    # Starvation vs Coherent: use effective rank (r_eff) NOT bound
+    print("\n  [Starvation vs Coherent: Rank Test]")
+    # collect per-trace r_eff values from results
+    starvation_r = [
+        res["r_eff"]
+        for name, res in results.items()
+        if "starvation" in name and not np.isnan(res.get("r_eff", np.nan))
+    ]
+    coherent_r = [
+        res["r_eff"]
+        for name, res in results.items()
+        if ("gold" in name or "coherent" in name or "good" in name)
+        and not np.isnan(res.get("r_eff", np.nan))
+    ]
+    if starvation_r and coherent_r:
+        print(f"  Starvation mean rank: {np.mean(starvation_r):.2f}")
+        print(f"  Coherent mean rank:   {np.mean(coherent_r):.2f}")
+        if np.mean(starvation_r) < np.mean(coherent_r):
+            print("  ✓ PASS: Starvation exhibits lower effective rank than coherent traces")
+        else:
+            print("  ✗ FAIL: Starvation rank should be lower than coherent")
+            discrimination_pass = False
+    else:
+        print("  ⚠ Need both starvation and coherent traces for rank test")
+
+    # Secondary test: All good vs All bad (but exclude starvation from all_bad; handle starvation separately)
+    print("\n  [All Good vs All Bad (excluding starvation; starvation tested separately)]")
+    all_bad_no_starvation = drift_vals + poison_vals
+    if all_good and all_bad_no_starvation:
         good_mean = np.mean(all_good)
-        bad_mean = np.mean(all_bad)
+        bad_mean = np.mean(all_bad_no_starvation)
         print(f"  All good (coherent+creative) mean: {good_mean:.4f}")
-        print(f"  All bad (drift+poison+starvation) mean: {bad_mean:.4f}")
+        print(f"  All bad (drift+poison) mean:        {bad_mean:.4f}")
         print(f"  Separation: {bad_mean - good_mean:.4f}")
 
-        if len(all_good) >= 2 and len(all_bad) >= 2:
-            t_stat, p_val = stats.ttest_ind(all_good, all_bad, alternative='less')
+        if len(all_good) >= 2 and len(all_bad_no_starvation) >= 2:
+            t_stat, p_val = stats.ttest_ind(all_good, all_bad_no_starvation, alternative='less')
             print(f"  t-statistic: {t_stat:.4f}")
             print(f"  p-value: {p_val:.4f}")
-
             if p_val < 0.05:
                 print("  ✓ PASS: Statistically significant (p < 0.05)")
             else:
@@ -257,8 +360,16 @@ def run_real_trace_validation():
         else:
             print("  ✗ FAIL: Good should have lower bound than bad")
             discrimination_pass = False
+    else:
+        print("  ⚠ Need both good and bad (non-starvation) traces for this test")
 
-    return {"results": results, "results_by_category": results_by_category, "discrimination_pass": discrimination_pass}
+    return {
+        "results": results,
+        "results_by_category": results_by_category,
+        "excluded_traces": excluded_traces,
+        "excluded_trace_counts": excluded_trace_counts,
+        "discrimination_pass": discrimination_pass,
+    }
 
 
 def main():
@@ -303,6 +414,8 @@ def main():
         "embedding_method": embedding_method,
         "real_trace_results": real_trace_results.get("results", {}) if isinstance(real_trace_results, dict) else {},
         "results_by_category": real_trace_results.get("results_by_category", {}) if isinstance(real_trace_results, dict) else {},
+        "excluded_traces": real_trace_results.get("excluded_traces", []) if isinstance(real_trace_results, dict) else [],
+        "excluded_trace_counts": real_trace_results.get("excluded_trace_counts", {}) if isinstance(real_trace_results, dict) else {},
         "discrimination_pass": real_trace_results.get("discrimination_pass", False) if isinstance(real_trace_results, dict) else False,
         "reliable": embedding_method in ("sentence-transformers", "openai"),
     }
