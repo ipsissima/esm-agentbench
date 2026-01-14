@@ -56,8 +56,8 @@ jobs:
       - name: Check synthetic generator exists
         if: ${{ env.ALLOW_SYNTHETIC_TRACES == '1' }}
         run: |
-          if [ ! -f analysis/convert_trace.py ]; then
-            echo "ERROR: analysis/convert_trace.py missing; update repository or workflow."
+          if [ ! -f tools/dev/generate_synthetic_traces.py ]; then
+            echo "ERROR: tools/dev/generate_synthetic_traces.py missing; update repository or workflow."
             exit 2
           fi
           echo "✓ Synthetic trace generator found"
@@ -70,14 +70,18 @@ jobs:
           echo "⚠️  These traces are NOT suitable for Phase-1 evidence"
           echo "⚠️  All generated traces will be marked with data_source: synthetic"
           echo "NOTE: All data are synthetic. No real secrets or external network calls."
-          python analysis/convert_trace.py --generate-synthetic --n-traces 30 --seed 42
+          python tools/dev/generate_synthetic_traces.py --n 30 --seed 42 --out-dir dev_artifacts/experiment_traces
 
       - name: Run spectral validation experiments
         id: validation
         run: |
           . .venv/bin/activate
+          traces_dir="experiment_traces"
+          if [ "${{ env.ALLOW_SYNTHETIC_TRACES }}" = "1" ]; then
+            traces_dir="dev_artifacts/experiment_traces"
+          fi
           echo "Running spectral validation on all scenarios..."
-          python analysis/run_experiment.py --all-scenarios --k 10
+          python analysis/run_experiment.py --all-scenarios --k 10 --traces-dir "$traces_dir"
 
           # Check validation results
           echo "Checking validation results..."

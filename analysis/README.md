@@ -4,7 +4,7 @@ This directory contains scripts for spectral validation and experiment analysis.
 
 ## Scripts
 
-### `convert_trace.py`
+### `tools/dev/generate_synthetic_traces.py`
 
 Generates synthetic traces for **development and testing purposes only**.
 
@@ -14,7 +14,7 @@ Generates synthetic traces for **development and testing purposes only**.
 
 ```bash
 # Generate synthetic traces (for development/testing only)
-python analysis/convert_trace.py --generate-synthetic --n-traces 30 --seed 42 --out-dir experiment_traces
+python tools/dev/generate_synthetic_traces.py --n 30 --seed 42 --out-dir dev_artifacts/experiment_traces
 ```
 
 #### Safety Mechanisms
