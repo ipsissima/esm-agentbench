@@ -15,23 +15,17 @@ cd "$ROOT_DIR"
 # VERIFIED_KERNEL_PATH (absolute or relative) will be used if set and exists.
 : "${VERIFIED_KERNEL_PATH:=}"
 
-# Initialize UELAT_DIR from environment if provided (do not clobber an export).
-UELAT_DIR="${UELAT_DIR:-}"
-
 # Multi-strategy discovery for UELAT_DIR:
 # 1) If env UELAT_DIR is provided and points to a directory, use it.
 # 2) If $ROOT_DIR/UELAT exists, use that.
 # 3) If VERIFIED_KERNEL_PATH points to a .so, prefer using that (skip source build).
 # 4) Otherwise, try to find a UELAT directory in repo with 'find'.
+UELAT_DIR=""
 
 # Strategy 1: explicitly provided
 if [ -n "${UELAT_DIR:-}" ]; then
-  if [ -d "${UELAT_DIR}" ]; then
-    echo "[kernel] Using UELAT_DIR from environment: ${UELAT_DIR}"
-  else
-    echo "[kernel] WARNING: UELAT_DIR environment variable set but path does not exist: ${UELAT_DIR}"
-    UELAT_DIR=""
-  fi
+  # no-op; allow env override if set (the variable name is reused below)
+  true
 fi
 
 # Strategy 2: conventional path
