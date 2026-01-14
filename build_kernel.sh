@@ -41,13 +41,13 @@ echo "  - Compiling spectral_bounds.v ..."
 "${COQC}" -o /tmp/spectral_bounds.vo spectral_bounds.v
 
 echo "  - Compiling CertificateCore.v ..."
-"${COQC}" -I /tmp spectral_bounds.vo -o /tmp/CertificateCore.vo CertificateCore.v
+"${COQC}" -I /tmp -o /tmp/CertificateCore.vo CertificateCore.v
 
 echo "  - Compiling CertificateProofs.v ..."
-"${COQC}" -I /tmp spectral_bounds.vo CertificateCore.vo -o /tmp/CertificateProofs.vo CertificateProofs.v
+"${COQC}" -I /tmp -o /tmp/CertificateProofs.vo CertificateProofs.v
 
 echo "  - Compiling Extraction.v ..."
-"${COQC}" -I /tmp spectral_bounds.vo CertificateCore.vo -o /tmp/Extraction.vo Extraction.v
+"${COQC}" -I /tmp -o /tmp/Extraction.vo Extraction.v
 
 # Step 2: Extract to OCaml
 echo "[kernel] Step 2: Extracting Coq to OCaml..."
