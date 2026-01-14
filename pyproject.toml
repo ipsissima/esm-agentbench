@@ -26,7 +26,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "huggingface-hub<0.14,>=0.4.0",
+    "huggingface-hub>=0.4.0,<1.0",
     "sentence-transformers==2.2.2",
     "flask==3.0.0",
     "numpy==1.26.2",
