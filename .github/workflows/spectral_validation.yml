@@ -14,6 +14,10 @@ env:
   SPECTRAL_MIN_TPR_FPR05: "0.80"
   # Skip verified kernel (requires Coq/OCaml build) and use Python fallback
   ESM_SKIP_VERIFIED_KERNEL: "1"
+  # CRITICAL: Default to NOT generating synthetic traces (set to "1" only for dev testing)
+  ALLOW_SYNTHETIC_TRACES: "0"
+  # This is NOT a Phase-1 evidence run (set to "1" in agentbeats_phase1.yml)
+  PHASE1_EVIDENCE: "0"
 
 jobs:
   validate-spectral:
@@ -49,10 +53,22 @@ jobs:
           . .venv/bin/activate
           pytest tests/test_spectral_prover.py -v --tb=short
 
+      - name: Check synthetic generator exists
+        if: ${{ env.ALLOW_SYNTHETIC_TRACES == '1' }}
+        run: |
+          if [ ! -f analysis/convert_trace.py ]; then
+            echo "ERROR: analysis/convert_trace.py missing; update repository or workflow."
+            exit 2
+          fi
+          echo "✓ Synthetic trace generator found"
+
       - name: Generate synthetic traces
+        if: ${{ env.ALLOW_SYNTHETIC_TRACES == '1' }}
         run: |
           . .venv/bin/activate
-          echo "Generating synthetic traces for validation..."
+          echo "⚠️  WARNING: Generating SYNTHETIC traces for development testing"
+          echo "⚠️  These traces are NOT suitable for Phase-1 evidence"
+          echo "⚠️  All generated traces will be marked with data_source: synthetic"
           echo "NOTE: All data are synthetic. No real secrets or external network calls."
           python analysis/convert_trace.py --generate-synthetic --n-traces 30 --seed 42
 
@@ -99,6 +115,58 @@ jobs:
             echo "This may indicate the synthetic data or parameters need adjustment."
             echo "Review the reports for details."
             exit 1
+          fi
+
+      - name: Enforce real-only evidence for Phase-1
+        if: always()
+        run: |
+          . .venv/bin/activate
+          # Only enforce when this run is intended as Phase-1 evidence
+          if [ "${{ env.PHASE1_EVIDENCE }}" = "1" ]; then
+            echo "Phase-1 evidence run: enforcing data_source == real_traces_only"
+            missing=0
+            
+            # Check all validation reports
+            for report in reports/spectral_validation/*/validation_report.json; do
+              if [ -f "$report" ]; then
+                # Try to parse JSON, if it fails the report is invalid
+                if ! python -c "import json; json.load(open('$report'))" 2>/dev/null; then
+                  echo "ERROR: $report is not valid JSON"
+                  missing=1
+                  continue
+                fi
+                ds=$(python -c "import json; print(json.load(open('$report')).get('data_source', 'MISSING'))")
+                if [ "$ds" != "real_traces_only" ]; then
+                  echo "ERROR: $report has data_source=$ds (expected real_traces_only)"
+                  missing=1
+                fi
+              fi
+            done
+            
+            # Check all experiment traces
+            for trace in experiment_traces/*/*.json; do
+              if [ -f "$trace" ]; then
+                # Try to parse JSON, if it fails the trace is invalid
+                if ! python -c "import json; json.load(open('$trace'))" 2>/dev/null; then
+                  echo "ERROR: $trace is not valid JSON"
+                  missing=1
+                  continue
+                fi
+                ds=$(python -c "import json; print(json.load(open('$trace')).get('data_source', 'MISSING'))")
+                if [ "$ds" != "real_traces_only" ]; then
+                  echo "ERROR: synthetic or missing data_source in $trace: $ds"
+                  missing=1
+                fi
+              fi
+            done
+            
+            if [ "$missing" = "1" ]; then
+              echo "One or more reports/traces are not real_traces_only. Failing."
+              exit 1
+            fi
+            echo "All reports and traces declare real_traces_only."
+          else
+            echo "Not a Phase-1 evidence run: skipping enforcement."
           fi
 
       - name: Upload validation reports
