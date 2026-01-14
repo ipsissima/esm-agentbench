@@ -15,39 +15,34 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install opam + toolchain
+    - name: Install pinned opam + toolchain
       run: |
         sudo apt-get update
-        sudo apt-get install -y m4 bubblewrap unzip wget build-essential opam
-        opam init --bare --disable-sandboxing
+        sudo apt-get install -y curl m4 build-essential git bubblewrap wget unzip ca-certificates
+        if ! command -v opam >/dev/null 2>&1; then
+          sudo apt-get install -y opam
+        fi
+        opam init --bare --disable-sandboxing || true
+        eval $(opam env)
         opam switch create esm-kernel 4.14.0 || opam switch set esm-kernel
         eval $(opam env)
-        opam install -y coq.8.18.1 ocamlfind dune
+        opam install -y coq.8.18.1 dune ocamlfind ocamlbuild
+        echo "=== tool versions ==="
+        coqc --version || true
+        ocamlopt -version || true
+        opam --version || true
 
     - name: Build verified kernel
       run: |
         set -o pipefail
-        ./build_kernel.sh 2>&1 | tee coq_build.log
-        status=${PIPESTATUS[0]}
-        if [ "${status}" -ne 0 ]; then
-          echo "ERROR: Kernel build failed. Phase-1 validation requires verified kernel."
-          echo "The build_kernel.sh script needs Coq and OCaml to compile formal proofs."
-          echo "If building on a local runner, ensure Coq/OCaml are installed."
-          echo "=== toolchain diagnostics ==="
-          coqc --version || true
-          ocamlopt --version || true
-          opam list --installed | tee opam-list.txt || true
-          exit "${status}"
-        fi
+        ./build_kernel.sh 2>&1 | tee kernel_build.log
 
-    - name: Upload kernel build diagnostics
-      uses: actions/upload-artifact@v3
+    - name: Upload kernel build logs on failure
       if: failure()
+      uses: actions/upload-artifact@v3
       with:
-        name: kernel-build-diagnostics
-        path: |
-          coq_build.log
-          opam-list.txt
+        name: kernel-build-logs
+        path: kernel_build.log
 
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v3
@@ -104,7 +99,7 @@ jobs:
         # canonical HF stack
         python -m pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2"
         python -m pip install --no-cache-dir -r requirements.txt --no-deps
-        python -m pip install -e .
+        python -m pip install -e .[signing]
 
     - name: Verify importability
       run: |
@@ -188,6 +183,8 @@ jobs:
         . .venv/bin/activate
         export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
         pytest tests/test_kernel_load.py -v
+        pytest tests/test_signature_attestation.py -v
+        pytest tests/test_harness_no_wildcard.py -v
         pytest tests/test_phase1_submission.py -v
       env:
         VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so

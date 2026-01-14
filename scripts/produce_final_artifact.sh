@@ -19,12 +19,12 @@ if [ -z "${VERIFIED_KERNEL_PATH:-}" ]; then
 fi
 
 KERNEL_SOURCE="${ROOT_DIR}/UELAT/kernel_verified.so"
-FINAL_ARTIFACT_DIR="${ROOT_DIR}/reports/final_artifact"
+FINAL_DIR="${ROOT_DIR}/reports/final_artifact"
 if [ -f "${KERNEL_SOURCE}" ]; then
-  mkdir -p "${FINAL_ARTIFACT_DIR}"
-  cp "${KERNEL_SOURCE}" "${FINAL_ARTIFACT_DIR}/"
-  sha256sum "${KERNEL_SOURCE}" | tee "${FINAL_ARTIFACT_DIR}/kernel_verified.sha256"
-  echo "Included kernel in final artifact: ${FINAL_ARTIFACT_DIR}/kernel_verified.so"
+  mkdir -p "${FINAL_DIR}"
+  cp "${KERNEL_SOURCE}" "${FINAL_DIR}/"
+  sha256sum "${KERNEL_SOURCE}" > "${FINAL_DIR}/kernel_verified.so.sha256"
+  echo "Included kernel_verified.so in final artifact"
 fi
 
 python tools/tune_metric.py --features-csv reports/features_dev.csv --seed 0
