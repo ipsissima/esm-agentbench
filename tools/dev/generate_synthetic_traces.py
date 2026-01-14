@@ -22,7 +22,8 @@ def make_trace(run_id: str, label: str, T: int, D: int, rng: np.random.Generator
         "run_id": run_id,
         "label": label,
         "embeddings": base.tolist(),
-        "metadata": {"data_source": "synthetic", "generator": "tools/dev/generate_synthetic_traces.py"},
+        "data_source": "synthetic",
+        "metadata": {"generator": "tools/dev/generate_synthetic_traces.py"},
     }
 
 
