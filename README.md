@@ -33,6 +33,21 @@ Run the test suite:
 pytest -q
 ```
 
+### Tuning & evaluation pipeline (augmented classifier)
+For real-trace calibration and nested CV tuning:
+```bash
+python tools/tune_metric.py --features-csv reports/features_dev.csv --groups-col scenario --label-col label --fpr-target 0.05 --seed 0
+python tools/eval_holdout.py --model reports/best_model.pkl --features-csv reports/features_holdout.csv --fpr-target 0.05 --n-boot 1000 --seed 0
+python tools/adversarial_test.py --model reports/best_model.pkl --traces-dir submissions/ipsissima --attack cmaes --budget 200 --seed 0
+```
+
+Final artifact production (includes augmented classifier, adversarial check, and signing if `SIGN_INDEX_WITH` is set):
+```bash
+./scripts/produce_final_artifact.sh
+```
+
+Artifacts are written under `reports/` (e.g., `tuning_results.json`, `holdout_evaluation.json`, `adversarial_summary.json`, and `spectral_validation/*/validation_report.json`).
+
 ### Run the end-to-end demo
 1. Start the assessor: `python -m esmassessor.green_server --show-logs`
 2. Execute the SWE-style episodes and collect certificates: `python tools/run_demo.py`

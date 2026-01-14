@@ -29,6 +29,7 @@ import logging
 import os
 import sys
 import warnings
+import importlib.util
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -46,26 +47,34 @@ from certificates.spectral_prover import (
     compute_detection_statistics,
     compute_theoretical_bound,
 )
+from certificates.make_certificate import compute_certificate
+from tools.feature_utils import compute_embed_norm, compute_semantic_drift
+
 
 # Optional imports for visualization and ML
-try:
+HAS_MATPLOTLIB = importlib.util.find_spec("matplotlib") is not None
+if HAS_MATPLOTLIB:
     import matplotlib
+
     matplotlib.use('Agg')  # Non-interactive backend
     import matplotlib.pyplot as plt
-    HAS_MATPLOTLIB = True
-except ImportError:
-    HAS_MATPLOTLIB = False
+else:
     warnings.warn("matplotlib not available; plots will be skipped")
 
-try:
+HAS_SKLEARN = importlib.util.find_spec("sklearn") is not None
+if HAS_SKLEARN:
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import roc_curve, auc, classification_report
     from sklearn.model_selection import cross_val_score, StratifiedKFold
     from sklearn.preprocessing import StandardScaler
-    HAS_SKLEARN = True
-except ImportError:
-    HAS_SKLEARN = False
+else:
     warnings.warn("scikit-learn not available; classification will use heuristics")
+
+HAS_JOBLIB = importlib.util.find_spec("joblib") is not None
+if HAS_JOBLIB:
+    import joblib
+else:
+    warnings.warn("joblib not available; augmented classifier will be disabled")
 
 
 def load_traces(traces_dir: Path) -> Dict[str, List[Dict[str, Any]]]:
@@ -135,6 +144,11 @@ def compute_features_for_trace(
             'dk_angle': 0.0,
             'koopman_residual': 1.0,
             'length_T': len(embeddings),
+            'r_eff': 0.0,
+            'insample_residual': float('nan'),
+            'oos_residual': float('nan'),
+            'embed_norm': 0.0,
+            'semantic_drift': 0.0,
             'valid': False,
         }
 
@@ -144,6 +158,8 @@ def compute_features_for_trace(
         k=k,
         baseline_U=baseline_U,
     )
+    cert = compute_certificate(embeddings, r=k, kernel_strict=False)
+    embeddings_arr = np.asarray(embeddings, dtype=np.float64)
 
     return {
         'run_id': trace_data.get('run_id', 'unknown'),
@@ -157,6 +173,11 @@ def compute_features_for_trace(
         'dk_angle': stats['dk_angle'],
         'koopman_residual': stats['koopman_residual'],
         'length_T': stats['length_T'],
+        'r_eff': cert.get('r_eff', float('nan')),
+        'insample_residual': cert.get('insample_residual', float('nan')),
+        'oos_residual': cert.get('oos_residual', float('nan')),
+        'embed_norm': compute_embed_norm(embeddings_arr),
+        'semantic_drift': compute_semantic_drift(embeddings_arr),
         'valid': True,
         '_U_k': stats['U_k'],  # For baseline computation
     }
@@ -278,6 +299,61 @@ def compute_tpr_at_fpr(
     return float(tpr[best_idx]), float(fpr[best_idx])
 
 
+def evaluate_augmented_classifier(
+    features_df: pd.DataFrame,
+    model_path: Path,
+    fpr_target: float = 0.05,
+) -> Dict[str, Any]:
+    """Evaluate augmented classifier on provided features with bootstrap CIs."""
+    if not HAS_JOBLIB:
+        raise RuntimeError("joblib is required to load augmented classifier")
+
+    from tools.eval_holdout import evaluate_scores
+    payload = joblib.load(model_path)
+    if isinstance(payload, dict) and "model" in payload:
+        model = payload["model"]
+        feature_cols = payload.get("feature_columns", [])
+        model_threshold = payload.get("threshold", 0.5)
+    else:
+        model = payload
+        feature_cols = []
+        model_threshold = 0.5
+
+    df = features_df.copy()
+    df["label_binary"] = df["label"].apply(
+        lambda v: 1 if str(v).lower() in {"drift", "poison", "starvation"} else 0
+    )
+
+    if not feature_cols:
+        feature_cols = [
+            "theoretical_bound",
+            "residual",
+            "koopman_residual",
+            "pca_explained",
+            "r_eff",
+            "length_T",
+            "embed_norm",
+            "semantic_drift",
+            "insample_residual",
+            "oos_residual",
+        ]
+
+    X = df[feature_cols].fillna(0.0)
+    y_true = df["label_binary"].to_numpy()
+    y_score = model.predict_proba(X)[:, 1]
+
+    metrics = evaluate_scores(
+        y_true=y_true,
+        y_score=y_score,
+        fpr_target=fpr_target,
+        n_boot=1000,
+        seed=0,
+    )
+    metrics["model_threshold"] = model_threshold
+    metrics["feature_columns"] = feature_cols
+    return metrics
+
+
 def plot_distributions(
     features_df: pd.DataFrame,
     output_dir: Path,
@@ -364,6 +440,9 @@ def run_experiment(
     k: int = 10,
     scenario_name: str = 'default',
     strict_phase1: bool = False,
+    use_augmented_classifier: bool = False,
+    augmented_model_path: Optional[Path] = None,
+    fpr_target: float = 0.05,
 ) -> Dict[str, Any]:
     """Run full spectral validation experiment.
 
@@ -389,6 +468,8 @@ def run_experiment(
     logger.info("  Traces dir: %s", traces_dir)
     logger.info("  Output dir: %s", output_dir)
     logger.info("  Rank k: %d", k)
+    if use_augmented_classifier:
+        logger.info("  Using augmented classifier from %s", augmented_model_path)
 
     # Load traces
     traces = load_traces(traces_dir)
@@ -437,7 +518,7 @@ def run_experiment(
         tpr_at_fpr05, actual_fpr = compute_tpr_at_fpr(
             np.array(metrics['fpr']),
             np.array(metrics['tpr']),
-            target_fpr=0.05,
+            target_fpr=fpr_target,
         )
     else:
         tpr_at_fpr05, actual_fpr = 0.0, 1.0
@@ -448,10 +529,10 @@ def run_experiment(
         data = features_df[features_df['label'] == label]['residual'].dropna()
         median_residuals[label] = float(data.median()) if len(data) > 0 else None
 
-    # Compute calibrated threshold (FPR <= 0.05)
+    # Compute calibrated threshold (FPR <= target)
     if 'thresholds' in metrics and 'fpr' in metrics:
         fpr_arr = np.array(metrics['fpr'])
-        idx = np.where(fpr_arr <= 0.05)[0]
+        idx = np.where(fpr_arr <= fpr_target)[0]
         if len(idx) > 0:
             threshold_tau = float(metrics['thresholds'][idx[-1]])
         else:
@@ -516,6 +597,33 @@ def run_experiment(
         'real_traces': data_source == 'real_traces_only',
     }
 
+    if use_augmented_classifier:
+        if augmented_model_path is None:
+            augmented_model_path = PROJECT_ROOT / "reports" / "best_model.pkl"
+        if not augmented_model_path.exists():
+            logger.error(
+                "Augmented classifier requested but missing: %s",
+                augmented_model_path,
+            )
+            raise FileNotFoundError(
+                f"Missing augmented classifier at {augmented_model_path}. "
+                "Run tools/tune_metric.py first."
+            )
+        augmented_metrics = evaluate_augmented_classifier(
+            features_df[features_df["valid"]],
+            model_path=augmented_model_path,
+            fpr_target=fpr_target,
+        )
+        report["augmented_classifier"] = augmented_metrics
+        report["baseline_metric"] = {
+            "AUC": report["AUC"],
+            "TPR_at_FPR05": report["TPR_at_FPR05"],
+            "threshold_tau": report["threshold_tau"],
+        }
+        report["AUC"] = augmented_metrics.get("auc", report["AUC"])
+        report["TPR_at_FPR05"] = augmented_metrics.get("tpr_at_fpr", report["TPR_at_FPR05"])
+        report["threshold_tau"] = augmented_metrics.get("threshold", report["threshold_tau"])
+
     # Save report
     report_path = output_dir / 'validation_report.json'
     with open(report_path, 'w') as f:
@@ -535,6 +643,8 @@ def run_experiment(
     logger.info("    AUC: %.4f", report['AUC'])
     logger.info("    TPR @ FPR=0.05: %.4f", report['TPR_at_FPR05'])
     logger.info("    Threshold tau: %.4f", report['threshold_tau'])
+    if use_augmented_classifier:
+        logger.info("    Augmented classifier metrics: %s", report.get("augmented_classifier", {}))
 
     return report
 
@@ -545,6 +655,9 @@ def run_all_scenarios(
     traces_base: Path,
     k: int = 10,
     strict_phase1: bool = False,
+    use_augmented_classifier: bool = False,
+    augmented_model_path: Optional[Path] = None,
+    fpr_target: float = 0.05,
 ) -> Dict[str, Dict[str, Any]]:
     """Run experiments for all scenarios.
 
@@ -594,6 +707,9 @@ def run_all_scenarios(
             k=k,
             scenario_name=scenario_name,
             strict_phase1=strict_phase1,
+            use_augmented_classifier=use_augmented_classifier,
+            augmented_model_path=augmented_model_path,
+            fpr_target=fpr_target,
         )
         all_reports[scenario_name] = report
 
@@ -606,6 +722,9 @@ def run_all_scenarios(
             k=k,
             scenario_name='global',
             strict_phase1=strict_phase1,
+            use_augmented_classifier=use_augmented_classifier,
+            augmented_model_path=augmented_model_path,
+            fpr_target=fpr_target,
         )
         all_reports['global'] = report
 
@@ -718,6 +837,23 @@ def main():
             "also enabled by PHASE1_EVIDENCE=1)."
         ),
     )
+    parser.add_argument(
+        "--use-augmented-classifier",
+        action="store_true",
+        help="Use tuned augmented classifier from reports/best_model.pkl",
+    )
+    parser.add_argument(
+        "--augmented-model",
+        type=Path,
+        default=PROJECT_ROOT / "reports" / "best_model.pkl",
+        help="Path to tuned augmented classifier model",
+    )
+    parser.add_argument(
+        "--fpr-target",
+        type=float,
+        default=0.05,
+        help="Target false positive rate for evaluation thresholds",
+    )
 
     args = parser.parse_args()
 
@@ -739,6 +875,9 @@ def main():
             traces_base=args.traces_dir,
             k=args.k,
             strict_phase1=strict_phase1,
+            use_augmented_classifier=args.use_augmented_classifier,
+            augmented_model_path=args.augmented_model,
+            fpr_target=args.fpr_target,
         )
         if not reports:
             logger.error("No traces found for any scenario. Aborting with non-zero exit.")
@@ -792,6 +931,9 @@ def main():
             k=args.k,
             scenario_name=args.scenario,
             strict_phase1=strict_phase1,
+            use_augmented_classifier=args.use_augmented_classifier,
+            augmented_model_path=args.augmented_model,
+            fpr_target=args.fpr_target,
         )
         if report.get('error') == 'No traces found':
             logger.error(
@@ -808,6 +950,9 @@ def main():
             k=args.k,
             scenario_name='global',
             strict_phase1=strict_phase1,
+            use_augmented_classifier=args.use_augmented_classifier,
+            augmented_model_path=args.augmented_model,
+            fpr_target=args.fpr_target,
         )
         if report.get('error') == 'No traces found':
             logger.error("No traces found for global run. Aborting with non-zero exit.")
