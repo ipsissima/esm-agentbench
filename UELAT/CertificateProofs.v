@@ -26,13 +26,12 @@ Open Scope R_scope.
 *)
 
 Theorem kernel_bound_is_nonnegative :
-  forall X0 X1 A t s l : Matrix * R * R * R,
-  let '(_, te, sd, lm) := (X0, X1.(fst), X1.(snd), A.(fst)) in
+  forall (X0 X1 A : Matrix) (te sd lm : R),
   0 <= te -> 0 <= sd -> 0 <= lm ->
   let result := kernel_compute_certificate X0 X1 A te sd lm in
   0 <= result.2.  (* snd component is the bound *)
 Proof.
-  intros X0 X1 A t s l Hte Hsd Hlm.
+  intros X0 X1 A te sd lm Hte Hsd Hlm.
   unfold kernel_compute_certificate, compute_bound.
   apply computed_bound_safe.
   - (* residual >= 0: always true by definition (squared norm) *)
@@ -57,15 +56,14 @@ Qed.
 *)
 
 Theorem kernel_bound_monotone_in_residual :
-  forall X0_1 X1_1 A_1 X0_2 X1_2 A_2 t s l : Matrix * Matrix * Matrix * R * R * R,
-  let '(_, _, _, te, sd, lm) := (X0_1, X1_1, A_1, X0_2.(fst), X1_2.(fst), A_2.(fst)) in
+  forall (X0_1 X1_1 A_1 X0_2 X1_2 A_2 : Matrix) (te sd lm : R),
   0 <= te -> 0 <= sd -> 0 <= lm ->
   (* Assume residual_1 <= residual_2 *)
   (compute_residual X0_1 X1_1 A_1) <= (compute_residual X0_2 X1_2 A_2) ->
   (kernel_compute_certificate X0_1 X1_1 A_1 te sd lm).2 <=
   (kernel_compute_certificate X0_2 X1_2 A_2 te sd lm).2.
 Proof.
-  intros X0_1 X1_1 A_1 X0_2 X1_2 A_2 t s l Hte Hsd Hlm Hres_mono.
+  intros X0_1 X1_1 A_1 X0_2 X1_2 A_2 te sd lm Hte Hsd Hlm Hres_mono.
   unfold kernel_compute_certificate, compute_bound.
   apply computed_bound_monotone_residual.
   - exact Hres_mono.
@@ -91,13 +89,12 @@ Qed.
 *)
 
 Theorem kernel_bound_is_sound :
-  forall X0 X1 A t s l : Matrix * Matrix * Matrix * R * R * R,
-  let '(_, _, _, te, sd, lm) := (X0, X1, A, X0.(fst), X1.(fst), A.(fst)) in
+  forall (X0 X1 A : Matrix) (te sd lm : R),
   let r := compute_residual X0 X1 A in
   let bound := (kernel_compute_certificate X0 X1 A te sd lm).2 in
   bound = C_res_value * r + C_tail_value * te + C_sem_value * sd + C_robust_value * lm.
 Proof.
-  intros X0 X1 A t s l.
+  intros X0 X1 A te sd lm.
   unfold kernel_compute_certificate, compute_bound.
   reflexivity.
 Qed.
@@ -109,8 +106,7 @@ Qed.
 *)
 
 Theorem kernel_is_correct :
-  forall X0 X1 A t s l : Matrix * Matrix * Matrix * R * R * R,
-  let '(_, _, _, te, sd, lm) := (X0, X1, A, X0.(fst), X1.(fst), A.(fst)) in
+  forall (X0 X1 A : Matrix) (te sd lm : R),
   0 <= te -> 0 <= sd -> 0 <= lm ->
   let bound := (kernel_compute_certificate X0 X1 A te sd lm).2 in
   (0 <= bound) /\  (* Safety *)
@@ -120,7 +116,7 @@ Theorem kernel_is_correct :
            C_robust_value * lm) /\  (* Soundness *)
   (C_res_value <= 2 /\ C_tail_value <= 2 /\ C_sem_value <= 2 /\ C_robust_value <= 2).  (* Axiom Compliance *)
 Proof.
-  intros X0 X1 A t s l Hte Hsd Hlm.
+  intros X0 X1 A te sd lm Hte Hsd Hlm.
   refine (conj _ (conj _ kernel_constants_satisfy_bounds)).
   - (* Safety *)
     apply kernel_bound_is_nonnegative.
