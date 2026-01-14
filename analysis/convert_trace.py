@@ -38,7 +38,12 @@ def make_trace(run_id: str, label: str, T: int, D: int, rng: np.random.Generator
 
     # Clip or convert to python floats
     embeddings: List[List[float]] = base.tolist()
-    return {"run_id": run_id, "label": label, "embeddings": embeddings}
+    return {
+        "run_id": run_id,
+        "label": label,
+        "data_source": "synthetic",
+        "embeddings": embeddings
+    }
 
 def generate_synthetic(n_traces: int = 30, seed: int = 42, out_dir: Path = DEFAULT_OUT):
     rng = np.random.default_rng(seed)

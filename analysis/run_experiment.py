@@ -460,9 +460,27 @@ def run_experiment(
     else:
         threshold_tau = median_residuals.get('gold', 0.0) + 0.3 if median_residuals.get('gold') else 0.5
 
+    # Detect data source from traces
+    data_sources = set()
+    for label in ['gold', 'creative', 'drift']:
+        for trace in traces[label]:
+            ds = trace.get('data_source', 'unknown')
+            data_sources.add(ds)
+    
+    # Determine overall data source
+    if 'synthetic' in data_sources:
+        data_source = 'synthetic'
+    elif 'real_traces_only' in data_sources or all(ds == 'unknown' for ds in data_sources):
+        # If all are unknown (legacy traces), assume real for backward compatibility
+        # Otherwise, if any are explicitly real_traces_only, mark as real
+        data_source = 'real_traces_only' if 'real_traces_only' in data_sources else 'unknown'
+    else:
+        data_source = 'unknown'
+
     # Build report
     report = {
         'scenario': scenario_name,
+        'data_source': data_source,
         'AUC': metrics.get('auc', 0.5),
         'cv_AUC_mean': metrics.get('cv_auc_mean', 0.5),
         'cv_AUC_std': metrics.get('cv_auc_std', 0.0),
@@ -476,7 +494,7 @@ def run_experiment(
             'drift': len(traces['drift']),
         },
         'rank_k': k,
-        'real_traces': True,  # Using real agent traces
+        'real_traces': data_source == 'real_traces_only',
     }
 
     # Save report
