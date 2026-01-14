@@ -47,6 +47,7 @@ FEATURE_COLUMNS = [
 
 
 HAS_MATPLOTLIB = importlib.util.find_spec("matplotlib") is not None
+HAS_SEABORN = importlib.util.find_spec("seaborn") is not None
 if HAS_MATPLOTLIB:
     import matplotlib
 
@@ -183,34 +184,107 @@ def _nested_cv(
 
 
 def _write_diagnostics(df: pd.DataFrame, output_dir: Path) -> None:
-    diagnostics = df[[
+    """Write diagnostics CSVs/plots with optional columns handled safely."""
+    required = {"scenario", "label"}
+    missing_required = required - set(df.columns)
+    if missing_required:
+        missing_list = ", ".join(sorted(missing_required))
+        raise ValueError(f"Missing required diagnostics columns: {missing_list}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    desired = [
         "run_id",
         "scenario",
         "label",
         "theoretical_bound",
         "residual",
-        "tail_energy",
+        "residual_norm",
         "pca_explained",
-    ]].copy()
-    diagnostics["theoretical_bound_sign"] = np.sign(diagnostics["theoretical_bound"])  # -1, 0, 1
+        "r_eff",
+        "embed_norm",
+        "semantic_drift",
+        "steps",
+        "tail_energy",
+        "tail_ratio",
+    ]
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    diagnostics_path = output_dir / "theoretical_bound_diagnostics.csv"
+    if "tail_energy" not in df.columns:
+        if "singular_values" in df.columns:
+            def compute_tail_energy(sv):
+                try:
+                    if isinstance(sv, str):
+                        sv_list = json.loads(sv)
+                    else:
+                        sv_list = list(sv)
+                    sv2 = np.array(sv_list) ** 2
+                    if sv2.sum() <= 0:
+                        return np.nan
+                    k = max(1, len(sv2) // 2)
+                    tail = sv2[k:].sum() / sv2.sum()
+                    return float(tail)
+                except Exception:
+                    return np.nan
+            logger.info("Computing 'tail_energy' from 'singular_values' column.")
+            df = df.copy()
+            df["tail_energy"] = df["singular_values"].apply(compute_tail_energy)
+        elif "S" in df.columns:
+            def compute_tail_from_S(S):
+                try:
+                    if isinstance(S, str):
+                        sv = np.array(json.loads(S))
+                    else:
+                        sv = np.array(S)
+                    sv2 = sv ** 2
+                    if sv2.sum() <= 0:
+                        return np.nan
+                    k = max(1, len(sv2) // 2)
+                    tail = sv2[k:].sum() / sv2.sum()
+                    return float(tail)
+                except Exception:
+                    return np.nan
+            logger.info("Computing 'tail_energy' from 'S' column.")
+            df = df.copy()
+            df["tail_energy"] = df["S"].apply(compute_tail_from_S)
+        else:
+            logger.warning(
+                "Optional diagnostic 'tail_energy' not found and cannot be computed "
+                "(no 'singular_values' or 'S'). It will be omitted."
+            )
+
+    available = [col for col in desired if col in df.columns]
+    missing_optional = [col for col in desired if col not in available and col not in required]
+    if missing_optional:
+        logger.info("Missing optional diagnostics columns: %s", ", ".join(missing_optional))
+
+    if available:
+        diagnostics = df[available].copy()
+    else:
+        logger.warning("No diagnostic columns available to write.")
+        diagnostics = df.iloc[:, :0].copy()
+
+    if "theoretical_bound" in diagnostics.columns:
+        diagnostics["theoretical_bound_sign"] = np.sign(diagnostics["theoretical_bound"])
+
+    diagnostics_path = output_dir / "diagnostics_summary.csv"
     diagnostics.to_csv(diagnostics_path, index=False)
-    logger.info("Wrote theoretical bound diagnostics to %s", diagnostics_path)
+    logger.info("Wrote diagnostics to %s", diagnostics_path)
 
-    summary = diagnostics.groupby(["scenario", "label"]).agg(
-        count=("theoretical_bound", "count"),
-        mean=("theoretical_bound", "mean"),
-        min=("theoretical_bound", "min"),
-        max=("theoretical_bound", "max"),
-        negative_rate=("theoretical_bound", lambda x: float(np.mean(x < 0))),
-    )
-    summary_path = output_dir / "theoretical_bound_summary.csv"
-    summary.reset_index().to_csv(summary_path, index=False)
-    logger.info("Wrote theoretical bound summary to %s", summary_path)
+    if "theoretical_bound" in diagnostics.columns:
+        summary = diagnostics.groupby(["scenario", "label"]).agg(
+            count=("theoretical_bound", "count"),
+            mean=("theoretical_bound", "mean"),
+            min=("theoretical_bound", "min"),
+            max=("theoretical_bound", "max"),
+            negative_rate=("theoretical_bound", lambda x: float(np.mean(x < 0))),
+        )
+        summary_path = output_dir / "theoretical_bound_summary.csv"
+        summary.reset_index().to_csv(summary_path, index=False)
+        logger.info("Wrote theoretical bound summary to %s", summary_path)
+    else:
+        logger.warning("Skipping theoretical bound summary: missing 'theoretical_bound' column.")
 
-    if HAS_MATPLOTLIB:
+    if HAS_MATPLOTLIB and "theoretical_bound" in diagnostics.columns:
         plt.figure(figsize=(8, 5))
         for label, group in diagnostics.groupby("label"):
             plt.hist(group["theoretical_bound"].values, bins=30, alpha=0.5, label=label)
@@ -223,6 +297,22 @@ def _write_diagnostics(df: pd.DataFrame, output_dir: Path) -> None:
         plt.savefig(plot_path, dpi=150)
         plt.close()
         logger.info("Saved theoretical bound histogram to %s", plot_path)
+
+    if HAS_SEABORN and HAS_MATPLOTLIB:
+        import seaborn as sns
+
+        try:
+            numeric_cols = diagnostics.select_dtypes(include=[np.number]).columns.tolist()
+            if len(numeric_cols) >= 2:
+                plot_data = diagnostics[numeric_cols + ["label"]] if "label" in diagnostics.columns else diagnostics[numeric_cols]
+                sns.pairplot(plot_data)
+                plt.tight_layout()
+                pairplot_path = output_dir / "diagnostics_pairplot.png"
+                plt.savefig(pairplot_path)
+                plt.close()
+                logger.info("Saved diagnostics pairplot to %s", pairplot_path)
+        except Exception as exc:
+            logger.debug("Could not write pairplots: %s", exc)
 
 
 def _recompute_features(
