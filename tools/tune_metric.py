@@ -13,7 +13,7 @@ import importlib.util
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, HuberRegressor
 from sklearn.metrics import roc_auc_score, roc_curve, confusion_matrix
 from sklearn.model_selection import GroupKFold, GridSearchCV
 from sklearn.pipeline import Pipeline
@@ -34,7 +34,10 @@ logger = logging.getLogger(__name__)
 
 FEATURE_COLUMNS = [
     "theoretical_bound",
+    "theoretical_bound_norm",
     "residual",
+    "residual_norm",
+    "residual_fro_norm",
     "koopman_residual",
     "pca_explained",
     "r_eff",
@@ -136,6 +139,35 @@ def _nested_cv(
         X_test, y_test = X.iloc[test_idx], y[test_idx]
         train_groups = groups[train_idx]
 
+        # Mitigate PCA confounding: learn train-fold-only linear correction
+        # for theoretical bound explained by pca_explained.
+        # This prevents leakage by fitting only on training folds.
+        if "theoretical_bound" in X_train.columns and "pca_explained" in X_train.columns:
+            try:
+                # HuberRegressor is robust to outliers and deterministic here.
+                huber = HuberRegressor()
+                # Fit on training fold
+                huber.fit(
+                    X_train[["pca_explained"]].to_numpy(dtype=float),
+                    X_train["theoretical_bound"].to_numpy(dtype=float),
+                )
+                # Compute adjusted theoretical bound: residuals of the regression
+                X_train = X_train.copy()
+                X_test = X_test.copy()
+                X_train["theoretical_bound_adj"] = X_train["theoretical_bound"] - huber.predict(
+                    X_train[["pca_explained"]]
+                )
+                X_test["theoretical_bound_adj"] = X_test["theoretical_bound"] - huber.predict(
+                    X_test[["pca_explained"]]
+                )
+
+                # Replace theoretical_bound with adjusted version so downstream
+                # models use the corrected quantity. Keep the raw one around if needed.
+                X_train["theoretical_bound"] = X_train["theoretical_bound_adj"]
+                X_test["theoretical_bound"] = X_test["theoretical_bound_adj"]
+            except Exception as exc:
+                logger.debug("Could not compute theoretical_bound_adj for fold %s: %s", fold_idx, exc)
+
         grid = GridSearchCV(
             pipe,
             param_grid=param_grid,
@@ -198,8 +230,10 @@ def _write_diagnostics(df: pd.DataFrame, output_dir: Path) -> None:
         "scenario",
         "label",
         "theoretical_bound",
+        "theoretical_bound_norm",
         "residual",
         "residual_norm",
+        "residual_fro_norm",
         "pca_explained",
         "r_eff",
         "embed_norm",
