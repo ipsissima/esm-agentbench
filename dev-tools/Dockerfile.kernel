@@ -1,0 +1,22 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    m4 \
+    bubblewrap \
+    unzip \
+    wget \
+    build-essential \
+    opam \
+    ocaml-native-compilers \
+    ocaml-findlib \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN opam init --bare --disable-sandboxing && \
+    opam switch create esm-kernel 4.14.0 && \
+    eval "$(opam env)" && \
+    opam install -y coq.8.18.1 ocamlfind dune
+
+WORKDIR /workspace

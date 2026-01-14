@@ -15,22 +15,39 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install Coq and OCaml
+    - name: Install opam + toolchain
       run: |
         sudo apt-get update
-        sudo apt-get install -y coq ocaml ocaml-native-compilers ocaml-findlib opam
-        # Initialize opam if needed
-        opam init -y --disable-sandboxing || true
+        sudo apt-get install -y m4 bubblewrap unzip wget build-essential opam
+        opam init --bare --disable-sandboxing
+        opam switch create esm-kernel 4.14.0 || opam switch set esm-kernel
         eval $(opam env)
+        opam install -y coq.8.18.1 ocamlfind dune
 
     - name: Build verified kernel
       run: |
-        ./build_kernel.sh || {
+        set -o pipefail
+        ./build_kernel.sh 2>&1 | tee coq_build.log
+        status=${PIPESTATUS[0]}
+        if [ "${status}" -ne 0 ]; then
           echo "ERROR: Kernel build failed. Phase-1 validation requires verified kernel."
           echo "The build_kernel.sh script needs Coq and OCaml to compile formal proofs."
           echo "If building on a local runner, ensure Coq/OCaml are installed."
-          exit 1
-        }
+          echo "=== toolchain diagnostics ==="
+          coqc --version || true
+          ocamlopt --version || true
+          opam list --installed | tee opam-list.txt || true
+          exit "${status}"
+        fi
+
+    - name: Upload kernel build diagnostics
+      uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: kernel-build-diagnostics
+        path: |
+          coq_build.log
+          opam-list.txt
 
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v3
@@ -55,7 +72,20 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
+    - name: Prefer prebuilt kernel if present
+      id: prebuilt_kernel
+      run: |
+        if [ -f "${{ github.workspace }}/UELAT/kernel_verified.so" ]; then
+          echo "Using prebuilt kernel: UELAT/kernel_verified.so"
+          ls -la UELAT/kernel_verified.so
+          echo "found=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "Prebuilt kernel not found; CI will rely on build step artifact."
+          echo "found=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Download kernel artifact
+      if: steps.prebuilt_kernel.outputs.found != 'true'
       uses: actions/download-artifact@v3
       with:
         name: verified-kernel
@@ -96,10 +126,23 @@ jobs:
         export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
         ls -la "${VERIFIED_KERNEL_PATH}"
         # Test kernel loading
-        python -c "from certificates.verified_kernel import load_kernel; load_kernel(strict=True)" || {
-          echo "ERROR: Kernel failed to load"
-          exit 1
-        }
+        python - <<'PY'
+        import subprocess
+        from certificates.verified_kernel import load_kernel
+
+        try:
+            load_kernel(strict=True)
+        except Exception as exc:
+            print("ERROR: Kernel failed to load:", exc)
+            print("=== versions ===")
+            for cmd in (("coqc", "--version"), ("ocamlopt", "-version"), ("opam", "list")):
+                try:
+                    out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True)
+                    print(cmd, "=>", out.splitlines()[0] if out else out)
+                except Exception as ex:
+                    print("Failed to run", cmd, ":", ex)
+            raise
+        PY
       env:
         VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
@@ -144,6 +187,7 @@ jobs:
       run: |
         . .venv/bin/activate
         export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
+        pytest tests/test_kernel_load.py -v
         pytest tests/test_phase1_submission.py -v
       env:
         VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
