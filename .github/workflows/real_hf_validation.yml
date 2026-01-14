@@ -67,6 +67,9 @@ jobs:
           # Install minimal transformers (CPU-only for CI)
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install transformers accelerate
+          
+          # Install the project so 'tools' is importable
+          pip install -e .
 
       - name: Verify installation
         run: |
