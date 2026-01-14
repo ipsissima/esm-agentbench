@@ -10,45 +10,106 @@ set -x
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
-UELAT_DIR="$(cd "${ROOT_DIR}/UELAT" 2>/dev/null && pwd || true)"
-BUILD_DIR="${UELAT_DIR:-./UELAT}/_build"
-KERNEL_OUTPUT="${UELAT_DIR:-./UELAT}/kernel_verified.so"
+
+# Allow user/CI to override the UELAT directory or to provide a prebuilt kernel
+# VERIFIED_KERNEL_PATH (absolute or relative) will be used if set and exists.
+: "${VERIFIED_KERNEL_PATH:=}"
+
+# Initialize UELAT_DIR from environment if provided (do not clobber an export).
+UELAT_DIR="${UELAT_DIR:-}"
+
+# Multi-strategy discovery for UELAT_DIR:
+# 1) If env UELAT_DIR is provided and points to a directory, use it.
+# 2) If $ROOT_DIR/UELAT exists, use that.
+# 3) If VERIFIED_KERNEL_PATH points to a .so, prefer using that (skip source build).
+# 4) Otherwise, try to find a UELAT directory in repo with 'find'.
+
+# Strategy 1: explicitly provided
+if [ -n "${UELAT_DIR:-}" ]; then
+  if [ -d "${UELAT_DIR}" ]; then
+    echo "[kernel] Using UELAT_DIR from environment: ${UELAT_DIR}"
+  else
+    echo "[kernel] WARNING: UELAT_DIR environment variable set but path does not exist: ${UELAT_DIR}"
+    UELAT_DIR=""
+  fi
+fi
+
+# Strategy 2: conventional path
+if [ -z "$UELAT_DIR" ] && [ -d "${ROOT_DIR}/UELAT" ]; then
+  UELAT_DIR="${ROOT_DIR}/UELAT"
+fi
+
+# Strategy 3: VERIFIED_KERNEL_PATH
+if [ -n "${VERIFIED_KERNEL_PATH:-}" ] && [ -f "${VERIFIED_KERNEL_PATH}" ]; then
+  echo "[kernel] VERIFIED_KERNEL_PATH provided and file exists: ${VERIFIED_KERNEL_PATH}"
+  echo "[kernel] Using prebuilt kernel; skipping UELAT source build."
+  # We still set UELAT_DIR to empty to signal we will not build sources.
+  UELAT_DIR=""
+fi
+
+# Strategy 4: search for candidate UELAT directories
+if [ -z "$UELAT_DIR" ]; then
+  echo "[kernel] UELAT not found at ${ROOT_DIR}/UELAT; searching repository for UELAT directory..."
+  # search up to depth 2 to avoid long scans; this returns the first plausible match
+  candidate="$(find "${ROOT_DIR}" -maxdepth 3 -type d -name UELAT -print -quit || true)"
+  if [ -n "$candidate" ]; then
+    echo "[kernel] Found candidate UELAT at: $candidate"
+    UELAT_DIR="$candidate"
+  fi
+fi
+
+# Final check: if no UELAT_DIR but a verified kernel path exists, use the kernel artifact path.
+if [ -z "${UELAT_DIR:-}" ] && [ -n "${VERIFIED_KERNEL_PATH:-}" ] && [ -f "${VERIFIED_KERNEL_PATH}" ]; then
+  echo "[kernel] No UELAT source directory, but VERIFIED_KERNEL_PATH exists; using artifact at ${VERIFIED_KERNEL_PATH}"
+  # set KERNEL_OUTPUT based on provided artifact
+  KERNEL_OUTPUT="${VERIFIED_KERNEL_PATH}"
+  BUILD_FROM_SOURCES=0
+else
+  BUILD_FROM_SOURCES=1
+  # set default values used later
+  KERNEL_OUTPUT="${UELAT_DIR:-./UELAT}/kernel_verified.so"
+fi
+
+# If we intend to build from sources but UELAT_DIR is still missing, error with actionable guidance
+if [ "$BUILD_FROM_SOURCES" -eq 1 ] && [ -z "${UELAT_DIR:-}" ]; then
+  echo "[kernel] ERROR: UELAT directory not found; cannot build kernel from sources."
+  echo "[kernel] Searched: ${ROOT_DIR}/UELAT and repo. If you expect sources in the repo, ensure they exist or set VERIFIED_KERNEL_PATH to a prebuilt kernel."
+  echo "[kernel] CI guidance: ensure the checkout includes the UELAT directory (use 'actions/checkout' with submodules if relevant) or upload the built kernel as the 'verified-kernel' artifact."
+  exit 1
+fi
+
+# For building, set BUILD_DIR relative to UELAT_DIR
+if [ "$BUILD_FROM_SOURCES" -eq 1 ]; then
+  BUILD_DIR="${UELAT_DIR}/_build"
+  mkdir -p "$BUILD_DIR"
+else
+  # BUILD_DIR still useful for logs even when using artifact
+  BUILD_DIR="${ROOT_DIR}/UELAT/_build"
+  mkdir -p "$BUILD_DIR" || true
+fi
 
 # Tools (allow environment overrides)
 COQC="${COQC:-coqc}"
 OCAMLOPT="${OCAMLOPT:-ocamlopt}"
 OCAMLFIND="${OCAMLFIND:-ocamlfind}"
 
-# Diagnostic helper (prints useful info on error)
+# Diagnostic trap
 print_diagnostics() {
   echo "=== Kernel build diagnostics ==="
-  echo "PWD: $(pwd)"
   echo "ROOT_DIR: $ROOT_DIR"
-  echo "UELAT_DIR: $UELAT_DIR"
-  echo "BUILD_DIR: $BUILD_DIR"
+  echo "UELAT_DIR: ${UELAT_DIR:-<empty>}"
+  echo "BUILD_FROM_SOURCES: $BUILD_FROM_SOURCES"
   echo "KERNEL_OUTPUT: $KERNEL_OUTPUT"
   echo "--- versions ---"
   $COQC --version 2>&1 || echo "coqc not found"
   $OCAMLOPT -version 2>&1 || echo "ocamlopt not found"
   $OCAMLFIND --version 2>&1 || echo "ocamlfind not found"
-  echo "--- UELAT listing ---"
-  if [ -n "$UELAT_DIR" ] && [ -d "$UELAT_DIR" ]; then
+  echo "--- listing ---"
+  if [ -n "${UELAT_DIR:-}" ] && [ -d "$UELAT_DIR" ]; then
     ls -la "$UELAT_DIR" || true
-    echo "--- build dir listing ---"
-    ls -la "$BUILD_DIR" || true
-    echo "--- recent coq logs (if any) ---"
-    if [ -d "$BUILD_DIR" ]; then
-      ls -1 "$BUILD_DIR"/*.log 2>/dev/null || true
-      for f in "$BUILD_DIR"/*.log; do
-        [ -f "$f" ] || continue
-        echo "---- head $f ----"
-        head -n 200 "$f" || true
-      done
-    fi
-  else
-    echo "UELAT directory not found at expected path."
   fi
-  echo "=== End diagnostics ==="
+  ls -la "$BUILD_DIR" || true
+  echo "=== end diagnostics ==="
 }
 
 trap print_diagnostics ERR
@@ -64,6 +125,15 @@ if [ "${1:-}" = "clean" ] || [ "${1:-}" = "clean-all" ]; then
     echo "[kernel] No UELAT directory to clean."
     exit 0
   fi
+fi
+
+if [ "$BUILD_FROM_SOURCES" -eq 0 ]; then
+  if [ ! -f "$KERNEL_OUTPUT" ]; then
+    echo "[kernel] ERROR: VERIFIED_KERNEL_PATH was set but kernel artifact not found at ${KERNEL_OUTPUT}" >&2
+    exit 1
+  fi
+  echo "[kernel] Using prebuilt kernel artifact at ${KERNEL_OUTPUT}"
+  exit 0
 fi
 
 if [ -z "${UELAT_DIR:-}" ] || [ ! -d "${UELAT_DIR}" ]; then
