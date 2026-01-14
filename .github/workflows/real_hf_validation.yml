@@ -84,12 +84,12 @@ jobs:
           . .venv/bin/activate
           # Test the agent loop module standalone
           cd tools/real_agents_hf
-          python -c "
+          python - <<'PY'
           from inference import create_backend
           print('Testing inference backend...')
           backend = create_backend('tiny-test')
           print('Backend created successfully')
-          "
+          PY
 
       - name: Run pipeline test (1 scenario, 2 runs, tiny model)
         run: |
@@ -151,14 +151,14 @@ jobs:
           fi
 
           # Check report has expected keys
-          python -c "
+          python - <<'PY'
           import json
           with open('$REPORT') as f:
               report = json.load(f)
           assert 'scenario' in report
           assert 'overall_auc' in report
           print('✅ Validation report structure OK')
-          "
+          PY
 
       - name: Upload traces (for inspection)
         if: always()
@@ -224,7 +224,7 @@ jobs:
 
       - name: Check models.yaml structure
         run: |
-          python -c "
+          python - <<'PY'
           import yaml
           with open('tools/real_agents_hf/models.yaml') as f:
               config = yaml.safe_load(f)
@@ -236,7 +236,7 @@ jobs:
               assert 'name' in model, 'Model missing name'
               assert 'hf_id' in model, 'Model missing hf_id'
               assert 'backend' in model, 'Model missing backend'
-              assert model['backend'] in ['transformers', 'vllm'], f'Invalid backend: {model[\"backend\"]}'
+              assert model['backend'] in ['transformers', 'vllm'], f'Invalid backend: {model["backend"]}'
 
-          print(f'✅ models.yaml valid with {len(config[\"models\"])} models')
-          "
+          print(f'✅ models.yaml valid with {len(config["models"])} models')
+          PY

@@ -52,15 +52,15 @@ jobs:
         run: |
           . .venv/bin/activate
           python - <<'PY'
-import sys, importlib
-importlib.invalidate_caches()
-try:
-    import tools
-    print("tools importable:", tools.__file__)
-except Exception as e:
-    print("ERROR: tools not importable:", e, file=sys.stderr)
-    raise
-PY
+          import sys, importlib
+          importlib.invalidate_caches()
+          try:
+              import tools
+              print("tools importable:", tools.__file__)
+          except Exception as e:
+              print("ERROR: tools not importable:", e, file=sys.stderr)
+              raise
+          PY
 
       - name: Sanity check: ensure real traces exist (Phase1 mode)
         run: |
