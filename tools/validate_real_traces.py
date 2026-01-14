@@ -39,7 +39,7 @@ from scipy import stats
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from certificates.make_certificate import compute_certificate
+from tools.feature_utils import NormalizationConfig, compute_trace_features
 
 # Track which embedding method is used
 _embedding_method = "unknown"
@@ -97,33 +97,90 @@ def embed_trace_steps_with_check(trace: List[Dict[str, Any]]) -> Tuple[np.ndarra
     return embeddings, _embedding_method
 
 
-def load_trace(path: Path) -> List[Dict[str, Any]]:
-    """Load a trace from JSON file."""
+def load_trace_with_meta(path: Path) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Load a trace from JSON file, returning (trace, metadata)."""
     with open(path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     if isinstance(data, list):
-        return data
-    if isinstance(data, dict) and 'trace' in data:
-        return data['trace']
-    return []
+        return data, {}
+    if isinstance(data, dict):
+        trace = data.get("trace", [])
+        metadata = dict(data)
+        return trace if isinstance(trace, list) else [], metadata
+    return [], {}
 
 
-def analyze_trace(trace: List[Dict[str, Any]], label: str) -> Dict[str, Any]:
-    """Analyze a single trace and compute certificate."""
+def _extract_prompt_text(trace: List[Dict[str, Any]], meta: Dict[str, Any] | None) -> str | None:
+    if meta:
+        for key in ("poison", "prompt", "task", "context"):
+            val = meta.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    for step in trace:
+        val = step.get("context") or step.get("prompt") or step.get("task")
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
+
+
+def analyze_trace(
+    trace: List[Dict[str, Any]],
+    label: str,
+    meta: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Analyze a single trace and compute certificate diagnostics."""
     from assessor.kickoff import embed_trace_steps
+    from scipy.spatial.distance import cosine
+
     embeddings = embed_trace_steps(trace)
-    cert = compute_certificate(embeddings)
+    norm_cfg = NormalizationConfig(
+        l2_normalize_steps=True,
+        zscore_per_trace=False,
+        length_normalize=False,
+        trim_proportion=0.0,
+    )
+    features = compute_trace_features(embeddings, normalization=norm_cfg)
+
+    theoretical_bound_raw = float(features.get("theoretical_bound", float("nan")))
+    theoretical_bound_norm = float(features.get("theoretical_bound_norm", float("nan")))
+    residual_raw = float(features.get("residual", float("nan")))
+    residual_norm = float(features.get("residual_norm", float("nan")))
+    r_eff = float(features.get("r_eff", float("nan")))
+    pca_explained = float(features.get("pca_explained", float("nan")))
+
+    prompt_text = _extract_prompt_text(trace, meta)
+    semantic_centroid_distance = float("nan")
+    adjusted_bound = theoretical_bound_norm if not np.isnan(theoretical_bound_norm) else theoretical_bound_raw
+    if prompt_text:
+        try:
+            prompt_step = {"type": "cot", "role": "agent", "text": prompt_text}
+            prompt_embedding = embed_trace_steps([prompt_step])
+            if prompt_embedding.shape[0] > 0:
+                centroid = np.mean(embeddings, axis=0)
+                task_vec = prompt_embedding[0]
+                if np.linalg.norm(centroid) > 1e-12 and np.linalg.norm(task_vec) > 1e-12:
+                    semantic_centroid_distance = float(cosine(centroid, task_vec))
+                    gamma = 0.3
+                    if not np.isnan(adjusted_bound):
+                        adjusted_bound = float(adjusted_bound - gamma * semantic_centroid_distance)
+        except Exception:
+            semantic_centroid_distance = float("nan")
 
     return {
         "label": label,
         "n_steps": len(trace),
-        "theoretical_bound": cert.get("theoretical_bound", float("nan")),
-        "residual": cert.get("residual", float("nan")),
-        "oos_residual": cert.get("oos_residual", float("nan")),  # OOS residual for diagnostics
-        "insample_residual": cert.get("insample_residual", float("nan")),  # In-sample for comparison
-        "r_eff": cert.get("r_eff", float("nan")),  # Effective rank used
-        "pca_explained": cert.get("pca_explained", float("nan")),
-        "pca_tail_estimate": cert.get("pca_tail_estimate", float("nan")),
+        "theoretical_bound": theoretical_bound_raw,
+        "theoretical_bound_norm": theoretical_bound_norm,
+        "theoretical_bound_prompt_adj": adjusted_bound,
+        "residual": residual_raw,
+        "residual_norm": residual_norm,
+        "oos_residual": float(features.get("oos_residual", float("nan"))),
+        "insample_residual": float(features.get("insample_residual", float("nan"))),
+        "r_eff": r_eff,
+        "pca_explained": pca_explained,
+        "pca_tail_estimate": float(features.get("tail_energy", float("nan"))),
+        "semantic_centroid_distance": semantic_centroid_distance,
+        **features,
     }
 
 
@@ -142,6 +199,17 @@ def categorize_trace(filename: str) -> str:
     elif "starved" in name or "starvation" in name or "memory" in name:
         return "starvation"
     return "unknown"
+
+
+def pick_score(result: Dict[str, Any]) -> float:
+    value = result.get("theoretical_bound_prompt_adj")
+    if isinstance(value, (int, float)) and not np.isnan(value):
+        return float(value)
+    value = result.get("theoretical_bound_norm")
+    if isinstance(value, (int, float)) and not np.isnan(value):
+        return float(value)
+    value = result.get("theoretical_bound")
+    return float(value) if value is not None else float("nan")
 
 
 def run_real_trace_validation(real_traces_dir: Path | None = None):
@@ -169,7 +237,7 @@ def run_real_trace_validation(real_traces_dir: Path | None = None):
 
     for trace_file in sorted(real_traces_dir.glob("*.json")):
         label = trace_file.stem
-        trace = load_trace(trace_file)
+        trace, meta = load_trace_with_meta(trace_file)
         
         # FILTER: Ignore traces shorter than 10 steps.
         # Short traces (crashes) produce linear artifacts that skew the spectral analysis.
@@ -182,7 +250,7 @@ def run_real_trace_validation(real_traces_dir: Path | None = None):
             continue
         
         if trace:
-            result = analyze_trace(trace, label)
+            result = analyze_trace(trace, label, meta=meta)
 
             # ====================================================
             # EXPERT HOTFIX: Robust sanity checks for numeric anomalies
@@ -241,10 +309,12 @@ def run_real_trace_validation(real_traces_dir: Path | None = None):
             results[label] = result
             category = categorize_trace(label)
             result["category"] = category
+            score = pick_score(result)
+            result["score"] = score
             if category in results_by_category:
-                results_by_category[category].append(result["theoretical_bound"])
+                results_by_category[category].append(score)
             print(f"  {label} [{category}]:")
-            print(f"    steps={result['n_steps']}, theoretical_bound={result['theoretical_bound']:.4f}")
+            print(f"    steps={result['n_steps']}, score={score:.4f}")
             print(f"    residual={result['residual']:.4f} (oos={result['oos_residual']:.4f}, insample={result['insample_residual']:.4f})")
             print(f"    pca_explained={result['pca_explained']:.4f}, r_eff={result['r_eff']}")
 
@@ -261,7 +331,7 @@ def run_real_trace_validation(real_traces_dir: Path | None = None):
     # Summary by category
     print("\n[2] Summary by Category")
     print("-" * 80)
-    print(f"  {'Category':<12} {'Count':>6} {'Mean Bound':>12} {'Min':>10} {'Max':>10}")
+    print(f"  {'Category':<12} {'Count':>6} {'Mean Score':>12} {'Min':>10} {'Max':>10}")
     print("  " + "-" * 52)
 
     for cat in ["coherent", "creative", "drift", "poison", "starvation"]:
@@ -311,27 +381,29 @@ def run_real_trace_validation(real_traces_dir: Path | None = None):
     else:
         print("  ⚠ Need both creative and drift traces for this test")
 
-    # Starvation vs Coherent: use effective rank (r_eff) NOT bound
+    # Starvation vs Coherent: use normalized effective rank
     print("\n  [Starvation vs Coherent: Rank Test]")
-    # collect per-trace r_eff values from results
-    starvation_r = [
-        res["r_eff"]
-        for name, res in results.items()
-        if "starvation" in name and not np.isnan(res.get("r_eff", np.nan))
-    ]
-    coherent_r = [
-        res["r_eff"]
-        for name, res in results.items()
-        if ("gold" in name or "coherent" in name or "good" in name)
-        and not np.isnan(res.get("r_eff", np.nan))
-    ]
-    if starvation_r and coherent_r:
-        print(f"  Starvation mean rank: {np.mean(starvation_r):.2f}")
-        print(f"  Coherent mean rank:   {np.mean(coherent_r):.2f}")
-        if np.mean(starvation_r) < np.mean(coherent_r):
-            print("  ✓ PASS: Starvation exhibits lower effective rank than coherent traces")
+    starvation_r_rel = []
+    coherent_r_rel = []
+    for res in results.values():
+        category = res.get("category")
+        n_steps = float(res.get("n_steps", 1))
+        r_eff = res.get("r_eff", np.nan)
+        if np.isnan(r_eff) or n_steps <= 0:
+            continue
+        rel = float(r_eff) / max(1.0, n_steps)
+        if category == "starvation":
+            starvation_r_rel.append(rel)
+        elif category == "coherent":
+            coherent_r_rel.append(rel)
+    if starvation_r_rel and coherent_r_rel:
+        print(f"  Starvation mean normalized rank: {np.mean(starvation_r_rel):.2f}")
+        print(f"  Coherent mean normalized rank:   {np.mean(coherent_r_rel):.2f}")
+        u_stat, pval = stats.mannwhitneyu(starvation_r_rel, coherent_r_rel, alternative="less")
+        if pval < 0.05:
+            print("  ✓ PASS: Starvation has lower relative rank than coherent")
         else:
-            print("  ✗ FAIL: Starvation rank should be lower than coherent")
+            print(f"  ✗ FAIL: Starvation relative rank is NOT lower (p={pval:.3g})")
             discrimination_pass = False
     else:
         print("  ⚠ Need both starvation and coherent traces for rank test")
