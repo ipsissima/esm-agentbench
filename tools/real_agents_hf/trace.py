@@ -214,6 +214,18 @@ def _compute_sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _serialize_augmented_embeddings(embeddings: List[List[float]]) -> bytes:
+    X = np.asarray(embeddings, dtype=np.float64)
+    if X.ndim == 1:
+        X = X.reshape(-1, 1)
+    T = X.shape[0]
+    X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
+    rows, cols = X_aug.shape
+    shape_header = np.array([rows, cols], dtype=">i8").tobytes(order="C")
+    X_aug_be = X_aug.astype(">f8", copy=False)
+    return shape_header + X_aug_be.tobytes(order="C")
+
+
 def compute_witness_hash(embeddings: List[List[float]]) -> str:
     """Compute deterministic witness hash for trajectory matrix.
     
@@ -233,24 +245,8 @@ def compute_witness_hash(embeddings: List[List[float]]) -> str:
     str
         SHA256 hex digest of the augmented trajectory matrix
     """
-    # Convert to numpy array with float64 dtype (as certificates expect)
-    X = np.asarray(embeddings, dtype=np.float64)
-    
-    if X.ndim == 1:
-        X = X.reshape(-1, 1)
-    
-    T = X.shape[0]
-    
-    # Augment with bias column (as certificate pipeline does)
-    X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
-    
-    # Ensure contiguous layout for deterministic byte representation
-    X_aug = np.ascontiguousarray(X_aug, dtype=np.float64)
-    
-    # Compute SHA256 of the raw bytes
-    sha = hashlib.sha256(X_aug.tobytes()).hexdigest()
-    
-    return sha
+    serialized = _serialize_augmented_embeddings(embeddings)
+    return _compute_sha256(serialized)
 
 
 def collect_trace_entries(trace_dir: Path) -> List[Dict[str, Any]]:
@@ -344,15 +340,9 @@ def create_index(trace_dir: Path, metadata: Dict[str, Any]) -> Path:
                 logger.warning(f"Error loading embeddings from {gold_file}: {e}")
         
         if gold_embeddings_list:
-            # Compute witness hash over concatenated gold embeddings
-            # Convert to augmented matrix as in certificate pipeline
-            X = np.asarray(gold_embeddings_list, dtype=np.float64)
-            if X.ndim == 1:
-                X = X.reshape(-1, 1)
-            T = X.shape[0]
-            X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
-            X_aug = np.ascontiguousarray(X_aug, dtype=np.float64)
-            witness_hash = hashlib.sha256(X_aug.tobytes()).hexdigest()
+            witness_hash = _compute_sha256(
+                _serialize_augmented_embeddings(gold_embeddings_list)
+            )
 
     # Extract embedder_id from metadata
     embedder_id = metadata.get("embedder_id", "unknown")
