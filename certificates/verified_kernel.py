@@ -40,6 +40,16 @@ class KernelError(RuntimeError):
     """Raised when the verified kernel fails or is unavailable."""
 
 
+def _warn_python_fallback_once() -> None:
+    """Warn once when using the Python fallback instead of the verified kernel."""
+
+    global _fallback_warning_logged
+    if _fallback_warning_logged:
+        return
+    logger.warning("Verified kernel unavailable, using Python fallback")
+    _fallback_warning_logged = True
+
+
 def _locate_kernel() -> Optional[str]:
     """Find the compiled kernel shared library.
 
@@ -236,7 +246,8 @@ def compute_residual(
     if kernel is None:
         if strict:
             raise KernelError("Verified kernel not available")
-        # Fallback: return 0.0 (warning already logged by load_kernel)
+        # Fallback: warn once and return 0.0
+        _warn_python_fallback_once()
         return 0.0
 
     try:
@@ -347,7 +358,8 @@ def compute_bound(
     if kernel is None:
         if strict:
             raise KernelError("Verified kernel not available")
-        # Fallback: compute in Python (warning already logged by load_kernel)
+        # Fallback: warn once and compute in Python
+        _warn_python_fallback_once()
         return c_res * residual + c_tail * tail_energy + c_sem * semantic_divergence + c_robust * lipschitz_margin
 
     try:
