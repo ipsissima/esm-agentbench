@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 30
 
     # Only run if RUN_REAL_HF=1 or manual dispatch
-    if: github.event_name == 'workflow_dispatch' || env.RUN_REAL_HF == '1'
+    if: github.event_name == 'workflow_dispatch' || vars.RUN_REAL_HF == '1'
 
     steps:
       - name: Checkout code
