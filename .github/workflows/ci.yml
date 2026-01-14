@@ -33,7 +33,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
-          python -m pip install --no-cache-dir "huggingface-hub==0.16.5" "sentence-transformers==2.3.2" "transformers==4.35.2"
+          python -m pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2"
           pip install --no-cache-dir -r requirements.txt --no-deps
           pip install -e .
 

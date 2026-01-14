@@ -41,7 +41,7 @@ commit_workaround() {
     echo "  → Installing dependencies..."
     docker exec "$BUILDER_NAME" pip install --no-cache-dir --upgrade pip
     docker exec "$BUILDER_NAME" pip install --no-cache-dir \
-        "huggingface-hub==0.16.5" "sentence-transformers==2.3.2" "transformers==4.35.2" \
+        "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2" \
         flask numpy scikit-learn joblib pytest tomli \
         gunicorn==20.1.0 matplotlib==3.8.1 \
         pandas==2.2.3 pytest-asyncio PyYAML 'pydantic>=1.10'

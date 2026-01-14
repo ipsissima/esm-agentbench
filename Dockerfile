@@ -12,7 +12,7 @@ COPY requirements.txt /app/
 # huggingface-hub>=0.16.4 is required by transformers>=4.35.2
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir "huggingface-hub==0.16.5" "sentence-transformers==2.3.2" "transformers==4.35.2" \
+    && pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2" \
     && pip install --no-cache-dir -r /app/requirements.txt --no-deps \
     && pip install --no-cache-dir --upgrade scikit-learn
 
