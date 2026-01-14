@@ -1,9 +1,6 @@
 opam-version: "2.0"
-name: "uelat-kernel"
-synopsis: "Dependencies for the verified kernel build"
 depends: [
-  "ocaml" {= "4.14.0"}
   "coq" {= "8.18.1"}
-  "ocamlfind"
   "dune"
+  "ocamlfind"
 ]

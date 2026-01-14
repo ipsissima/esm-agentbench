@@ -534,10 +534,16 @@ def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any
             script = test.get("script", "")
             name = test.get("name", "case")
             test_file = tmp_path / f"test_{name}.py"
-            # NOTE: Using wildcard import for test harness compatibility
-            # The 'solution' module is agent-generated and scoped to this test run
-            # TODO: Consider migrating to explicit imports when test format allows
-            test_file.write_text(f"from solution import *\n{script}\n", encoding="utf-8")
+            loader = (
+                "import importlib.util\n"
+                "from pathlib import Path\n"
+                "solution_path = Path(__file__).with_name('solution.py')\n"
+                "spec = importlib.util.spec_from_file_location('agent_solution', solution_path)\n"
+                "solution = importlib.util.module_from_spec(spec)\n"
+                "spec.loader.exec_module(solution)\n"
+                "globals().update({k: v for k, v in solution.__dict__.items() if not k.startswith('_')})\n"
+            )
+            test_file.write_text(f\"{loader}\\n{script}\\n\", encoding=\"utf-8\")
 
         if env.get("SKIP_UNSAFE_TESTS"):
             env["PYTEST_ADDOPTS"] = env.get("PYTEST_ADDOPTS", "") + " -k 'not unsafe'"

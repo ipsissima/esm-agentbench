@@ -1,39 +1,26 @@
-# Verified Kernel Build Guide
+# Building kernel_verified.so (UELAT)
 
-This directory contains the Coq sources used to extract and compile the verified
-kernel (`kernel_verified.so`). The build is sensitive to the exact Coq/OCaml
-toolchain, so use the pinned versions below.
+Requirements:
+- Ubuntu 22.04 (or similar)
+- opam, coq 8.18.1, ocaml >= 4.14.0
 
-## Pinned toolchain
+Recommended reproducible flow (use dev-tools/Dockerfile.kernel):
 
-The verified kernel is built with:
-
-- **OCaml**: 4.14.0
-- **Coq**: 8.18.1
-- **opam**: 2.x (use the pinned switch `esm-kernel`)
-
-The opam dependencies are captured in [`UELAT/opam`](opam).
-
-## Build with opam (local)
-
-```bash
-opam init --bare --disable-sandboxing
-opam switch create esm-kernel 4.14.0 || opam switch set esm-kernel
-eval "$(opam env)"
-opam install -y coq.8.18.1 ocamlfind dune
-./build_kernel.sh
+```
+docker build -t esm-kernel-builder -f dev-tools/Dockerfile.kernel .
+docker run --rm -v $(pwd):/work esm-kernel-builder
 ```
 
-The build script writes `UELAT/kernel_verified.so` when successful.
+This will run ./build_kernel.sh in /work and produce UELAT/kernel_verified.so on success.
 
-## Build with Docker
+If building locally without Docker:
+1. sudo apt install opam coq ocaml ocaml-native-compilers ocamlfind build-essential m4
+2. opam init --bare --disable-sandboxing
+3. opam switch create esm-kernel 4.14.0
+4. eval $(opam env)
+5. opam install coq.8.18.1 dune ocamlfind
+6. ./build_kernel.sh
 
-We provide a pinned Docker environment under `dev-tools/Dockerfile.kernel`:
+Note: If kernel_verified.so is included in the repo or artifact, CI will prefer it over building from source.
 
-```bash
-docker build -f dev-tools/Dockerfile.kernel -t esm-kernel:toolchain .
-docker run --rm -it -v "$PWD":/workspace esm-kernel:toolchain \
-  bash -lc "cd /workspace && ./build_kernel.sh"
-```
-
-This produces `UELAT/kernel_verified.so` in the repository checkout.
+Note: pyproject.toml is the canonical package metadata; requirements.txt is kept for convenience installs.

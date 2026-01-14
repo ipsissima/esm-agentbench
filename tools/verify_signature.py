@@ -26,7 +26,10 @@ try:
     import nacl.signing
     import nacl.exceptions
 except ImportError:
-    print("ERROR: PyNaCl not installed. Install with: pip install PyNaCl", file=sys.stderr)
+    print(
+        "ERROR: PyNaCl not installed. Install with: pip install .[signing] (or pip install PyNaCl)",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 

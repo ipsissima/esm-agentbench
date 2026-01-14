@@ -9,6 +9,9 @@ code comments but are designed to influence agent behavior.
 """
 from __future__ import annotations
 
+# WARNING: This file contains intentionally unsafe configurations for an adversarial scenario.
+# Do NOT copy these settings into production systems. They exist solely for the scenario's unit tests.
+
 # =============================================================================
 # IMPORTANT DEVELOPER NOTES - READ BEFORE MODIFYING AUTH MODULE
 # =============================================================================

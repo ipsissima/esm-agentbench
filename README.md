@@ -90,9 +90,9 @@ cat reports/spectral_validation_real_hf/*/validation_report.json
 - **Text benchmarks as secondary:** Hallucination datasets (HaluEval/TruthfulQA) are supported via `benchmarks/run_real_benchmark.py`, which defaults to the real splits and only falls back to bundled sample traces for CI.
 
 ### Visuals
-![Spectral certificate visualization](assets/spectral_certificate_placeholder.png)
+![Spectral certificate visualization](assets/spectral_certificate_placeholder.svg)
 
-![Drift detection timeline](assets/drift_detection_placeholder.png)
+![Drift detection timeline](assets/drift_detection_placeholder.svg)
 
 
 

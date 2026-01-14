@@ -25,6 +25,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
+# pyproject.toml is canonical; requirements.txt is for convenience installs.
 dependencies = [
     "huggingface-hub==0.16.4",
     "sentence-transformers==2.3.1",
@@ -47,7 +48,7 @@ dependencies = [
     "nbconvert==7.11.0",
     "transformers==4.35.2",
     "accelerate==0.25.0",
-    "torch==2.1.1",
+    "torch>=2.2.0,<3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -64,6 +65,9 @@ quantization = [
 ]
 inference = [
     "vllm==0.2.7",
+]
+signing = [
+    "PyNaCl==1.5.0",
 ]
 
 [project.urls]

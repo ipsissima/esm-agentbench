@@ -1,22 +1,18 @@
+# dev-tools/Dockerfile.kernel
 FROM ubuntu:22.04
-
 ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential curl wget git ca-certificates m4 bubblewrap \
+    ocaml ocaml-native-compilers opam coq \
+    python3 python3-venv python3-pip unzip \
+  && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y \
-    curl \
-    m4 \
-    bubblewrap \
-    unzip \
-    wget \
-    build-essential \
-    opam \
-    ocaml-native-compilers \
-    ocaml-findlib \
-    && rm -rf /var/lib/apt/lists/*
+RUN opam init --bare --disable-sandboxing || true
+RUN opam switch create esm-kernel 4.14.0 || opam switch set esm-kernel
+ENV OPAMSWITCH=esm-kernel
+RUN eval $(opam env) && opam install -y coq.8.18.1 dune ocamlfind
 
-RUN opam init --bare --disable-sandboxing && \
-    opam switch create esm-kernel 4.14.0 && \
-    eval "$(opam env)" && \
-    opam install -y coq.8.18.1 ocamlfind dune
-
-WORKDIR /workspace
+WORKDIR /work
+COPY UELAT /work/UELAT
+COPY build_kernel.sh /work/build_kernel.sh
+CMD ["/bin/bash", "/work/build_kernel.sh"]

@@ -13,7 +13,8 @@
 #   OCAMLOPT   - OCaml optimizing compiler (default: ocamlopt)
 ##############################################################################
 
-set -e
+set -euo pipefail
+set -x
 
 # Configuration
 UELAT_DIR="$(dirname "$0")/UELAT"
@@ -24,6 +25,17 @@ KERNEL_OUTPUT="${UELAT_DIR}/kernel_verified.so"
 COQC="${COQC:-coqc}"
 OCAMLOPT="${OCAMLOPT:-ocamlopt}"
 OCAMLFIND="${OCAMLFIND:-ocamlfind}"
+
+print_diagnostics() {
+    echo "=== kernel build diagnostics ==="
+    "${COQC}" --version || true
+    "${OCAMLOPT}" -version || true
+    if command -v opam >/dev/null 2>&1; then
+        opam list --installed || true
+    fi
+}
+
+trap 'print_diagnostics' ERR
 
 # Check if running in clean mode
 if [ "$1" = "clean" ]; then
