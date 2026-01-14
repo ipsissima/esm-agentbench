@@ -8,6 +8,12 @@ on:
       - main
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      RUN_TUNING:
+        description: "Run nested CV tuning pipeline"
+        required: false
+        default: "false"
 
 env:
   SPECTRAL_MIN_AUC: "0.90"
@@ -61,6 +67,13 @@ jobs:
               print("ERROR: tools not importable:", e, file=sys.stderr)
               raise
           PY
+
+      - name: Run tuning pipeline (manual only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.RUN_TUNING == 'true' }}
+        run: |
+          . .venv/bin/activate
+          python tools/tune_metric.py --features-csv reports/features_dev.csv --groups-col scenario --label-col label --fpr-target 0.05 --seed 0
+          python tools/eval_holdout.py --model reports/best_model.pkl --features-csv reports/features_holdout.csv --fpr-target 0.05 --n-boot 1000 --seed 0
 
       - name: Sanity check: ensure real traces exist (Phase1 mode)
         run: |

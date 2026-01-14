@@ -148,6 +148,18 @@ jobs:
       env:
         VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
+    - name: Run spectral validation with augmented classifier
+      run: |
+        . .venv/bin/activate
+        export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
+        traces_dir="submissions/ipsissima"
+        if [ ! -d "$traces_dir" ]; then
+          traces_dir="experiment_traces"
+        fi
+        python analysis/run_experiment.py --all-scenarios --traces-dir "$traces_dir" --use-augmented-classifier --fpr-target 0.05
+      env:
+        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
+
     - name: Run repository validation demo
       run: |
         . .venv/bin/activate
