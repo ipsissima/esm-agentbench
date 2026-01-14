@@ -188,20 +188,64 @@ def compute_trace_features(
     cert = compute_certificate(processed, r=k, kernel_strict=kernel_strict)
 
     trim_prop = normalization.trim_proportion if normalization else 0.0
+
+    # core scalar values (safe casts)
+    theoretical_bound = float(stats.get("theoretical_bound", np.nan))
+    residual = float(stats.get("residual", np.nan))
+    pca_explained = float(stats.get("pca_explained", np.nan))
+    tail_energy = float(stats.get("tail_energy", np.nan))
+    sigma_max = float(stats.get("sigma_max", np.nan))
+    singular_gap = float(stats.get("singular_gap", np.nan))
+    length_T = float(stats.get("length_T", processed.shape[0]))
+
+    # certificate r_eff may be NaN
+    r_eff_value = cert.get("r_eff", np.nan)
+    try:
+        r_eff = float(r_eff_value) if r_eff_value is not None else np.nan
+    except Exception:
+        r_eff = np.nan
+
+    # Derived normalizations (robust to zeros/NaN)
+    T = max(int(processed.shape[0]), 1)
+    sqrt_T = float(np.sqrt(T))
+
+    # residual normalized by sqrt(T)
+    if np.isnan(residual):
+        residual_norm = float(np.nan)
+    else:
+        residual_norm = float(residual / sqrt_T)
+
+    # residual normalized by Frobenius norm of X
+    fro = float(np.linalg.norm(processed))
+    if fro < 1e-12:
+        residual_fro_norm = float(np.nan)
+    else:
+        residual_fro_norm = float(residual / fro) if not np.isnan(residual) else float(np.nan)
+
+    # theoretical bound normalized by sqrt(r_eff) (fallback safe)
+    if np.isnan(theoretical_bound) or (np.isnan(r_eff) or r_eff <= 0.0):
+        theoretical_bound_norm = float(np.nan)
+    else:
+        theoretical_bound_norm = float(theoretical_bound / np.sqrt(max(1.0, r_eff)))
+
     return {
-        "theoretical_bound": float(stats.get("theoretical_bound", np.nan)),
-        "residual": float(stats.get("residual", np.nan)),
+        "theoretical_bound": theoretical_bound,
+        "residual": residual,
         "koopman_residual": float(stats.get("koopman_residual", np.nan)),
-        "pca_explained": float(stats.get("pca_explained", np.nan)),
-        "tail_energy": float(stats.get("tail_energy", np.nan)),
-        "sigma_max": float(stats.get("sigma_max", np.nan)),
-        "singular_gap": float(stats.get("singular_gap", np.nan)),
-        "length_T": float(stats.get("length_T", processed.shape[0])),
-        "r_eff": float(cert.get("r_eff", np.nan)),
+        "pca_explained": pca_explained,
+        "tail_energy": tail_energy,
+        "sigma_max": sigma_max,
+        "singular_gap": singular_gap,
+        "length_T": length_T,
+        "r_eff": r_eff,
         "insample_residual": float(cert.get("insample_residual", np.nan)),
         "oos_residual": float(cert.get("oos_residual", np.nan)),
         "embed_norm": compute_embed_norm(processed, trim_proportion=trim_prop),
         "semantic_drift": compute_semantic_drift(processed, trim_proportion=trim_prop),
+        # NEW normalized features
+        "residual_norm": residual_norm,
+        "residual_fro_norm": residual_fro_norm,
+        "theoretical_bound_norm": theoretical_bound_norm,
     }
 
 
