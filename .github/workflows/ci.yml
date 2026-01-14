@@ -72,13 +72,23 @@ jobs:
       - name: Install build tools for verified kernel
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake python3-dev opam
-          # Initialize opam and install Coq + OCaml
-          opam init --bare --disable-sandboxing -y
+          sudo apt-get install -y build-essential cmake python3-dev opam curl m4 git bubblewrap wget unzip ca-certificates
+          # Initialize opam and install pinned Coq + OCaml toolchain
+          opam init --bare --disable-sandboxing -y || true
           eval $(opam env)
-          opam switch create 4.14.1 || opam switch 4.14.1
+          if ! opam switch list --short | grep -q "^esm-kernel$"; then
+            opam switch create esm-kernel 4.14.0 || true
+          else
+            opam switch set esm-kernel || true
+          fi
           eval $(opam env)
-          opam install -y coq ocamlfind
+          opam update
+          opam install -y coq.8.18.1 dune ocamlfind
+          eval $(opam env)
+          echo "=== Versions ==="
+          coqc --version || true
+          ocamlopt -version || true
+          opam --version || true
         continue-on-error: true
 
       - name: Build verified kernel
