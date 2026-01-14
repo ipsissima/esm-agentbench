@@ -159,9 +159,9 @@ mkdir -p "$BUILD_DIR"
 for vf in "${VFILES[@]}"; do
   if [ -f "$vf" ]; then
     echo "[kernel] Compiling ${vf} ..."
-    # Compile with logical mapping: -Q . UELAT maps the current folder to module namespace UELAT.
+    # Compile with logical mapping: -Q . "" maps the current folder to the empty module namespace.
     # Use tee to save logs for diagnostics.
-    if ! ${COQC} -Q . UELAT "$vf" 2>&1 | tee "${BUILD_DIR}/coq_${vf}.log"; then
+    if ! ${COQC} -Q . "" "$vf" 2>&1 | tee "${BUILD_DIR}/coq_${vf}.log"; then
       echo "[kernel] ERROR: coqc failed on ${vf}. See ${BUILD_DIR}/coq_${vf}.log"
       popd > /dev/null
       exit 1
@@ -184,7 +184,7 @@ done
 if [ -f "Extraction.v" ]; then
   echo "[kernel] Running extraction (Extraction.v) if kernel_verified.ml missing..."
   if [ ! -f "kernel_verified.ml" ]; then
-    if ! ${COQC} -Q . UELAT Extraction.v 2>&1 | tee "${BUILD_DIR}/coq_Extraction.v.log"; then
+  if ! ${COQC} -Q . "" Extraction.v 2>&1 | tee "${BUILD_DIR}/coq_Extraction.v.log"; then
       echo "[kernel] ERROR: Extraction failed. See ${BUILD_DIR}/coq_Extraction.v.log"
       popd > /dev/null
       exit 1
