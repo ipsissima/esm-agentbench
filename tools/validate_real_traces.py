@@ -33,7 +33,7 @@ import sys
 import os
 import importlib.util
 from pathlib import Path
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Union
 
 import numpy as np
 from scipy import stats
@@ -127,6 +127,29 @@ def load_trace_with_meta(path: Path) -> Tuple[List[Dict[str, Any]], Dict[str, An
             return [], meta
         return trace if isinstance(trace, list) else [], meta
     return [], {}
+
+
+def load_trace(path: Union[str, Path]) -> List[Dict[str, Any]]:
+    """
+    Backwards-compatible loader that returns only the trace (list of steps).
+
+    Historically tests and other modules imported `load_trace` from this
+    module and expected a plain list-of-step dictionaries. During a
+    refactor the richer `load_trace_with_meta` (which returns (trace, meta))
+    was introduced and `load_trace` was removed.
+
+    Keep this small wrapper to preserve the public API expected by tests:
+        load_trace(path) -> trace (List[Dict[str, Any]])
+
+    Accepts either a `str` or `pathlib.Path` for convenience.
+    """
+    # normalize path
+    p = Path(path) if not isinstance(path, Path) else path
+    trace, _meta = load_trace_with_meta(p)
+    # ensure it's a list
+    if trace is None:
+        return []
+    return trace
 
 
 def _extract_prompt_text(trace: List[Dict[str, Any]], meta: Dict[str, Any] | None) -> str | None:
