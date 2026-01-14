@@ -59,25 +59,29 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
           python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
           python -m pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2"
-          pip install --no-cache-dir -r requirements.txt --no-deps
+          python -m pip install --no-cache-dir -r requirements.txt --no-deps
+          python -m pip install -e .
 
-          # Install minimal transformers (CPU-only for CI)
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install transformers accelerate
-          # Install the project so 'tools' is importable
-          pip install -e .
+      - name: Verify tools and python
+        run: |
+          . .venv/bin/activate
+          python -c "import sys, importlib; importlib.invalidate_caches(); import tools; print('tools at', tools.__file__)"
 
       - name: Verify installation
         run: |
+          . .venv/bin/activate
           python -c "import transformers; print('transformers:', transformers.__version__)"
           python -c "import sentence_transformers; print('sentence-transformers OK')"
           python -c "import torch; print('torch:', torch.__version__)"
 
       - name: Test agent loop with tiny model
         run: |
+          . .venv/bin/activate
           # Test the agent loop module standalone
           cd tools/real_agents_hf
           python -c "
@@ -89,6 +93,7 @@ jobs:
 
       - name: Run pipeline test (1 scenario, 2 runs, tiny model)
         run: |
+          . .venv/bin/activate
           # Use workflow input or default
           SCENARIO="${{ github.event.inputs.scenario || 'supply_chain_poisoning' }}"
           N_RUNS="${{ github.event.inputs.n_runs || '2' }}"
@@ -125,6 +130,7 @@ jobs:
 
       - name: Run spectral validation
         run: |
+          . .venv/bin/activate
           SCENARIO="${{ github.event.inputs.scenario || 'supply_chain_poisoning' }}"
 
           python analysis/run_real_hf_experiment.py \
@@ -134,6 +140,7 @@ jobs:
 
       - name: Verify reports generated
         run: |
+          . .venv/bin/activate
           SCENARIO="${{ github.event.inputs.scenario || 'supply_chain_poisoning' }}"
 
           REPORT="reports/spectral_validation_real_hf/$SCENARIO/validation_report.json"

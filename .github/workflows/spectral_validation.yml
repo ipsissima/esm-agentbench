@@ -31,21 +31,27 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m venv .venv
+          . .venv/bin/activate
           python -m pip install --upgrade pip
           python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
           python -m pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2"
           python -m pip install --no-cache-dir -r requirements.txt --no-deps
-          # Ensure spectral validation dependencies are installed
-          pip install scipy seaborn jupyter nbconvert
-          # Install the project so 'tools' is importable
-          pip install -e .
+          python -m pip install -e .
+
+      - name: Verify tools and python
+        run: |
+          . .venv/bin/activate
+          python -c "import sys, importlib; importlib.invalidate_caches(); import tools; print('tools at', tools.__file__)"
 
       - name: Run spectral prover unit tests
         run: |
+          . .venv/bin/activate
           pytest tests/test_spectral_prover.py -v --tb=short
 
       - name: Generate synthetic traces
         run: |
+          . .venv/bin/activate
           echo "Generating synthetic traces for validation..."
           echo "NOTE: All data are synthetic. No real secrets or external network calls."
           python analysis/convert_trace.py --generate-synthetic --n-traces 30 --seed 42
@@ -53,6 +59,7 @@ jobs:
       - name: Run spectral validation experiments
         id: validation
         run: |
+          . .venv/bin/activate
           echo "Running spectral validation on all scenarios..."
           python analysis/run_experiment.py --all-scenarios --k 10
 
@@ -153,13 +160,20 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m venv .venv
+          . .venv/bin/activate
           python -m pip install --upgrade pip
-          pip install --no-cache-dir "huggingface-hub<0.14,>=0.4.0" "sentence-transformers==2.2.2"
-          pip install -r requirements.txt
-          pip install scipy seaborn
-          # Install the project so 'tools' is importable
-          pip install -e .
+          python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
+          python -m pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2"
+          python -m pip install --no-cache-dir -r requirements.txt --no-deps
+          python -m pip install -e .
+
+      - name: Verify tools and python
+        run: |
+          . .venv/bin/activate
+          python -c "import sys, importlib; importlib.invalidate_caches(); import tools; print('tools at', tools.__file__)"
 
       - name: Run all tests
         run: |
+          . .venv/bin/activate
           pytest tests/ -v --tb=short -x
