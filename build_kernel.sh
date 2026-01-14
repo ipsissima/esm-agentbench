@@ -15,17 +15,22 @@ cd "$ROOT_DIR"
 # VERIFIED_KERNEL_PATH (absolute or relative) will be used if set and exists.
 : "${VERIFIED_KERNEL_PATH:=}"
 
+# Initialize UELAT_DIR from environment if provided (do not clobber an export)
+UELAT_DIR="${UELAT_DIR:-}"
+
 # Multi-strategy discovery for UELAT_DIR:
 # 1) If env UELAT_DIR is provided and points to a directory, use it.
 # 2) If $ROOT_DIR/UELAT exists, use that.
 # 3) If VERIFIED_KERNEL_PATH points to a .so, prefer using that (skip source build).
 # 4) Otherwise, try to find a UELAT directory in repo with 'find'.
-UELAT_DIR=""
-
-# Strategy 1: explicitly provided
+# Strategy 1: explicitly provided by environment
 if [ -n "${UELAT_DIR:-}" ]; then
-  # no-op; allow env override if set (the variable name is reused below)
-  true
+  if [ -d "${UELAT_DIR}" ]; then
+    echo "[kernel] Using UELAT_DIR from environment: ${UELAT_DIR}"
+  else
+    echo "[kernel] WARNING: UELAT_DIR environment variable set but path does not exist: ${UELAT_DIR}"
+    UELAT_DIR=""
+  fi
 fi
 
 # Strategy 2: conventional path
@@ -33,11 +38,10 @@ if [ -z "$UELAT_DIR" ] && [ -d "${ROOT_DIR}/UELAT" ]; then
   UELAT_DIR="${ROOT_DIR}/UELAT"
 fi
 
-# Strategy 3: VERIFIED_KERNEL_PATH
+# Strategy 3: if a prebuilt kernel is supplied, prefer it (skip building sources)
 if [ -n "${VERIFIED_KERNEL_PATH:-}" ] && [ -f "${VERIFIED_KERNEL_PATH}" ]; then
   echo "[kernel] VERIFIED_KERNEL_PATH provided and file exists: ${VERIFIED_KERNEL_PATH}"
   echo "[kernel] Using prebuilt kernel; skipping UELAT source build."
-  # We still set UELAT_DIR to empty to signal we will not build sources.
   UELAT_DIR=""
 fi
 
