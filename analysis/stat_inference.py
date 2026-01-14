@@ -8,8 +8,8 @@ from sklearn.metrics import roc_auc_score
 from sklearn.utils import resample
 
 
-def _rng_from_seed(seed: int) -> np.random.Generator:
-    """Create a deterministic numpy RNG without using default_rng in analysis/."""
+def get_rng(seed: int = 0) -> np.random.Generator:
+    """Return a new numpy random Generator with a well-defined seed."""
     return np.random.Generator(np.random.PCG64(seed))
 
 
@@ -22,7 +22,7 @@ def bootstrap_auc(
     if y_true_arr.size == 0 or y_true_arr.size != y_score_arr.size:
         return (float("nan"), float("nan"))
 
-    rng = _rng_from_seed(0)
+    rng = get_rng(0)
     boot_scores = []
     indices = np.arange(y_true_arr.size)
     for _ in range(n_boot):
@@ -49,7 +49,7 @@ def permutation_test_score(
     if a.size == 0 or b.size == 0:
         return float("nan")
 
-    rng = _rng_from_seed(0)
+    rng = get_rng(0)
     observed = float(np.mean(a) - np.mean(b))
     combined = np.concatenate([a, b])
     n_a = a.size
