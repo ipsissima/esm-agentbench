@@ -27,9 +27,11 @@ warnings.filterwarnings(
     category=FutureWarning,
 )
 
+import argparse
 import json
 import sys
 import os
+import importlib.util
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
 
@@ -40,9 +42,17 @@ from scipy import stats
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.feature_utils import NormalizationConfig, compute_trace_features
+from tools.bootstrap_calibration import bootstrap_null_threshold
 
 # Track which embedding method is used
 _embedding_method = "unknown"
+
+HAS_MATPLOTLIB = importlib.util.find_spec("matplotlib") is not None
+if HAS_MATPLOTLIB:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
 
 
 def _check_embedding_availability() -> str:
@@ -99,14 +109,23 @@ def embed_trace_steps_with_check(trace: List[Dict[str, Any]]) -> Tuple[np.ndarra
 
 def load_trace_with_meta(path: Path) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Load a trace from JSON file, returning (trace, metadata)."""
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     if isinstance(data, list):
         return data, {}
     if isinstance(data, dict):
-        trace = data.get("trace", [])
-        metadata = dict(data)
-        return trace if isinstance(trace, list) else [], metadata
+        trace = data.get("trace")
+        if trace is None and isinstance(data.get("steps"), list):
+            trace = data.get("steps")
+        if trace is None and any(isinstance(v, list) for v in data.values()):
+            for value in data.values():
+                if isinstance(value, list):
+                    trace = value
+                    break
+        meta = dict(data)
+        if trace is None:
+            return [], meta
+        return trace if isinstance(trace, list) else [], meta
     return [], {}
 
 
@@ -127,12 +146,22 @@ def analyze_trace(
     trace: List[Dict[str, Any]],
     label: str,
     meta: Dict[str, Any] | None = None,
+    gamma: float = 0.3,
 ) -> Dict[str, Any]:
     """Analyze a single trace and compute certificate diagnostics."""
-    from assessor.kickoff import embed_trace_steps
+    from assessor.kickoff import _sentence_model, embed_trace_steps
     from scipy.spatial.distance import cosine
 
-    embeddings = embed_trace_steps(trace)
+    if trace is None or len(trace) == 0:
+        return {}
+
+    try:
+        embeddings = embed_trace_steps(trace)
+        if isinstance(embeddings, list):
+            embeddings = np.asarray(embeddings)
+    except Exception:
+        return {}
+
     norm_cfg = NormalizationConfig(
         l2_normalize_steps=True,
         zscore_per_trace=False,
@@ -146,29 +175,33 @@ def analyze_trace(
     residual_raw = float(features.get("residual", float("nan")))
     residual_norm = float(features.get("residual_norm", float("nan")))
     r_eff = float(features.get("r_eff", float("nan")))
+    r_rel = float(features.get("r_rel", float("nan")))
     pca_explained = float(features.get("pca_explained", float("nan")))
 
-    prompt_text = _extract_prompt_text(trace, meta)
+    tb_use = theoretical_bound_norm if not np.isnan(theoretical_bound_norm) else theoretical_bound_raw
     semantic_centroid_distance = float("nan")
-    adjusted_bound = theoretical_bound_norm if not np.isnan(theoretical_bound_norm) else theoretical_bound_raw
-    if prompt_text:
-        try:
-            prompt_step = {"type": "cot", "role": "agent", "text": prompt_text}
-            prompt_embedding = embed_trace_steps([prompt_step])
-            if prompt_embedding.shape[0] > 0:
-                centroid = np.mean(embeddings, axis=0)
-                task_vec = prompt_embedding[0]
-                if np.linalg.norm(centroid) > 1e-12 and np.linalg.norm(task_vec) > 1e-12:
-                    semantic_centroid_distance = float(cosine(centroid, task_vec))
-                    gamma = 0.3
-                    if not np.isnan(adjusted_bound):
-                        adjusted_bound = float(adjusted_bound - gamma * semantic_centroid_distance)
-        except Exception:
-            semantic_centroid_distance = float("nan")
+    adjusted_bound = float(tb_use) if tb_use is not None and not np.isnan(tb_use) else float("nan")
+
+    if meta:
+        for key in ("prompt", "task", "poison", "context", "instructions"):
+            if key in meta and isinstance(meta[key], str) and meta[key].strip():
+                prompt_text = meta[key].strip()
+                try:
+                    model = _sentence_model()
+                    task_vec = np.asarray(model.encode([prompt_text], convert_to_numpy=True))[0]
+                    centroid = np.mean(embeddings, axis=0)
+                    if np.linalg.norm(centroid) > 1e-12 and np.linalg.norm(task_vec) > 1e-12:
+                        semantic_centroid_distance = float(cosine(centroid, task_vec))
+                        if not np.isnan(adjusted_bound):
+                            adjusted_bound = float(adjusted_bound - gamma * semantic_centroid_distance)
+                except Exception:
+                    pass
+                break
 
     return {
         "label": label,
-        "n_steps": len(trace),
+        "category": label,
+        "n_steps": embeddings.shape[0],
         "theoretical_bound": theoretical_bound_raw,
         "theoretical_bound_norm": theoretical_bound_norm,
         "theoretical_bound_prompt_adj": adjusted_bound,
@@ -177,9 +210,12 @@ def analyze_trace(
         "oos_residual": float(features.get("oos_residual", float("nan"))),
         "insample_residual": float(features.get("insample_residual", float("nan"))),
         "r_eff": r_eff,
+        "r_rel": r_rel,
         "pca_explained": pca_explained,
         "pca_tail_estimate": float(features.get("tail_energy", float("nan"))),
         "semantic_centroid_distance": semantic_centroid_distance,
+        "sv_max_ratio": float(features.get("sv_max_ratio", float("nan"))),
+        "embeddings": embeddings,
         **features,
     }
 
@@ -212,7 +248,44 @@ def pick_score(result: Dict[str, Any]) -> float:
     return float(value) if value is not None else float("nan")
 
 
-def run_real_trace_validation(real_traces_dir: Path | None = None):
+def compute_Rnorm_for_embeddings(embeddings: np.ndarray) -> float:
+    """Compute R_norm using r0 for explained variance 0.9."""
+    if embeddings.size == 0:
+        return float("nan")
+    centered = embeddings - np.mean(embeddings, axis=0)
+    _, svals, _ = np.linalg.svd(centered, full_matrices=False)
+    energy = float(np.sum(svals**2))
+    if energy <= 0:
+        return float("nan")
+    cum = np.cumsum(svals**2) / energy
+    r0 = int(np.searchsorted(cum, 0.9) + 1)
+    tail = float(np.sum(svals[r0:] ** 2))
+    return float(np.sqrt(tail / energy))
+
+
+def bootstrap_rnorm_threshold(
+    embeddings_list: List[np.ndarray],
+    B: int = 500,
+    percentile: float = 95.0,
+) -> float | None:
+    if not embeddings_list:
+        return None
+    pooled_boot = bootstrap_null_threshold(embeddings_list, B=B, rows_resample=True, percentile=percentile)
+    rnorm_values = []
+    for boot_iter in pooled_boot:
+        for sample in boot_iter:
+            rnorm_values.append(compute_Rnorm_for_embeddings(np.asarray(sample)))
+    if not rnorm_values:
+        return None
+    return float(np.percentile(rnorm_values, percentile))
+
+
+def run_real_trace_validation(
+    real_traces_dir: Path | None = None,
+    gamma: float = 0.3,
+    use_prompt_adj: bool = False,
+    bootstrap_B: int = 500,
+):
     """Run validation on real traces."""
     print("=" * 80)
     print("REAL TRACE VALIDATION TEST")
@@ -234,6 +307,7 @@ def run_real_trace_validation(real_traces_dir: Path | None = None):
         "numeric_outlier": 0,
     }
     results_by_category = {"coherent": [], "creative": [], "drift": [], "poison": [], "starvation": []}
+    coherent_embeddings: List[np.ndarray] = []
 
     for trace_file in sorted(real_traces_dir.glob("*.json")):
         label = trace_file.stem
@@ -250,7 +324,9 @@ def run_real_trace_validation(real_traces_dir: Path | None = None):
             continue
         
         if trace:
-            result = analyze_trace(trace, label, meta=meta)
+            result = analyze_trace(trace, label, meta=meta, gamma=gamma)
+            if not use_prompt_adj:
+                result["theoretical_bound_prompt_adj"] = float("nan")
 
             # ====================================================
             # EXPERT HOTFIX: Robust sanity checks for numeric anomalies
@@ -309,6 +385,10 @@ def run_real_trace_validation(real_traces_dir: Path | None = None):
             results[label] = result
             category = categorize_trace(label)
             result["category"] = category
+            if category == "coherent":
+                embeddings = result.get("embeddings")
+                if isinstance(embeddings, np.ndarray) and embeddings.size > 0:
+                    coherent_embeddings.append(embeddings)
             score = pick_score(result)
             result["score"] = score
             if category in results_by_category:
@@ -383,19 +463,16 @@ def run_real_trace_validation(real_traces_dir: Path | None = None):
 
     # Starvation vs Coherent: use normalized effective rank
     print("\n  [Starvation vs Coherent: Rank Test]")
-    starvation_r_rel = []
-    coherent_r_rel = []
-    for res in results.values():
-        category = res.get("category")
-        n_steps = float(res.get("n_steps", 1))
-        r_eff = res.get("r_eff", np.nan)
-        if np.isnan(r_eff) or n_steps <= 0:
-            continue
-        rel = float(r_eff) / max(1.0, n_steps)
-        if category == "starvation":
-            starvation_r_rel.append(rel)
-        elif category == "coherent":
-            coherent_r_rel.append(rel)
+    starvation_r_rel = [
+        r["r_rel"]
+        for r in results.values()
+        if r.get("category") == "starvation" and not np.isnan(r.get("r_rel", np.nan))
+    ]
+    coherent_r_rel = [
+        r["r_rel"]
+        for r in results.values()
+        if r.get("category") == "coherent" and not np.isnan(r.get("r_rel", np.nan))
+    ]
     if starvation_r_rel and coherent_r_rel:
         print(f"  Starvation mean normalized rank: {np.mean(starvation_r_rel):.2f}")
         print(f"  Coherent mean normalized rank:   {np.mean(coherent_r_rel):.2f}")
@@ -407,6 +484,37 @@ def run_real_trace_validation(real_traces_dir: Path | None = None):
             discrimination_pass = False
     else:
         print("  ⚠ Need both starvation and coherent traces for rank test")
+
+    print("\n  [Drift Detection: R_norm Bootstrap Threshold]")
+    rnorm_threshold = bootstrap_rnorm_threshold(coherent_embeddings, B=bootstrap_B, percentile=95.0)
+    if rnorm_threshold is not None:
+        drift_rnorm = []
+        for res in results.values():
+            embeddings = res.get("embeddings")
+            if not isinstance(embeddings, np.ndarray):
+                continue
+            rnorm = compute_Rnorm_for_embeddings(embeddings)
+            res["r_norm"] = rnorm
+            if res.get("category") == "drift":
+                drift_rnorm.append(rnorm)
+        print(f"  Bootstrap R_norm threshold (95th percentile): {rnorm_threshold:.4f}")
+        if drift_rnorm:
+            drift_hits = sum(val > rnorm_threshold for val in drift_rnorm if not np.isnan(val))
+            print(f"  Drift traces above threshold: {drift_hits}/{len(drift_rnorm)}")
+    else:
+        print("  ⚠ Insufficient coherent traces to compute R_norm threshold")
+
+    print("\n  [Poison Detection: sv_max_ratio]")
+    poison_sv = [
+        res.get("sv_max_ratio", np.nan)
+        for res in results.values()
+        if res.get("category") == "poison"
+    ]
+    if poison_sv:
+        poison_hits = sum(val > 0.6 for val in poison_sv if not np.isnan(val))
+        print(f"  Poison traces above sv_max_ratio>0.6: {poison_hits}/{len(poison_sv)}")
+    else:
+        print("  ⚠ Need poison traces for sv_max_ratio detection")
 
     # Secondary test: All good vs All bad (but exclude starvation from all_bad; handle starvation separately)
     print("\n  [All Good vs All Bad (excluding starvation; starvation tested separately)]")
@@ -435,8 +543,90 @@ def run_real_trace_validation(real_traces_dir: Path | None = None):
     else:
         print("  ⚠ Need both good and bad (non-starvation) traces for this test")
 
+    reports_dir = Path(__file__).resolve().parent.parent / "reports"
+    plots_dir = reports_dir / "plots" / "real_trace_validation"
+    diagnostics_dir = reports_dir / "diagnostics"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    results_rows = []
+    for label, res in results.items():
+        row = {k: v for k, v in res.items() if k != "embeddings"}
+        row["trace_id"] = label
+        results_rows.append(row)
+
+    csv_path = diagnostics_dir / "real_trace_validation_results.csv"
+    if results_rows:
+        try:
+            import csv
+
+            with open(csv_path, "w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=sorted(results_rows[0].keys()))
+                writer.writeheader()
+                for row in results_rows:
+                    writer.writerow(row)
+            print(f"\n  Saved CSV report to {csv_path}")
+        except Exception as exc:
+            print(f"\n  ⚠ Failed to write CSV report: {exc}")
+
+    if HAS_MATPLOTLIB and results_rows:
+        try:
+            scatter_x = [row.get("theoretical_bound_prompt_adj", np.nan) for row in results_rows]
+            scatter_y = [row.get("r_rel", np.nan) for row in results_rows]
+            colors = [row.get("category", "unknown") for row in results_rows]
+            unique_colors = sorted(set(colors))
+            color_map = {name: idx for idx, name in enumerate(unique_colors)}
+            plt.figure(figsize=(7, 5))
+            plt.scatter(
+                scatter_x,
+                scatter_y,
+                c=[color_map[c] for c in colors],
+                cmap="tab10",
+                alpha=0.8,
+            )
+            plt.xlabel("theoretical_bound_prompt_adj")
+            plt.ylabel("r_rel")
+            plt.title("Prompt-adjusted Bound vs Relative Rank")
+            plt.tight_layout()
+            scatter_path = plots_dir / "bound_vs_r_rel.png"
+            plt.savefig(scatter_path, dpi=150)
+            plt.close()
+
+            plt.figure(figsize=(7, 5))
+            data = {}
+            for row in results_rows:
+                cat = row.get("category", "unknown")
+                data.setdefault(cat, []).append(row.get("r_rel", np.nan))
+            plt.boxplot([data[k] for k in data], labels=list(data.keys()))
+            plt.ylabel("r_rel")
+            plt.title("Relative Rank by Category")
+            plt.tight_layout()
+            boxplot_path = plots_dir / "r_rel_boxplot.png"
+            plt.savefig(boxplot_path, dpi=150)
+            plt.close()
+        except Exception as exc:
+            print(f"\n  ⚠ Failed to write plots: {exc}")
+
+    results_json_path = reports_dir / "real_trace_validation_results.json"
+    with open(results_json_path, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "skipped": excluded_trace_counts,
+                "counts": {k: len(v) for k, v in results_by_category.items()},
+                "diagnostics": results_rows,
+            },
+            handle,
+            indent=2,
+        )
+    print(f"\n  Saved JSON report to {results_json_path}")
+
+    results_cleaned = {
+        label: {k: v for k, v in res.items() if k != "embeddings"}
+        for label, res in results.items()
+    }
+
     return {
-        "results": results,
+        "results": results_cleaned,
         "results_by_category": results_by_category,
         "excluded_traces": excluded_traces,
         "excluded_trace_counts": excluded_trace_counts,
@@ -446,6 +636,13 @@ def run_real_trace_validation(real_traces_dir: Path | None = None):
 
 def main():
     """Main entry point."""
+    parser = argparse.ArgumentParser(description="Validate real traces against drift metrics.")
+    parser.add_argument("--use-prompt-adj", action="store_true", help="Use prompt-based adjustment.")
+    parser.add_argument("--gamma", type=float, default=0.3, help="Gamma shrinkage for prompt adjustment.")
+    parser.add_argument("--bootstrap-B", type=int, default=500, help="Bootstrap iterations for R_norm threshold.")
+    parser.add_argument("--real-traces-dir", type=Path, default=None)
+    args = parser.parse_args()
+
     print("\n" + "=" * 80)
     print("DRIFT DETECTION METRIC - REAL TRACE VALIDATION")
     print("=" * 80)
@@ -479,7 +676,12 @@ def main():
         print("  Results will reliably distinguish creativity from drift.")
 
     # Validate existing real traces
-    real_trace_results = run_real_trace_validation()
+    real_trace_results = run_real_trace_validation(
+        real_traces_dir=args.real_traces_dir,
+        gamma=args.gamma,
+        use_prompt_adj=args.use_prompt_adj,
+        bootstrap_B=args.bootstrap_B,
+    )
 
     # Save results
     output = {
