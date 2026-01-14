@@ -87,6 +87,18 @@ jobs:
             # ESM_SKIP_VERIFIED_KERNEL already set to 1 in job env
           fi
 
+      - name: Verify Python environment
+        run: |
+          echo "=== Current working directory ==="
+          pwd
+          echo ""
+          echo "=== Python sys.path ==="
+          python -c "import sys; print('\n'.join(sys.path))"
+          echo ""
+          echo "=== Verify tools package is importable ==="
+          python -c "import tools; print(f'tools package: {tools.__file__}')"
+          python -c "from tools.real_agents_hf.trace import RUN_GENERATOR; print('tools.real_agents_hf imports OK')"
+
       - name: Run Unit Tests
         run: pytest -q
 
