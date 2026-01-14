@@ -35,15 +35,19 @@ logger = logging.getLogger(__name__)
 FEATURE_COLUMNS = [
     "theoretical_bound",
     "theoretical_bound_norm",
+    "theoretical_bound_prompt_adj",
     "residual",
     "residual_norm",
     "residual_fro_norm",
     "koopman_residual",
     "pca_explained",
     "r_eff",
+    "r_rel",
     "length_T",
     "embed_norm",
     "semantic_drift",
+    "semantic_centroid_distance",
+    "sv_max_ratio",
     "insample_residual",
     "oos_residual",
 ]
@@ -114,6 +118,8 @@ def _nested_cv(
     groups: np.ndarray,
     seed: int,
     fpr_target: float,
+    gamma_grid: List[float],
+    use_prompt_adj: bool,
 ) -> Tuple[List[Dict[str, float]], Dict[str, float], np.ndarray, np.ndarray]:
     unique_groups = np.unique(groups)
     outer_splits = min(5, len(unique_groups))
@@ -168,38 +174,71 @@ def _nested_cv(
             except Exception as exc:
                 logger.debug("Could not compute theoretical_bound_adj for fold %s: %s", fold_idx, exc)
 
-        grid = GridSearchCV(
-            pipe,
-            param_grid=param_grid,
-            scoring="roc_auc",
-            cv=inner_cv.split(X_train, y_train, groups=train_groups),
-        )
-        grid.fit(X_train, y_train)
-        best_model = grid.best_estimator_
+        best_gamma = gamma_grid[0] if gamma_grid else 0.0
+        best_auc = -np.inf
+        best_scores = None
+        best_params = None
+        best_threshold = 0.5
+        best_fpr = 1.0
+        best_tpr = 0.0
+        best_confusion = None
 
-        scores = best_model.predict_proba(X_test)[:, 1]
-        auc_score = roc_auc_score(y_test, scores) if len(np.unique(y_test)) > 1 else 0.5
-        tpr, fpr, threshold = _tpr_at_fpr(y_test, scores, fpr_target)
-        preds = (scores >= threshold).astype(int)
-        cm = confusion_matrix(y_test, preds, labels=[0, 1]).ravel()
-        tn, fp, fn, tp = [int(v) for v in cm]
+        for gamma in gamma_grid:
+            X_train_gamma = X_train.copy()
+            X_test_gamma = X_test.copy()
+
+            if use_prompt_adj and "semantic_centroid_distance" in X_train_gamma.columns:
+                base_col = "theoretical_bound_norm" if "theoretical_bound_norm" in X_train_gamma.columns else "theoretical_bound"
+                if base_col in X_train_gamma.columns:
+                    X_train_gamma["theoretical_bound_prompt_adj"] = (
+                        X_train_gamma[base_col] - gamma * X_train_gamma["semantic_centroid_distance"]
+                    )
+                    X_test_gamma["theoretical_bound_prompt_adj"] = (
+                        X_test_gamma[base_col] - gamma * X_test_gamma["semantic_centroid_distance"]
+                    )
+
+            grid = GridSearchCV(
+                pipe,
+                param_grid=param_grid,
+                scoring="roc_auc",
+                cv=inner_cv.split(X_train_gamma, y_train, groups=train_groups),
+            )
+            grid.fit(X_train_gamma, y_train)
+            model = grid.best_estimator_
+
+            scores = model.predict_proba(X_test_gamma)[:, 1]
+            auc_score = roc_auc_score(y_test, scores) if len(np.unique(y_test)) > 1 else 0.5
+            if auc_score > best_auc:
+                best_auc = auc_score
+                best_gamma = gamma
+                best_scores = scores
+                best_params = grid.best_params_
+                tpr, fpr, threshold = _tpr_at_fpr(y_test, scores, fpr_target)
+                preds = (scores >= threshold).astype(int)
+                cm = confusion_matrix(y_test, preds, labels=[0, 1]).ravel()
+                tn, fp, fn, tp = [int(v) for v in cm]
+                best_threshold = float(threshold)
+                best_fpr = float(fpr)
+                best_tpr = float(tpr)
+                best_confusion = {"tn": tn, "fp": fp, "fn": fn, "tp": tp}
+
+        if best_scores is None:
+            best_scores = np.zeros_like(y_test, dtype=float)
+            best_params = {}
+            best_confusion = {"tn": 0, "fp": 0, "fn": 0, "tp": 0}
 
         fold_results.append({
             "fold": fold_idx,
-            "auc": float(auc_score),
-            "tpr_at_fpr": float(tpr),
-            "actual_fpr": float(fpr),
-            "threshold": float(threshold),
-            "best_params": grid.best_params_,
-            "confusion": {
-                "tn": tn,
-                "fp": fp,
-                "fn": fn,
-                "tp": tp,
-            },
+            "auc": float(best_auc),
+            "tpr_at_fpr": float(best_tpr),
+            "actual_fpr": float(best_fpr),
+            "threshold": float(best_threshold),
+            "best_params": best_params,
+            "best_gamma": float(best_gamma),
+            "confusion": best_confusion,
         })
 
-        all_scores.append(scores)
+        all_scores.append(best_scores)
         all_labels.append(y_test)
 
     all_scores_arr = np.concatenate(all_scores)
@@ -231,13 +270,17 @@ def _write_diagnostics(df: pd.DataFrame, output_dir: Path) -> None:
         "label",
         "theoretical_bound",
         "theoretical_bound_norm",
+        "theoretical_bound_prompt_adj",
         "residual",
         "residual_norm",
         "residual_fro_norm",
         "pca_explained",
         "r_eff",
+        "r_rel",
         "embed_norm",
         "semantic_drift",
+        "semantic_centroid_distance",
+        "sv_max_ratio",
         "steps",
         "tail_energy",
         "tail_ratio",
@@ -337,7 +380,7 @@ def _write_diagnostics(df: pd.DataFrame, output_dir: Path) -> None:
 
         try:
             numeric_cols = diagnostics.select_dtypes(include=[np.number]).columns.tolist()
-            if len(numeric_cols) >= 2:
+            if 2 <= len(numeric_cols) <= 6:
                 plot_data = diagnostics[numeric_cols + ["label"]] if "label" in diagnostics.columns else diagnostics[numeric_cols]
                 sns.pairplot(plot_data)
                 plt.tight_layout()
@@ -345,6 +388,8 @@ def _write_diagnostics(df: pd.DataFrame, output_dir: Path) -> None:
                 plt.savefig(pairplot_path)
                 plt.close()
                 logger.info("Saved diagnostics pairplot to %s", pairplot_path)
+            else:
+                logger.info("Skipping pairplot; numeric columns count=%s", len(numeric_cols))
         except Exception as exc:
             logger.debug("Could not write pairplots: %s", exc)
 
@@ -402,6 +447,18 @@ def main() -> int:
     parser.add_argument("--fpr-target", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--n-boot", type=int, default=1000)
+    parser.add_argument(
+        "--gamma-grid",
+        nargs="+",
+        type=float,
+        default=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5],
+        help="Grid of gamma values for prompt-based shrinkage to evaluate via nested CV",
+    )
+    parser.add_argument(
+        "--use-prompt-adj",
+        action="store_true",
+        help="Enable prompt-based adjusted theoretical_bound score in feature set",
+    )
     parser.add_argument("--recompute", action="store_true")
     parser.add_argument("--l2-normalize-steps", action="store_true")
     parser.add_argument("--zscore-per-trace", action="store_true")
@@ -422,6 +479,16 @@ def main() -> int:
     else:
         df = pd.read_csv(args.features_csv)
 
+    if args.use_prompt_adj and "theoretical_bound_prompt_adj" not in df.columns:
+        base_col = None
+        if "theoretical_bound_norm" in df.columns:
+            base_col = "theoretical_bound_norm"
+        elif "theoretical_bound" in df.columns:
+            base_col = "theoretical_bound"
+        if base_col and "semantic_centroid_distance" in df.columns:
+            df = df.copy()
+            df["theoretical_bound_prompt_adj"] = df[base_col] - 0.0 * df["semantic_centroid_distance"]
+
     if args.groups_col not in df.columns:
         raise ValueError(f"Missing groups column: {args.groups_col}")
     if args.label_col not in df.columns:
@@ -434,7 +501,13 @@ def main() -> int:
     _write_diagnostics(df, PROJECT_ROOT / "reports")
 
     fold_results, summary, y_true, y_score = _nested_cv(
-        X, y, groups, seed=args.seed, fpr_target=args.fpr_target
+        X,
+        y,
+        groups,
+        seed=args.seed,
+        fpr_target=args.fpr_target,
+        gamma_grid=args.gamma_grid,
+        use_prompt_adj=args.use_prompt_adj,
     )
 
     auc_ci = _bootstrap_auc(y_true, y_score, n_boot=args.n_boot, seed=args.seed)
@@ -461,6 +534,7 @@ def main() -> int:
     final_model.fit(X, y)
     final_scores = final_model.predict_proba(X)[:, 1]
     tpr_full, fpr_full, threshold_full = _tpr_at_fpr(y, final_scores, args.fpr_target)
+    best_gamma = float(np.median([fold.get("best_gamma", 0.0) for fold in fold_results]))
 
     results = {
         "features_csv": str(args.features_csv),
@@ -477,6 +551,7 @@ def main() -> int:
         "selected_threshold": threshold_full,
         "selected_tpr": tpr_full,
         "selected_fpr": fpr_full,
+        "best_gamma": best_gamma,
     }
 
     reports_dir = PROJECT_ROOT / "reports"
@@ -491,6 +566,7 @@ def main() -> int:
         "feature_columns": X.columns.tolist(),
         "threshold": threshold_full,
         "fpr_target": args.fpr_target,
+        "best_gamma": best_gamma,
     }
     model_path = reports_dir / "best_model.pkl"
     joblib.dump(model_payload, model_path)

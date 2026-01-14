@@ -228,6 +228,21 @@ def compute_trace_features(
     else:
         theoretical_bound_norm = float(theoretical_bound / np.sqrt(max(1.0, r_eff)))
 
+    # effective rank relative to length
+    r_rel = float(np.nan)
+    if not np.isnan(r_eff) and T > 0:
+        r_rel = float(r_eff / float(T))
+
+    # largest singular-value ratio for poison detection
+    sv_max_ratio = float(np.nan)
+    try:
+        svals = np.linalg.svd(processed, compute_uv=False)
+        total = float(np.sum(svals**2))
+        if total > 0:
+            sv_max_ratio = float((svals[0]**2) / total)
+    except Exception:
+        sv_max_ratio = float(np.nan)
+
     return {
         "theoretical_bound": theoretical_bound,
         "residual": residual,
@@ -238,6 +253,7 @@ def compute_trace_features(
         "singular_gap": singular_gap,
         "length_T": length_T,
         "r_eff": r_eff,
+        "r_rel": r_rel,
         "insample_residual": float(cert.get("insample_residual", np.nan)),
         "oos_residual": float(cert.get("oos_residual", np.nan)),
         "embed_norm": compute_embed_norm(processed, trim_proportion=trim_prop),
@@ -246,6 +262,7 @@ def compute_trace_features(
         "residual_norm": residual_norm,
         "residual_fro_norm": residual_fro_norm,
         "theoretical_bound_norm": theoretical_bound_norm,
+        "sv_max_ratio": sv_max_ratio,
     }
 
 
