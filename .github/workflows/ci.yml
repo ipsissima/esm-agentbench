@@ -92,12 +92,19 @@ jobs:
           echo "=== Current working directory ==="
           pwd
           echo ""
-          echo "=== Python sys.path ==="
-          python -c "import sys; print('\n'.join(sys.path))"
-          echo ""
-          echo "=== Verify tools package is importable ==="
-          python -c "import tools; print(f'tools package: {tools.__file__}')"
-          python -c "from tools.real_agents_hf.trace import RUN_GENERATOR; print('tools.real_agents_hf imports OK')"
+          echo "=== Verify tools package and Python sys.path ==="
+          python -c "
+import sys
+import tools
+from tools.real_agents_hf.trace import RUN_GENERATOR
+
+print('Python sys.path:')
+for p in sys.path:
+    print(f'  {p}')
+print()
+print(f'tools package: {tools.__file__}')
+print('tools.real_agents_hf imports OK')
+"
 
       - name: Run Unit Tests
         run: pytest -q
