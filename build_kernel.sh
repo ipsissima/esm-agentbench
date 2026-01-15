@@ -306,7 +306,7 @@ void ocaml_list_to_c_array(value ocaml_list, double* out_array) {
 
     *out_array = Double_val(ocaml_list);
 
-    CAMLreturn0();
+    CAMLreturn0;
 }
 
 /* Main kernel wrapper: compute residual and bound
@@ -326,7 +326,8 @@ void kernel_compute_certificate_wrapper(
     double* out_bound
 ) {
     CAMLparam0();
-    CAMLlocal5(ocaml_X0, ocaml_X1, ocaml_A, result, kernel_func);
+    CAMLlocal4(ocaml_X0, ocaml_X1, ocaml_A, result);
+    const value *kernel_func;
 
     kernel_init();
 
@@ -342,7 +343,7 @@ void kernel_compute_certificate_wrapper(
     }
 
     /* Call: kernel_compute_certificate(X0, X1, A, te, sd, lm) -> (residual, bound) */
-    result = caml_callbackN(kernel_func, 6,
+    result = caml_callbackN(*kernel_func, 6,
         (value[]){
             ocaml_X0,
             ocaml_X1,
@@ -356,7 +357,7 @@ void kernel_compute_certificate_wrapper(
     *out_residual = Double_val(Field(result, 0));
     *out_bound = Double_val(Field(result, 1));
 
-    CAMLreturn0();
+    CAMLreturn0;
 }
 
 /* Alternate entry points for modular calling */
@@ -378,7 +379,7 @@ void kernel_compute_residual_wrapper(
     /* Note: kernel_api_residual not exported yet, using full certificate */
     /* In production, export individual functions from CertificateCore.v */
 
-    CAMLreturn0();
+    CAMLreturn0;
 }
 WRAPPER_END
 
