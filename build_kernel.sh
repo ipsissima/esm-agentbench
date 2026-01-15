@@ -261,6 +261,18 @@ if ! ${OCAMLOPT} -c -I +unix -I "${BUILD_DIR}" kernel_verified.ml -o "${BUILD_DI
   exit 1
 fi
 
+# Compile kernel_main.ml which registers callbacks for caml_named_value
+echo "[kernel] Compiling kernel_main.ml (callback registration)..."
+if [ -f "kernel_main.ml" ]; then
+  if ! ${OCAMLOPT} -c -I +unix -I "${BUILD_DIR}" kernel_main.ml -o "${BUILD_DIR}/kernel_main.cmx"; then
+    echo "[kernel] ERROR: ocamlopt failed to compile kernel_main.ml"
+    popd > /dev/null
+    exit 1
+  fi
+else
+  echo "[kernel] WARNING: kernel_main.ml not found; callbacks will not be registered"
+fi
+
 # Create the C wrapper (same as your previous wrapper; keep behaviour identical).
 cat > "${BUILD_DIR}/kernel_stub.c" <<'WRAPPER_END'
 /* C wrapper for OCaml kernel functions
@@ -348,10 +360,11 @@ void kernel_compute_certificate_wrapper(
     ocaml_X1 = c_array_to_ocaml_matrix(X1_data, X1_rows, X1_cols);
     ocaml_A = c_array_to_ocaml_matrix(A_data, A_rows, A_cols);
 
-    /* Get reference to OCaml kernel_api_certificate function */
-    kernel_func = caml_named_value("kernel_api_certificate");
-    if (kernel_func == NULL) {
-        caml_failwith("kernel_api_certificate not found in OCaml");
+    /* Get reference to OCaml kernel_api_certificate function
+       caml_named_value returns const value*, not value! */
+    kernel_func_ptr = caml_named_value("kernel_api_certificate");
+    if (kernel_func_ptr == NULL) {
+        caml_failwith("kernel_api_certificate not found in OCaml - ensure kernel_main.ml is linked");
     }
 
     /* Call: kernel_compute_certificate(X0, X1, A, te, sd, lm) -> (residual, bound) */
