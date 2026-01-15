@@ -196,6 +196,12 @@ jobs:
               set -euo pipefail
               eval \$(opam env)
               export VERIFIED_KERNEL_PATH=/work/UELAT/kernel_verified.so
+              # Ensure OCaml runtime libraries are in LD_LIBRARY_PATH (backup for dynamic linking)
+              OCAML_STDLIB=\$(ocamlfind printconf stdlib 2>/dev/null || ocamlopt -where 2>/dev/null || echo '')
+              if [ -n \"\$OCAML_STDLIB\" ]; then
+                export LD_LIBRARY_PATH=\"\$OCAML_STDLIB:\${LD_LIBRARY_PATH:-}\"
+                echo \"Added OCaml stdlib to LD_LIBRARY_PATH: \$OCAML_STDLIB\"
+              fi
               # Install python3-venv (required for venv creation)
               apt-get update && apt-get install -y python3-venv python3-pip
               # Prepare Python venv inside container
