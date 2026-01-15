@@ -48,7 +48,8 @@ jobs:
             ls -la .kernel_out || true
             exit 1
           fi
-          sha256sum .kernel_out/kernel_verified.so > .kernel_out/kernel_verified.so.sha256
+          # Use relative path in checksum so it works after artifact download to UELAT/
+          (cd .kernel_out && sha256sum kernel_verified.so > kernel_verified.so.sha256)
           echo "Produced:"
           cat .kernel_out/kernel_verified.so.sha256
 
