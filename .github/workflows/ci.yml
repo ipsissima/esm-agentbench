@@ -57,7 +57,6 @@ jobs:
           if command -v python3 >/dev/null 2>&1 && [ -f tools/sign_index.py ]; then
             chmod +x .github/scripts/sign_artifact.sh || true
             .github/scripts/sign_artifact.sh
-          fi
           ls -la .kernel_out || true
         shell: bash
 
