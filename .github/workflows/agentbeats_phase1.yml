@@ -26,11 +26,16 @@ jobs:
     - name: Verify Coq image available
       run: docker pull coqorg/coq:8.18.0
 
-    - name: Build kernel inside Coq 8.18.0 image
+    - name: Build kernel image (dev-tools/Dockerfile.kernel)
       run: |
-        docker run --rm -u $(id -u):$(id -g) -v "${{ github.workspace }}":/work -w /work \
-          coqorg/coq:8.18.0 \
-        bash -lc "bash ./build_kernel.sh"
+        docker build -t esm-kernel-builder -f dev-tools/Dockerfile.kernel .
+
+    - name: Run builder container and extract artifact
+      run: |
+        docker run --name esm-kernel-temp --workdir /work esm-kernel-builder
+        docker cp esm-kernel-temp:/work/UELAT/kernel_verified.so UELAT/kernel_verified.so
+        docker cp esm-kernel-temp:/work/UELAT/kernel_verified.so.sha256 UELAT/kernel_verified.so.sha256
+        docker rm -v esm-kernel-temp
 
     - name: Verify created artifact and produce checksum
       run: |
