@@ -22,14 +22,11 @@ Require Import CertificateProofs.
 (** ** OCaml Code Generation Settings *)
 
 (** Use native OCaml floats (double precision) for R *)
-Notation float := PrimFloat.float.
+Definition float := PrimFloat.float.
 Extract Constant float => "float".
 
 (** Extract the kernel API functions *)
 Extraction Language OCaml.
-
-(** Set OCaml module name *)
-Extraction Module kernel_verified.
 
 (** ** Export the Verified Functions
 
@@ -44,7 +41,7 @@ Definition kernel_api_bound := compute_theoretical_bound.
 Definition kernel_api_certificate := kernel_compute_certificate.
 
 (** Extract to file 'kernel_verified.ml' *)
-Recursive Extraction
+Recursive Extraction "kernel_verified.ml"
   kernel_api_frobenius_norm
   kernel_api_residual
   kernel_api_bound
