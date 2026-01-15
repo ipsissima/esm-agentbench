@@ -18,7 +18,7 @@ Alternative: use the official Coq 8.18.1 image directly:
 ```
 docker run --rm -v $(pwd):/work -w /work \
   coqorg/coq:8.18.1 \
-  bash -lc "cd UELAT && chmod +x ./build_kernel.sh && ./build_kernel.sh"
+  bash -lc "chmod +x ./build_kernel.sh && ./build_kernel.sh"
 ```
 
 If building locally without Docker:
@@ -29,6 +29,8 @@ If building locally without Docker:
 5. opam install coq.8.18.1 dune ocamlfind
 6. ./build_kernel.sh
 
-Note: If kernel_verified.so is included in the repo or artifact, CI will prefer it over building from source.
+Note: If kernel_verified.so is included in the repo or artifact, CI will prefer it over building from source and verify it using the accompanying .sha256 checksum.
+
+Note: CI produces the verified-kernel artifact in the build_verified_kernel jobs (see RUNBOOK.md).
 
 Note: pyproject.toml is the canonical package metadata; requirements.txt is kept for convenience installs.
