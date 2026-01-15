@@ -300,25 +300,43 @@ void kernel_init(void) {
     }
 }
 
-/* Convert C double array to OCaml float list *)
-   Matrix represented as list of lists (rows) *)
+/* Convert C double array to OCaml float list (proper linked list structure).
+   OCaml lists are cons cells: [] is Val_emptylist, h::t is block(tag=0, h, t).
+   Matrix is list of lists (rows).
 */
+value c_array_to_ocaml_list(double* data, int len) {
+    CAMLparam0();
+    CAMLlocal2(result, cons);
+    int i;
+
+    /* Build list backwards: start with empty list, prepend elements */
+    result = Val_emptylist;
+    for (i = len - 1; i >= 0; i--) {
+        cons = caml_alloc(2, 0);  /* Cons cell: tag 0, 2 fields */
+        Store_field(cons, 0, caml_copy_double(data[i]));  /* head */
+        Store_field(cons, 1, result);  /* tail */
+        result = cons;
+    }
+
+    CAMLreturn(result);
+}
+
 value c_array_to_ocaml_matrix(double* data, int rows, int cols) {
     CAMLparam0();
-    CAMLlocal2(matrix_list, row_list);
-    int i, j;
+    CAMLlocal3(matrix_list, row_list, cons);
+    int i;
 
-    matrix_list = caml_alloc(rows, 0);  /* Allocate outer list (rows) */
+    /* Build list of rows backwards */
+    matrix_list = Val_emptylist;
+    for (i = rows - 1; i >= 0; i--) {
+        /* Create row list from this row's data */
+        row_list = c_array_to_ocaml_list(&data[i * cols], cols);
 
-    for (i = 0; i < rows; i++) {
-        row_list = caml_alloc(cols, 0);  /* Allocate row list */
-
-        for (j = 0; j < cols; j++) {
-            caml_initialize(&Field(row_list, j),
-                           caml_copy_double(data[i * cols + j]));
-        }
-
-        caml_initialize(&Field(matrix_list, i), row_list);
+        /* Prepend row to matrix list */
+        cons = caml_alloc(2, 0);
+        Store_field(cons, 0, row_list);
+        Store_field(cons, 1, matrix_list);
+        matrix_list = cons;
     }
 
     CAMLreturn(matrix_list);
