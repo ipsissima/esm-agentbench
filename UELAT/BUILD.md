@@ -13,11 +13,11 @@ docker run --rm -v $(pwd):/work esm-kernel-builder
 
 This will run ./build_kernel.sh in /work and produce UELAT/kernel_verified.so on success.
 
-Alternative: use the official Coq 8.18.1 image directly:
+Alternative: use the official Coq 8.18.0 image directly:
 
 ```
 docker run --rm -v $(pwd):/work -w /work \
-  coqorg/coq:8.18.1 \
+  coqorg/coq:8.18.0 \
   bash -lc "chmod +x ./build_kernel.sh && ./build_kernel.sh"
 ```
 
