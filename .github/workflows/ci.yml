@@ -30,7 +30,7 @@ jobs:
         run: |
           docker run --rm -v "${{ github.workspace }}":/work -w /work \
             coqorg/coq:8.18.0 \
-            bash -lc "chmod +x ./build_kernel.sh && ./build_kernel.sh"
+          bash -lc "bash ./build_kernel.sh"
 
       - name: Verify created artifact and produce checksum
         run: |
