@@ -196,6 +196,8 @@ jobs:
               set -euo pipefail
               eval \$(opam env)
               export VERIFIED_KERNEL_PATH=/work/UELAT/kernel_verified.so
+              # Install python3-venv (required for venv creation)
+              apt-get update && apt-get install -y python3-venv python3-pip
               # Prepare Python venv inside container
               python3 -m venv .venv-docker
               . .venv-docker/bin/activate
