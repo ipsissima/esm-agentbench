@@ -1,0 +1,16 @@
+ESM-AgentBench: Certified AI Reasoning via Spectral Certificates
+
+ESM-AgentBench introduces formally verified spectral certificates for detecting hallucination and reasoning drift in LLM coding agents. Unlike "LLM-as-a-judge" heuristics that are subjective and unbounded, our approach provides mathematically grounded guarantees based on Koopman operator theory and the Universal Embedding and Linear Approximation Theorem (UELAT).
+
+The system linearizes nonlinear reasoning trajectories, quantifies residuals between predicted and observed agent behavior, and exposes conservative theoretical bounds with Davis-Kahan stability guarantees. When the spectral bound inflates, drift is flagged; unstable spectra surface potential hallucinations.
+
+Key contributions for Phase-1:
+- Verified kernel built from Coq proofs through OCaml extraction to a shared library
+- 100% real agent traces from tool-using LLM agents (GPT-4o, GPT-3.5-turbo)
+- Six adversarial scenarios: code backdoor injection, supply chain poisoning, test oracle manipulation, code review bypass, credential leaks, and vulnerability injection during refactoring
+- Fully reproducible: judges can rebuild the kernel artifact and re-run validation with a single Docker command
+- Artifact-first CI pipeline with checksum verification and optional cryptographic signing
+
+All evidence derives from real SWE-bench-style executions where agents interact with files, run tests, and produce ground-truth traces. No synthetic data contaminates the evaluation path.
+
+Repository: https://github.com/ipsissima/esm-agentbench

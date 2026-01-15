@@ -50,7 +50,7 @@ demo_traces/
 
 # Transient validation output (regenerated each CI run)
 tools/real_trace_validation_results.json
-.well-known/
+# Note: .well-known/agent-card.json is tracked for Phase-1 submission
 
 # Scenario test artifacts (regenerated during test runs)
 scenarios/*/attack_out/
