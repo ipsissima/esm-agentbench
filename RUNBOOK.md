@@ -16,7 +16,7 @@ From the repository root:
 ```
 docker run --rm -v $(pwd):/work -w /work \
   coqorg/coq:8.18.0 \
-  bash -lc "chmod +x ./build_kernel.sh && ./build_kernel.sh"
+  bash -lc "bash ./build_kernel.sh"
 ```
 
 This produces `UELAT/kernel_verified.so` and you can generate a checksum with:
