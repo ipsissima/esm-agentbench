@@ -11,6 +11,7 @@
     - Preserve function signatures for C interoperability
 *)
 
+From Coq Require Import Floats.PrimFloat.
 Require Import Extraction.
 Require Import ExtrOcamlBasic.
 Require Import ExtrOcamlString.
@@ -21,6 +22,7 @@ Require Import CertificateProofs.
 (** ** OCaml Code Generation Settings *)
 
 (** Use native OCaml floats (double precision) for R *)
+Notation float := PrimFloat.float.
 Extract Constant float => "float".
 
 (** Extract the kernel API functions *)
