@@ -38,8 +38,9 @@ jobs:
           -v "${{ github.workspace }}/.kernel_out":/kernel_out \
           -w /work \
           -e OPAMROOT=/home/coq/.opam \
+          -e OPAMCONFIRMLEVEL=unsafe-yes \
           coqorg/coq:8.18.0 \
-          bash -c "eval \$(opam env) && KERNEL_OUTPUT=/kernel_out/kernel_verified.so bash ./build_kernel.sh"
+          bash -c "eval \$(opam env 2>/dev/null) && KERNEL_OUTPUT=/kernel_out/kernel_verified.so bash ./build_kernel.sh"
 
     - name: Verify created artifact and produce checksum
       run: |

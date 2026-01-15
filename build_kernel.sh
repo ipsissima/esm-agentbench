@@ -362,8 +362,8 @@ void kernel_compute_certificate_wrapper(
 
     /* Get reference to OCaml kernel_api_certificate function
        caml_named_value returns const value*, not value! */
-    kernel_func_ptr = caml_named_value("kernel_api_certificate");
-    if (kernel_func_ptr == NULL) {
+    kernel_func = caml_named_value("kernel_api_certificate");
+    if (kernel_func == NULL) {
         caml_failwith("kernel_api_certificate not found in OCaml - ensure kernel_main.ml is linked");
     }
 
