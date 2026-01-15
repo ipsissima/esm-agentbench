@@ -230,8 +230,16 @@ echo "[kernel] Step 2: Extracted kernel_verified.ml. Proceeding to OCaml compile
 
 # Prepare build dir and compile OCaml file to cmx
 mkdir -p "$BUILD_DIR"
+if [ -f "kernel_verified.mli" ]; then
+  echo "[kernel] Compiling kernel_verified.mli into ${BUILD_DIR}/kernel_verified.cmi"
+  if ! ${OCAMLOPT} -c kernel_verified.mli -o "${BUILD_DIR}/kernel_verified.cmi"; then
+    echo "[kernel] ERROR: ocamlopt failed to compile kernel_verified.mli"
+    popd > /dev/null
+    exit 1
+  fi
+fi
 echo "[kernel] Compiling kernel_verified.ml into ${BUILD_DIR}/kernel_verified.cmx"
-if ! ${OCAMLOPT} -c -I +unix kernel_verified.ml -o "${BUILD_DIR}/kernel_verified.cmx"; then
+if ! ${OCAMLOPT} -c -I "${BUILD_DIR}" -I +unix kernel_verified.ml -o "${BUILD_DIR}/kernel_verified.cmx"; then
   echo "[kernel] ERROR: ocamlopt failed to compile kernel_verified.ml"
   popd > /dev/null
   exit 1
