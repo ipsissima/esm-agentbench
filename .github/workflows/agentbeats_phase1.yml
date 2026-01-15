@@ -28,21 +28,18 @@ jobs:
 
     - name: Prepare workspace files & permissions
       run: |
-        mkdir -p UELAT/_build .kernel_out
-        chmod -R a+rwX UELAT .kernel_out || true
-        chmod +x ./build_kernel.sh || true
-        echo "Prepared UELAT and .kernel_out; listing:"
-        ls -la UELAT || true
-        stat -c '%a %U:%G %n' UELAT || true
+        mkdir -p .kernel_out
+        chmod -R a+rwX .kernel_out || true
 
     - name: Build kernel inside Coq 8.18.0 image
       run: |
         docker run --rm \
+          -u "$(id -u):$(id -g)" \
           -v "${{ github.workspace }}":/work \
           -v "${{ github.workspace }}/.kernel_out":/kernel_out \
           -w /work \
           coqorg/coq:8.18.0 \
-          bash -lc "KERNEL_OUTPUT=/kernel_out/kernel_verified.so bash ./build_kernel.sh"
+          bash -lc "chmod +x ./build_kernel.sh && KERNEL_OUTPUT=/kernel_out/kernel_verified.so ./build_kernel.sh"
 
     - name: Verify created artifact and produce checksum
       run: |
@@ -55,6 +52,26 @@ jobs:
         echo "Produced:"
         cat .kernel_out/kernel_verified.so.sha256
 
+    - name: (Optional) Sign artifact (if signing is desired)
+      run: |
+        if command -v python3 >/dev/null 2>&1 && [ -f tools/sign_index.py ]; then
+          python3 - <<'PY'
+import os,sys
+# generate ephemeral key only if none present
+if not os.path.exists("UELAT/private.key"):
+    try:
+        from nacl.signing import SigningKey
+        k = SigningKey.generate()
+        open("UELAT/private.key","wb").write(k.encode())
+        open("UELAT/public.key","wb").write(k.verify_key.encode())
+    except Exception as e:
+        print("PyNaCl not available, skipping signature generation", file=sys.stderr)
+        sys.exit(0)
+# sign sha file
+os.system("python3 tools/sign_index.py --index .kernel_out/kernel_verified.so.sha256 --key UELAT/private.key --out .kernel_out/kernel_verified.so.sha256.sig")
+PY
+        ls -la .kernel_out || true
+
     - name: Upload verified kernel artifact
       uses: actions/upload-artifact@v4
       with:
@@ -62,6 +79,7 @@ jobs:
         path: |
           .kernel_out/kernel_verified.so
           .kernel_out/kernel_verified.so.sha256
+          .kernel_out/kernel_verified.so.sha256.sig
         if-no-files-found: error
 
   validate-phase1:
@@ -83,23 +101,28 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: verified-kernel
-        path: .kernel_out
+        path: UELAT/
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Set VERIFIED_KERNEL_PATH
-      run: echo "VERIFIED_KERNEL_PATH=${{ github.workspace }}/.kernel_out/kernel_verified.so" >> "$GITHUB_ENV"
-
-    - name: Verify kernel checksum
+    - name: Set VERIFIED_KERNEL_PATH and verify checksum
       run: |
-        if [ -f "$VERIFIED_KERNEL_PATH" ]; then
-          echo "Using prebuilt kernel: $VERIFIED_KERNEL_PATH"
-          sha256sum -c .kernel_out/kernel_verified.so.sha256 || (echo "checksum mismatch" && exit 1)
+        if [ -f "${{ github.workspace }}/UELAT/kernel_verified.so" ]; then
+          echo "Using prebuilt kernel: UELAT/kernel_verified.so"
+          echo "VERIFIED_KERNEL_PATH=${{ github.workspace }}/UELAT/kernel_verified.so" >> $GITHUB_ENV
+          sha256sum -c UELAT/kernel_verified.so.sha256 || (echo "checksum mismatch" && exit 1)
+          # optional signature verification
+          if [ -f "UELAT/kernel_verified.so.sha256.sig" ] && [ -f "UELAT/public.key" ]; then
+            python3 -m pip install --no-cache-dir PyNaCl || true
+            python3 tools/verify_signature.py --index UELAT/kernel_verified.so.sha256 --sig UELAT/kernel_verified.so.sha256.sig --pubkey UELAT/public.key
+          fi
+          echo "ESM_SKIP_VERIFIED_KERNEL=0" >> $GITHUB_ENV
         else
           echo "No prebuilt kernel found; falling back to source build (not recommended for judge runs)."
+          echo "ESM_SKIP_VERIFIED_KERNEL=1" >> $GITHUB_ENV
         fi
 
     - name: Setup Python venv
@@ -134,7 +157,7 @@ jobs:
     - name: Verify kernel is available
       run: |
         . .venv/bin/activate
-        export VERIFIED_KERNEL_PATH="${PWD}/.kernel_out/kernel_verified.so"
+        export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
         ls -la "${VERIFIED_KERNEL_PATH}"
         # Test kernel loading
         python - <<'PY'
@@ -155,7 +178,7 @@ jobs:
             raise
         PY
       env:
-        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/.kernel_out/kernel_verified.so
+        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
     - name: Start green assessor (background)
       run: |
@@ -168,7 +191,7 @@ jobs:
     - name: Validate scenarios
       run: |
         . .venv/bin/activate
-        export VERIFIED_KERNEL_PATH="${PWD}/.kernel_out/kernel_verified.so"
+        export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
         echo "Validating Phase-1 scenarios with verified kernel..."
         for s in scenarios/*; do
           if [ -d "$s" ]; then
@@ -192,30 +215,30 @@ jobs:
         done
         echo "All scenarios validated successfully!"
       env:
-        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/.kernel_out/kernel_verified.so
+        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
     - name: Run Phase-1 submission tests
       run: |
         . .venv/bin/activate
-        export VERIFIED_KERNEL_PATH="${PWD}/.kernel_out/kernel_verified.so"
+        export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
         pytest tests/test_kernel_load.py -v
         pytest tests/test_signature_attestation.py -v
         pytest tests/test_harness_no_wildcard.py -v
         pytest tests/test_phase1_submission.py -v
       env:
-        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/.kernel_out/kernel_verified.so
+        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
     - name: Run spectral validation with augmented classifier
       run: |
         . .venv/bin/activate
-        export VERIFIED_KERNEL_PATH="${PWD}/.kernel_out/kernel_verified.so"
+        export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
         traces_dir="submissions/ipsissima"
         if [ ! -d "$traces_dir" ]; then
           traces_dir="experiment_traces"
         fi
         python analysis/run_experiment.py --all-scenarios --traces-dir "$traces_dir" --use-augmented-classifier --fpr-target 0.05
       env:
-        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/.kernel_out/kernel_verified.so
+        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
     - name: Run repository validation demo
       run: |
