@@ -33,7 +33,7 @@ jobs:
 
       - name: Build kernel inside Coq 8.18.0 image
         run: |
-          docker run --rm \
+          docker run --rm --user root \
             -v "${{ github.workspace }}":/work \
             -v "${{ github.workspace }}/.kernel_out":/kernel_out \
             -w /work \
