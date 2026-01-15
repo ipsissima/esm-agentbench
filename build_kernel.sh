@@ -249,6 +249,18 @@ if ! ${OCAMLOPT} -c -I +unix -I "${BUILD_DIR}" kernel_verified.ml -o "${BUILD_DI
   exit 1
 fi
 
+# Compile kernel_main.ml which registers callbacks for caml_named_value
+echo "[kernel] Compiling kernel_main.ml (callback registration)..."
+if [ -f "kernel_main.ml" ]; then
+  if ! ${OCAMLOPT} -c -I +unix -I "${BUILD_DIR}" kernel_main.ml -o "${BUILD_DIR}/kernel_main.cmx"; then
+    echo "[kernel] ERROR: ocamlopt failed to compile kernel_main.ml"
+    popd > /dev/null
+    exit 1
+  fi
+else
+  echo "[kernel] WARNING: kernel_main.ml not found; callbacks will not be registered"
+fi
+
 # Create the C wrapper (same as your previous wrapper; keep behaviour identical).
 cat > "${BUILD_DIR}/kernel_stub.c" <<'WRAPPER_END'
 /* C wrapper for OCaml kernel functions
@@ -326,7 +338,8 @@ void kernel_compute_certificate_wrapper(
     double* out_bound
 ) {
     CAMLparam0();
-    CAMLlocal5(ocaml_X0, ocaml_X1, ocaml_A, result, kernel_func);
+    CAMLlocal4(ocaml_X0, ocaml_X1, ocaml_A, result);
+    const value* kernel_func_ptr;
 
     kernel_init();
 
@@ -335,14 +348,16 @@ void kernel_compute_certificate_wrapper(
     ocaml_X1 = c_array_to_ocaml_matrix(X1_data, X1_rows, X1_cols);
     ocaml_A = c_array_to_ocaml_matrix(A_data, A_rows, A_cols);
 
-    /* Get reference to OCaml kernel_api_certificate function */
-    kernel_func = caml_named_value("kernel_api_certificate");
-    if (kernel_func == NULL) {
-        caml_failwith("kernel_api_certificate not found in OCaml");
+    /* Get reference to OCaml kernel_api_certificate function
+       caml_named_value returns const value*, not value! */
+    kernel_func_ptr = caml_named_value("kernel_api_certificate");
+    if (kernel_func_ptr == NULL) {
+        caml_failwith("kernel_api_certificate not found in OCaml - ensure kernel_main.ml is linked");
     }
 
-    /* Call: kernel_compute_certificate(X0, X1, A, te, sd, lm) -> (residual, bound) */
-    result = caml_callbackN(kernel_func, 6,
+    /* Call: kernel_compute_certificate(X0, X1, A, te, sd, lm) -> (residual, bound)
+       Note: We dereference kernel_func_ptr to get the actual value */
+    result = caml_callbackN(*kernel_func_ptr, 6,
         (value[]){
             ocaml_X0,
             ocaml_X1,
@@ -386,7 +401,13 @@ echo "[kernel] Created kernel_stub.c in ${BUILD_DIR}"
 
 # Step 3: Create object file with embedded OCaml runtime
 echo "[kernel] Creating object file with OCaml runtime..."
-if ! ${OCAMLOPT} -output-obj -I "${BUILD_DIR}" -o "${BUILD_DIR}/kernel_verified.o" "${BUILD_DIR}/kernel_verified.cmx"; then
+# Include kernel_main.cmx if it was compiled (for callback registration)
+OCAML_CMX_FILES="${BUILD_DIR}/kernel_verified.cmx"
+if [ -f "${BUILD_DIR}/kernel_main.cmx" ]; then
+  OCAML_CMX_FILES="${BUILD_DIR}/kernel_verified.cmx ${BUILD_DIR}/kernel_main.cmx"
+  echo "[kernel] Including kernel_main.cmx for callback registration"
+fi
+if ! ${OCAMLOPT} -output-obj -I "${BUILD_DIR}" -o "${BUILD_DIR}/kernel_verified.o" ${OCAML_CMX_FILES}; then
   echo "[kernel] ERROR: Failed to create object file with OCaml runtime"
   popd > /dev/null
   exit 1
