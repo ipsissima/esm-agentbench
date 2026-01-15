@@ -23,7 +23,7 @@ def test_sentinel_detection_skips(tmp_path, monkeypatch):
     _write_trace(sentinel_file)
     _write_trace(coherent_file)
 
-    def fake_analyze(trace, label):
+    def fake_analyze(trace, label, meta=None, gamma=None):
         if "sentinel" in label:
             return {
                 "label": label,
@@ -66,7 +66,7 @@ def test_starvation_rank_test_and_exclusion(tmp_path, monkeypatch, capsys):
     _write_trace(coherent_file)
     _write_trace(starvation_file)
 
-    def fake_analyze(trace, label):
+    def fake_analyze(trace, label, meta=None, gamma=None):
         return {
             "label": label,
             "n_steps": len(trace),
