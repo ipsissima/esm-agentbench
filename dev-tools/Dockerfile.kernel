@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN opam init --bare --disable-sandboxing || true
 RUN opam switch create esm-kernel 4.14.0 || opam switch set esm-kernel
 ENV OPAMSWITCH=esm-kernel
-RUN eval $(opam env) && opam install -y coq.8.18.1 dune ocamlfind
+RUN eval $(opam env) && opam install -y coq.8.18.0 dune ocamlfind
 
 WORKDIR /work
 COPY UELAT /work/UELAT
