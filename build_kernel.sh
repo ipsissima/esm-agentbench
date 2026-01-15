@@ -64,8 +64,12 @@ if [ -z "${UELAT_DIR:-}" ] && [ -n "${VERIFIED_KERNEL_PATH:-}" ] && [ -f "${VERI
   BUILD_FROM_SOURCES=0
 else
   BUILD_FROM_SOURCES=1
-  # set default values used later
-  KERNEL_OUTPUT="${UELAT_DIR:-./UELAT}/kernel_verified.so"
+  if [ -n "${KERNEL_OUTPUT:-}" ]; then
+    echo "[kernel] Using externally set KERNEL_OUTPUT=${KERNEL_OUTPUT}"
+  else
+    # set default values used later
+    KERNEL_OUTPUT="${UELAT_DIR:-./UELAT}/kernel_verified.so"
+  fi
 fi
 
 # If we intend to build from sources but UELAT_DIR is still missing, error with actionable guidance

@@ -8,17 +8,18 @@ Recommended reproducible flow (use dev-tools/Dockerfile.kernel):
 
 ```
 docker build -t esm-kernel-builder -f dev-tools/Dockerfile.kernel .
-docker run --rm -v $(pwd):/work esm-kernel-builder
+mkdir -p .kernel_out
+docker run --rm -v $(pwd):/work -v $(pwd)/.kernel_out:/kernel_out esm-kernel-builder
 ```
 
-This will run ./build_kernel.sh in /work and produce UELAT/kernel_verified.so on success.
+This will run ./build_kernel.sh in /work and produce .kernel_out/kernel_verified.so on success.
 
 Alternative: use the official Coq 8.18.0 image directly:
 
 ```
-docker run --rm -v $(pwd):/work -w /work \
+docker run --rm -v $(pwd):/work -v $(pwd)/.kernel_out:/kernel_out -w /work \
   coqorg/coq:8.18.0 \
-  bash -lc "bash ./build_kernel.sh"
+  bash -lc "KERNEL_OUTPUT=/kernel_out/kernel_verified.so bash ./build_kernel.sh"
 ```
 
 If building locally without Docker:
