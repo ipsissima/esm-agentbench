@@ -143,7 +143,8 @@ jobs:
           if [ -f "${{ github.workspace }}/UELAT/kernel_verified.so" ]; then
             echo "Using prebuilt kernel: UELAT/kernel_verified.so"
             echo "VERIFIED_KERNEL_PATH=${{ github.workspace }}/UELAT/kernel_verified.so" >> $GITHUB_ENV
-            sha256sum -c UELAT/kernel_verified.so.sha256 || (echo "checksum mismatch" && exit 1)
+            # Run from UELAT/ dir since checksum file contains relative path
+            (cd UELAT && sha256sum -c kernel_verified.so.sha256) || (echo "checksum mismatch" && exit 1)
             if [ -f "UELAT/kernel_verified.so.sha256.sig" ] && [ -f "UELAT/public.key" ]; then
               python3 -m pip install --no-cache-dir PyNaCl || true
               python3 tools/verify_signature.py --index UELAT/kernel_verified.so.sha256 --sig UELAT/kernel_verified.so.sha256.sig --pubkey UELAT/public.key
