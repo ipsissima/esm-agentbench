@@ -91,6 +91,26 @@ COQC="${COQC:-coqc}"
 OCAMLOPT="${OCAMLOPT:-ocamlopt}"
 OCAMLFIND="${OCAMLFIND:-ocamlfind}"
 
+# Preflight tool checks (only when building from sources)
+require_tool() {
+  local tool_name="$1"
+  local tool_label="$2"
+  if ! command -v "$tool_name" >/dev/null 2>&1; then
+    echo "[kernel] ERROR: Required tool '${tool_label}' not found in PATH."
+    echo "[kernel] Install the Coq/OCaml toolchain or set COQC/OCAMLOPT/OCAMLFIND to valid executables."
+    exit 1
+  fi
+}
+
+if [ "$BUILD_FROM_SOURCES" -eq 1 ]; then
+  COQC_BIN="${COQC%% *}"
+  OCAMLOPT_BIN="${OCAMLOPT%% *}"
+  OCAMLFIND_BIN="${OCAMLFIND%% *}"
+  require_tool "$COQC_BIN" "$COQC"
+  require_tool "$OCAMLOPT_BIN" "$OCAMLOPT"
+  require_tool "$OCAMLFIND_BIN" "$OCAMLFIND"
+fi
+
 # Diagnostic trap
 print_diagnostics() {
   echo "=== Kernel build diagnostics ==="
