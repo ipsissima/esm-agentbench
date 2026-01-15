@@ -9,7 +9,11 @@ Recommended reproducible flow (use dev-tools/Dockerfile.kernel):
 ```
 docker build -t esm-kernel-builder -f dev-tools/Dockerfile.kernel .
 mkdir -p .kernel_out
-docker run --rm -v $(pwd):/work -v $(pwd)/.kernel_out:/kernel_out esm-kernel-builder
+docker run --rm -v $(pwd):/work -v $(pwd)/.kernel_out:/kernel_out -w /work \
+  esm-kernel-builder \
+  bash -lc "eval $(opam env --switch=esm-kernel) >/dev/null 2>&1 || true; \
+    chmod +x ./build_kernel.sh && KERNEL_OUTPUT=/kernel_out/kernel_verified.so ./build_kernel.sh && \
+    chown -R $(id -u):$(id -g) /kernel_out || true"
 ```
 
 This will run ./build_kernel.sh in /work and produce .kernel_out/kernel_verified.so on success.
