@@ -49,3 +49,28 @@ python3 tools/verify_signature.py \
 ### Rebuild from source (judges can reproduce)
 
 Judges can reproduce the kernel build from sources using the Docker builder above (or `dev-tools/Dockerfile.kernel` if preferred). If rebuilding locally, keep the same pinned Coq image and set `KERNEL_OUTPUT` as shown to generate `kernel_verified.so`, then provide it via `VERIFIED_KERNEL_PATH`.
+
+### Reproducible builder (dev-tools/Dockerfile.kernel)
+
+Build the pinned builder image once:
+
+```
+docker build -t esm-kernel-builder -f dev-tools/Dockerfile.kernel .
+```
+
+Run the build inside the image and write outputs to `.kernel_out`:
+
+```
+mkdir -p .kernel_out
+docker run --rm -u "$(id -u):$(id -g)" \
+  -v "$PWD":/work -v "$PWD/.kernel_out":/kernel_out -w /work \
+  esm-kernel-builder \
+  bash -lc "chmod +x ./build_kernel.sh && KERNEL_OUTPUT=/kernel_out/kernel_verified.so ./build_kernel.sh"
+```
+
+Then generate and verify the checksum:
+
+```
+sha256sum .kernel_out/kernel_verified.so > .kernel_out/kernel_verified.so.sha256
+sha256sum -c .kernel_out/kernel_verified.so.sha256
+```
