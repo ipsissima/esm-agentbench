@@ -3,13 +3,17 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential curl wget git ca-certificates m4 bubblewrap \
-    ocaml ocaml-native-compilers opam coq \
+    ocaml ocaml-native-compilers opam \
     python3 python3-venv python3-pip unzip \
+    pkg-config libgmp-dev libgmpxx4ldbl \
+    autoconf automake libtool gettext \
   && rm -rf /var/lib/apt/lists/*
 
 RUN opam init --bare --disable-sandboxing || true
 RUN opam switch create esm-kernel 4.14.0 || opam switch set esm-kernel
 ENV OPAMSWITCH=esm-kernel
+RUN eval $(opam env) && opam install -y opam-depext \
+  && opam depext -i coq.8.18.0
 RUN eval $(opam env) && opam install -y coq.8.18.0 dune ocamlfind
 
 WORKDIR /work
