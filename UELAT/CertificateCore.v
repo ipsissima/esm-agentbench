@@ -133,6 +133,36 @@ Definition compute_bound
 
 (** ** Verification: Bound Satisfies Axioms *)
 
+(** Helper: sum of squares is non-negative *)
+Lemma sum_squares_nonneg : forall v : list R, 0 <= sum_squares v.
+Proof.
+  induction v as [| x xs IH]; simpl.
+  - lra.
+  - apply Rplus_le_le_0_compat.
+    + apply Rle_0_sqr.
+    + exact IH.
+Qed.
+
+(** Helper: Frobenius norm squared is non-negative *)
+Lemma frobenius_norm_squared_nonneg : forall M : Matrix, 0 <= frobenius_norm_squared M.
+Proof.
+  induction M as [| row rows IH]; simpl.
+  - lra.
+  - apply Rplus_le_le_0_compat.
+    + apply sum_squares_nonneg.
+    + exact IH.
+Qed.
+
+(** Helper: division preserves non-negativity when denominator is positive *)
+Lemma Rdiv_nonneg : forall a b : R, 0 <= a -> 0 < b -> 0 <= a / b.
+Proof.
+  intros a b Ha Hb.
+  unfold Rdiv.
+  assert (Hinv_nonneg : 0 <= / b).
+  { apply Rlt_le, Rinv_0_lt_compat; assumption. }
+  apply Rmult_le_pos; assumption.
+Qed.
+
 (** Lemma: The computed bound is non-negative for non-negative inputs *)
 Lemma computed_bound_safe :
   forall r t s l cr ct cs cb : R,
