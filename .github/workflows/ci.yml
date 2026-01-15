@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build_verified_kernel:
-    name: Build Verified Kernel (Docker Coq 8.18.1)
+    name: Build Verified Kernel (Docker Coq 8.18.0)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
