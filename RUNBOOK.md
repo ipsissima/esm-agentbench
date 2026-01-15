@@ -76,3 +76,60 @@ Then generate and verify the checksum:
 sha256sum .kernel_out/kernel_verified.so > .kernel_out/kernel_verified.so.sha256
 sha256sum -c .kernel_out/kernel_verified.so.sha256
 ```
+
+---
+
+## Quick-start for judges
+
+### One-liner full verification
+
+```
+bash ci/verify_submission.sh
+```
+
+This script:
+1. Builds the verified kernel with Docker Coq 8.18.0
+2. Generates and verifies the SHA-256 checksum
+3. Builds the judge Docker image
+4. Runs judge mode (real agent traces + spectral validation)
+5. Validates all 6 scenarios have `attack_succeeded.json` with `success: true`
+6. Checks validation reports for `data_source: real_traces_only`
+7. Runs pytest guardrails
+8. Packages `submission.zip`
+
+### Minimal judge run (Docker only)
+
+```bash
+# Build and run judge mode
+docker build -t esm-agentbench .
+docker run --rm esm-agentbench
+
+# Verify outputs
+cat scenarios/code_backdoor_injection/attack_succeeded.json | jq .success
+```
+
+### Run specific scenario
+
+```bash
+docker run --rm esm-agentbench python /app/run_judge_mode.py --scenario supply_chain_poisoning
+```
+
+### Skip kernel build (use existing artifact)
+
+```bash
+bash ci/verify_submission.sh --quick
+```
+
+---
+
+## Agent card
+
+The agent card is available at:
+- TOML: `agent_card.toml`
+- JSON: `.well-known/agent-card.json`
+
+To update the entrypoint URL (e.g., for Cloud Run deployment):
+
+```bash
+python scripts/update_agent_card.py --url "https://your-service.run.app" --toml agent_card.toml
+```
