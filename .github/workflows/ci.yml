@@ -175,10 +175,35 @@ jobs:
           print('tools.real_agents_hf imports OK')
           PY
 
-      - name: Run Unit Tests
+      - name: Run Unit Tests (inside Coq/OCaml runtime)
         run: |
-          . .venv/bin/activate
-          pytest -q
+          # Verify kernel exists
+          KERN_DIR="${{ github.workspace }}/UELAT"
+          if [ ! -f "$KERN_DIR/kernel_verified.so" ]; then
+            echo "ERROR: kernel not found at $KERN_DIR/kernel_verified.so"
+            ls -la "$KERN_DIR" || true
+            exit 1
+          fi
+
+          # Run tests inside Coq container where OCaml runtime is available
+          docker run --rm -u "$(id -u):$(id -g)" \
+            -v "${{ github.workspace }}":/work \
+            -w /work \
+            coqorg/coq:8.18.0 \
+            bash -lc "
+              set -euo pipefail
+              export VERIFIED_KERNEL_PATH=/work/UELAT/kernel_verified.so
+              # Prepare Python venv inside container
+              python3 -m venv .venv-docker
+              . .venv-docker/bin/activate
+              python -m pip install --upgrade pip setuptools wheel
+              # Install Python deps
+              python -m pip install --no-cache-dir -r requirements.txt --no-deps
+              python -m pip install -e . || true
+              # Run pytest
+              pytest -q
+            "
+        timeout-minutes: 30
 
       - name: Verify Math (Drift Metric Standalone)
         run: |
