@@ -226,6 +226,18 @@ if [ ! -f "kernel_verified.ml" ]; then
   exit 1
 fi
 
+# Register OCaml functions with the callback mechanism so C code can find them via caml_named_value()
+# Without this, caml_named_value("kernel_api_certificate") returns NULL and causes a segfault
+echo "[kernel] Appending Callback.register to kernel_verified.ml..."
+cat >> kernel_verified.ml <<'CALLBACK_REGISTER'
+
+(* Register functions for C interop via caml_named_value *)
+let () = Callback.register "kernel_api_certificate" kernel_api_certificate
+let () = Callback.register "kernel_api_residual" kernel_api_residual
+let () = Callback.register "kernel_api_bound" kernel_api_bound
+let () = Callback.register "kernel_api_frobenius_norm" kernel_api_frobenius_norm
+CALLBACK_REGISTER
+
 echo "[kernel] Step 2: Extracted kernel_verified.ml. Proceeding to OCaml compile..."
 
 # Prepare build dir and compile OCaml file to cmx
