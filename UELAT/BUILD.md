@@ -13,6 +13,14 @@ docker run --rm -v $(pwd):/work esm-kernel-builder
 
 This will run ./build_kernel.sh in /work and produce UELAT/kernel_verified.so on success.
 
+Alternative: use the official Coq 8.18.1 image directly:
+
+```
+docker run --rm -v $(pwd):/work -w /work \
+  coqorg/coq:8.18.1 \
+  bash -lc "cd UELAT && chmod +x ./build_kernel.sh && ./build_kernel.sh"
+```
+
 If building locally without Docker:
 1. sudo apt install opam coq ocaml ocaml-native-compilers ocamlfind build-essential m4
 2. opam init --bare --disable-sandboxing

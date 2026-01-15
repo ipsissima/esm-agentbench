@@ -873,6 +873,42 @@ The `.github/workflows/agentbeats_phase1.yml` workflow now:
 
 If the kernel fails to build, the entire workflow fails — ensuring official Phase-1 validation always uses formally verified computation.
 
+#### Recommended Docker Builder (Coq 8.18.1)
+
+Use the official Coq 8.18.1 image for a fast, reproducible kernel build without
+opam/apt variability. Example full job snippet:
+
+```yaml
+jobs:
+  build_verified_kernel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Build kernel inside Coq 8.18.1 Docker
+        run: |
+          docker run --rm -v "${{ github.workspace }}":/work -w /work \
+            coqorg/coq:8.18.1 \
+            bash -lc "cd UELAT && chmod +x ./build_kernel.sh && ./build_kernel.sh"
+
+      - name: Verify kernel exists
+        run: |
+          test -f UELAT/kernel_verified.so
+          sha256sum UELAT/kernel_verified.so > UELAT/kernel_verified.so.sha256
+          cat UELAT/kernel_verified.so.sha256
+
+      - name: Upload verified kernel
+        uses: actions/upload-artifact@v3
+        with:
+          name: verified-kernel
+          path: |
+            UELAT/kernel_verified.so
+            UELAT/kernel_verified.so.sha256
+```
+
 #### Building the Kernel Locally
 
 ```bash
