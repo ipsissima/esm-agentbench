@@ -39,7 +39,7 @@ jobs:
             -v "${{ github.workspace }}/.kernel_out":/kernel_out \
             -w /work \
             coqorg/coq:8.18.0 \
-            bash -lc "chmod +x ./build_kernel.sh && KERNEL_OUTPUT=/kernel_out/kernel_verified.so ./build_kernel.sh"
+            bash -lc "opam init --bare --disable-sandboxing -y || true && eval \"\$(opam env)\" && chmod +x ./build_kernel.sh && KERNEL_OUTPUT=/kernel_out/kernel_verified.so ./build_kernel.sh"
 
       - name: Verify created artifact and produce checksum
         run: |
@@ -55,22 +55,11 @@ jobs:
       - name: (Optional) Sign artifact (if signing is desired)
         run: |
           if command -v python3 >/dev/null 2>&1 && [ -f tools/sign_index.py ]; then
-            python3 - <<'PY'
-import os,sys
-# generate ephemeral key only if none present
-if not os.path.exists("UELAT/private.key"):
-    try:
-        from nacl.signing import SigningKey
-        k = SigningKey.generate()
-        open("UELAT/private.key","wb").write(k.encode())
-        open("UELAT/public.key","wb").write(k.verify_key.encode())
-    except Exception as e:
-        print("PyNaCl not available, skipping signature generation", file=sys.stderr)
-        sys.exit(0)
-# sign sha file
-os.system("python3 tools/sign_index.py --index .kernel_out/kernel_verified.so.sha256 --key UELAT/private.key --out .kernel_out/kernel_verified.so.sha256.sig")
-PY
+            chmod +x .github/scripts/sign_artifact.sh || true
+            .github/scripts/sign_artifact.sh
+          fi
           ls -la .kernel_out || true
+        shell: bash
 
       - name: Upload verified kernel artifact
         uses: actions/upload-artifact@v4
