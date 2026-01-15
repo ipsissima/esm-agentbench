@@ -384,12 +384,56 @@ WRAPPER_END
 
 echo "[kernel] Created kernel_stub.c in ${BUILD_DIR}"
 
-# Link to shared library
-echo "[kernel] Linking to shared library..."
-if ! ${OCAMLOPT} -shared -I "${BUILD_DIR}" -o "${KERNEL_OUTPUT}" "${BUILD_DIR}/kernel_verified.cmx"; then
-  echo "[kernel] ERROR: Failed to create shared library"
+# Link to shared library with statically-embedded OCaml runtime
+# This makes the .so self-contained and portable to environments without OCaml installed
+echo "[kernel] Linking to shared library with static OCaml runtime..."
+
+# Step 1: Create a complete object file that includes the OCaml runtime startup code
+if ! ${OCAMLOPT} -output-complete-obj -I "${BUILD_DIR}" "${BUILD_DIR}/kernel_verified.cmx" -o "${BUILD_DIR}/kernel_complete.o"; then
+  echo "[kernel] ERROR: Failed to create complete object file"
   popd > /dev/null
   exit 1
+fi
+
+# Step 2: Get OCaml stdlib path for runtime library location
+OCAML_STDLIB=$($OCAMLFIND printconf stdlib 2>/dev/null || echo "")
+if [ -z "$OCAML_STDLIB" ]; then
+  OCAML_STDLIB=$(ocamlopt -where 2>/dev/null || echo "")
+fi
+
+echo "[kernel] OCaml stdlib path: ${OCAML_STDLIB}"
+
+# Step 3: Link into shared library with static OCaml runtime
+# Try to find the position-independent runtime library
+ASMRUN_LIB=""
+for candidate in "${OCAML_STDLIB}/libasmrun_pic.a" "${OCAML_STDLIB}/libasmrun_shared.a" "${OCAML_STDLIB}/libasmrun.a"; do
+  if [ -f "$candidate" ]; then
+    ASMRUN_LIB="$candidate"
+    break
+  fi
+done
+
+if [ -n "$ASMRUN_LIB" ]; then
+  echo "[kernel] Using OCaml runtime: ${ASMRUN_LIB}"
+  if ! gcc -shared -fPIC -o "${KERNEL_OUTPUT}" "${BUILD_DIR}/kernel_complete.o" \
+      "$ASMRUN_LIB" -lm -ldl -lpthread; then
+    echo "[kernel] ERROR: Failed to create shared library with static runtime"
+    popd > /dev/null
+    exit 1
+  fi
+else
+  # Fallback: try direct linking (may still work if runtime is in standard paths)
+  echo "[kernel] WARNING: Could not find OCaml runtime library, attempting direct link"
+  if ! gcc -shared -fPIC -o "${KERNEL_OUTPUT}" "${BUILD_DIR}/kernel_complete.o" \
+      -L"${OCAML_STDLIB}" -lasmrun_pic -lm -ldl -lpthread 2>/dev/null; then
+    # Final fallback: original method (for backward compatibility)
+    echo "[kernel] WARNING: Static linking failed, falling back to dynamic linking"
+    if ! ${OCAMLOPT} -shared -I "${BUILD_DIR}" -o "${KERNEL_OUTPUT}" "${BUILD_DIR}/kernel_verified.cmx"; then
+      echo "[kernel] ERROR: Failed to create shared library"
+      popd > /dev/null
+      exit 1
+    fi
+  fi
 fi
 
 if [ -f "${KERNEL_OUTPUT}" ]; then
