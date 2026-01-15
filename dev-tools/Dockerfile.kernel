@@ -15,6 +15,15 @@ ENV OPAMSWITCH=esm-kernel
 RUN eval $(opam env) && opam install -y opam-depext \
   && opam depext -i coq.8.18.0
 RUN eval $(opam env) && opam install -y coq.8.18.0 dune ocamlfind
+# put opam env in /etc/profile.d for interactive shells
+RUN eval $(opam env --switch=esm-kernel) \
+ && echo 'eval $(opam env --switch=esm-kernel)' > /etc/profile.d/opam-env.sh \
+ # ensure critical binaries are symlinked into /usr/local/bin so non-login shells find them
+ && mkdir -p /usr/local/bin \
+ && for b in coqc coqtop ocamlopt ocamlfind; do \
+      BIN=$(opam var bin)/$b 2>/dev/null || BIN=""; \
+      [ -x "$BIN" ] && ln -sf "$BIN" /usr/local/bin/$b || true; \
+    done
 
 WORKDIR /work
 COPY UELAT /work/UELAT
