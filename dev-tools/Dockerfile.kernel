@@ -28,4 +28,4 @@ RUN eval $(opam env --switch=esm-kernel) \
 WORKDIR /work
 COPY UELAT /work/UELAT
 COPY build_kernel.sh /work/build_kernel.sh
-CMD ["/bin/bash", "/work/build_kernel.sh"]
+CMD ["/bin/bash","-lc","eval $(opam env --switch=esm-kernel) >/dev/null 2>&1 || true; /work/build_kernel.sh"]
