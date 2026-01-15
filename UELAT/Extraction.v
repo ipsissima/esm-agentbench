@@ -22,8 +22,8 @@ Require Import CertificateProofs.
 (** ** OCaml Code Generation Settings *)
 
 (** Use native OCaml floats (double precision) for R *)
-Definition float := PrimFloat.float.
-Extract Constant float => "float".
+(* Map the PrimFloat primitive float type to OCaml's native float. *)
+Extract Constant PrimFloat.float => "float".
 
 (** Extract the kernel API functions *)
 Extraction Language OCaml.
