@@ -11,7 +11,7 @@ docker build -t esm-kernel-builder -f dev-tools/Dockerfile.kernel .
 mkdir -p .kernel_out
 docker run --rm -v $(pwd):/work -v $(pwd)/.kernel_out:/kernel_out -w /work \
   esm-kernel-builder \
-  bash -lc "eval $(opam env --switch=esm-kernel) >/dev/null 2>&1 || true; \
+  OPAMROOT=/opt/opam bash -lc "eval $(opam env --switch=esm-kernel) >/dev/null 2>&1 || true; \
     chmod +x ./build_kernel.sh && KERNEL_OUTPUT=/kernel_out/kernel_verified.so ./build_kernel.sh && \
     chown -R $(id -u):$(id -g) /kernel_out || true"
 ```
@@ -28,10 +28,10 @@ docker run --rm -v $(pwd):/work -v $(pwd)/.kernel_out:/kernel_out -w /work \
 
 If building locally without Docker:
 1. sudo apt install opam coq ocaml ocaml-native-compilers ocamlfind build-essential m4
-2. opam init --bare --disable-sandboxing
-3. opam switch create esm-kernel 4.14.0
-4. eval $(opam env)
-5. opam install coq.8.18.0 dune ocamlfind
+2. OPAMROOT=/opt/opam opam init --bare --disable-sandboxing
+3. OPAMROOT=/opt/opam opam switch create esm-kernel 4.14.0
+4. OPAMROOT=/opt/opam eval $(opam env)
+5. OPAMROOT=/opt/opam opam install coq.8.18.0 dune ocamlfind
 6. ./build_kernel.sh
 
 Note: If kernel_verified.so is included in the repo or artifact, CI will prefer it over building from source and verify it using the accompanying .sha256 checksum.
