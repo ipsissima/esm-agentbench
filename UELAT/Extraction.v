@@ -15,6 +15,7 @@ From Coq Require Import Floats.PrimFloat.
 Require Import Extraction.
 Require Import ExtrOcamlBasic.
 Require Import ExtrOcamlString.
+Require Import ExtrOcamlNatInt.
 Require Import spectral_bounds.
 Require Import CertificateCore.
 Require Import CertificateProofs.
@@ -41,7 +42,7 @@ Definition kernel_api_bound := compute_theoretical_bound.
 Definition kernel_api_certificate := kernel_compute_certificate.
 
 (** Extract to file 'kernel_verified.ml' *)
-Recursive Extraction "kernel_verified.ml"
+Extraction "kernel_verified.ml"
   kernel_api_frobenius_norm
   kernel_api_residual
   kernel_api_bound
