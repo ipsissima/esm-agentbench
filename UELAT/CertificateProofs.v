@@ -39,14 +39,14 @@ Proof.
     remember (frobenius_norm_squared X1) as x1_norm_sq.
     remember (frobenius_norm_squared (matrix_sub X1 (matrix_mult A X0))) as err_norm_sq.
     destruct (Rgt_dec x1_norm_sq 1e-12) as [Hgt | Hle].
-    + (* x1_norm_sq > eps: residual = sqrt (err_norm_sq / x1_norm_sq) *)
+    - (* x1_norm_sq > eps: residual = sqrt (err_norm_sq / x1_norm_sq) *)
       apply sqrt_pos.
       (* err_norm_sq >= 0 and x1_norm_sq > 0, so division is >= 0 *)
       apply Rdiv_nonneg; [now apply frobenius_norm_squared_nonneg | ].
       (* Hgt already gives x1_norm_sq > 1e-12 > 0 *)
       assert (Hpos : 0 < x1_norm_sq) by (eapply Rlt_trans; [lra | exact Hgt]).
       exact Hpos.
-    + (* x1_norm_sq <= eps: residual = 0 *)
+    - (* x1_norm_sq <= eps: residual = 0 *)
       apply Rle_refl.
   - exact Hte.
   - exact Hsd.
