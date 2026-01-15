@@ -385,8 +385,10 @@ WRAPPER_END
 echo "[kernel] Created kernel_stub.c in ${BUILD_DIR}"
 
 # Step 3: Create object file with embedded OCaml runtime
+# Note: Use a different name (kernel_caml.o) to avoid conflict with kernel_verified.o
+# which is produced as a side effect of compiling kernel_verified.ml to .cmx
 echo "[kernel] Creating object file with OCaml runtime..."
-if ! ${OCAMLOPT} -output-obj -I "${BUILD_DIR}" -o "${BUILD_DIR}/kernel_verified.o" "${BUILD_DIR}/kernel_verified.cmx"; then
+if ! ${OCAMLOPT} -output-obj -I "${BUILD_DIR}" -o "${BUILD_DIR}/kernel_caml.o" "${BUILD_DIR}/kernel_verified.cmx"; then
   echo "[kernel] ERROR: Failed to create object file with OCaml runtime"
   popd > /dev/null
   exit 1
@@ -420,7 +422,7 @@ fi
 echo "[kernel] Using OCaml runtime: ${ASMRUN_LIB}"
 
 if ! gcc -shared -fPIC -o "${KERNEL_OUTPUT}" \
-    "${BUILD_DIR}/kernel_verified.o" \
+    "${BUILD_DIR}/kernel_caml.o" \
     "${BUILD_DIR}/kernel_stub.o" \
     "${ASMRUN_LIB}" \
     -L"${OCAML_WHERE}" \
