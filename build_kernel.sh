@@ -384,9 +384,47 @@ WRAPPER_END
 
 echo "[kernel] Created kernel_stub.c in ${BUILD_DIR}"
 
-# Link to shared library
+# Step 3: Create object file with embedded OCaml runtime
+echo "[kernel] Creating object file with OCaml runtime..."
+if ! ${OCAMLOPT} -output-obj -I "${BUILD_DIR}" -o "${BUILD_DIR}/kernel_verified.o" "${BUILD_DIR}/kernel_verified.cmx"; then
+  echo "[kernel] ERROR: Failed to create object file with OCaml runtime"
+  popd > /dev/null
+  exit 1
+fi
+
+# Step 4: Compile C stub
+echo "[kernel] Compiling C stub..."
+OCAML_WHERE=$(${OCAMLOPT} -where)
+if ! gcc -c -fPIC -I "${OCAML_WHERE}" "${BUILD_DIR}/kernel_stub.c" -o "${BUILD_DIR}/kernel_stub.o"; then
+  echo "[kernel] ERROR: Failed to compile C stub"
+  popd > /dev/null
+  exit 1
+fi
+
+# Step 5: Link everything into shared library
 echo "[kernel] Linking to shared library..."
-if ! ${OCAMLOPT} -shared -I "${BUILD_DIR}" -o "${KERNEL_OUTPUT}" "${BUILD_DIR}/kernel_verified.cmx"; then
+# Find the OCaml runtime library (libasmrun_pic.a for PIC code, or libasmrun.a)
+ASMRUN_LIB=""
+for lib in "${OCAML_WHERE}/libasmrun_pic.a" "${OCAML_WHERE}/libasmrun.a"; do
+  if [ -f "$lib" ]; then
+    ASMRUN_LIB="$lib"
+    break
+  fi
+done
+
+if [ -z "$ASMRUN_LIB" ]; then
+  echo "[kernel] WARNING: Could not find libasmrun, trying default linker search"
+  ASMRUN_LIB="-lasmrun"
+fi
+
+echo "[kernel] Using OCaml runtime: ${ASMRUN_LIB}"
+
+if ! gcc -shared -fPIC -o "${KERNEL_OUTPUT}" \
+    "${BUILD_DIR}/kernel_verified.o" \
+    "${BUILD_DIR}/kernel_stub.o" \
+    "${ASMRUN_LIB}" \
+    -L"${OCAML_WHERE}" \
+    -lm -ldl -lpthread; then
   echo "[kernel] ERROR: Failed to create shared library"
   popd > /dev/null
   exit 1
