@@ -202,13 +202,15 @@ jobs:
               python3 -m venv .venv-docker
               . .venv-docker/bin/activate
               python -m pip install --upgrade pip setuptools wheel
-              # Install Python deps
+              # Install CPU-only torch first to avoid huge CUDA downloads
+              python -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+              # Install Python deps (skip torch since we installed CPU version)
               python -m pip install --no-cache-dir -r requirements.txt --no-deps
               python -m pip install -e . || true
               # Run pytest
               pytest -q
             "
-        timeout-minutes: 30
+        timeout-minutes: 45
 
       - name: Verify Math (Drift Metric Standalone)
         run: |
