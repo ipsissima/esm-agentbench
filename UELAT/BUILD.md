@@ -18,7 +18,7 @@ Alternative: use the official Coq 8.18.0 image directly:
 ```
 docker run --rm -v $(pwd):/work -w /work \
   coqorg/coq:8.18.0 \
-  bash -lc "chmod +x ./build_kernel.sh && ./build_kernel.sh"
+  bash -lc "bash ./build_kernel.sh"
 ```
 
 If building locally without Docker:
