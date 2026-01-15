@@ -162,7 +162,7 @@ jobs:
 
       - name: Upload traces (for inspection)
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: real-hf-traces
           path: submissions/ci_test/*/experiment_traces_real_hf/
@@ -170,7 +170,7 @@ jobs:
 
       - name: Upload reports
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: real-hf-reports
           path: reports/spectral_validation_real_hf/
