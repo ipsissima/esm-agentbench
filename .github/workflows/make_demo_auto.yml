@@ -3,7 +3,12 @@ name: Build Demo Video (Automated, No Humans, ElevenLabs smoke-test)
 on:
   push:
     branches:
-      - 'claude/agentx-competition-prep-oj95n'
+      - 'main'
+    paths:
+      - 'make_demo_auto.sh'
+      - '.github/workflows/make_demo_auto.yml'
+      - 'run_judge_mode.py'
+      - 'scenarios/**'
   workflow_dispatch:
 
 jobs:
