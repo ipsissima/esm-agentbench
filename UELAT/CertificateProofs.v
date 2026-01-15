@@ -29,7 +29,7 @@ Theorem kernel_bound_is_nonnegative :
   forall (X0 X1 A : Matrix) (te sd lm : R),
   0 <= te -> 0 <= sd -> 0 <= lm ->
   let result := kernel_compute_certificate X0 X1 A te sd lm in
-  0 <= result.2.  (* snd component is the bound *)
+  0 <= snd result.  (* snd component is the bound *)
 Proof.
   intros X0 X1 A te sd lm Hte Hsd Hlm.
   unfold kernel_compute_certificate, compute_bound.
@@ -60,8 +60,8 @@ Theorem kernel_bound_monotone_in_residual :
   0 <= te -> 0 <= sd -> 0 <= lm ->
   (* Assume residual_1 <= residual_2 *)
   (compute_residual X0_1 X1_1 A_1) <= (compute_residual X0_2 X1_2 A_2) ->
-  (kernel_compute_certificate X0_1 X1_1 A_1 te sd lm).2 <=
-  (kernel_compute_certificate X0_2 X1_2 A_2 te sd lm).2.
+  snd (kernel_compute_certificate X0_1 X1_1 A_1 te sd lm) <=
+  snd (kernel_compute_certificate X0_2 X1_2 A_2 te sd lm).
 Proof.
   intros X0_1 X1_1 A_1 X0_2 X1_2 A_2 te sd lm Hte Hsd Hlm Hres_mono.
   unfold kernel_compute_certificate, compute_bound.
@@ -91,7 +91,7 @@ Qed.
 Theorem kernel_bound_is_sound :
   forall (X0 X1 A : Matrix) (te sd lm : R),
   let r := compute_residual X0 X1 A in
-  let bound := (kernel_compute_certificate X0 X1 A te sd lm).2 in
+  let bound := snd (kernel_compute_certificate X0 X1 A te sd lm) in
   bound = C_res_value * r + C_tail_value * te + C_sem_value * sd + C_robust_value * lm.
 Proof.
   intros X0 X1 A te sd lm.
@@ -108,7 +108,7 @@ Qed.
 Theorem kernel_is_correct :
   forall (X0 X1 A : Matrix) (te sd lm : R),
   0 <= te -> 0 <= sd -> 0 <= lm ->
-  let bound := (kernel_compute_certificate X0 X1 A te sd lm).2 in
+  let bound := snd (kernel_compute_certificate X0 X1 A te sd lm) in
   (0 <= bound) /\  (* Safety *)
   (bound = C_res_value * (compute_residual X0 X1 A) +
            C_tail_value * te +
