@@ -28,7 +28,7 @@ jobs:
 
     - name: Build kernel inside Coq 8.18.0 image
       run: |
-        docker run --rm -v "${{ github.workspace }}":/work -w /work \
+        docker run --rm -u $(id -u):$(id -g) -v "${{ github.workspace }}":/work -w /work \
           coqorg/coq:8.18.0 \
         bash -lc "bash ./build_kernel.sh"
 
