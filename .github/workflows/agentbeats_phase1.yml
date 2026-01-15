@@ -11,44 +11,37 @@ on:
 
 jobs:
   build_verified_kernel:
+    name: Build Verified Kernel (Docker Coq 8.18.1)
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install pinned opam + toolchain
+    - name: Ensure docker available
+      run: docker --version
+
+    - name: Build kernel inside Coq 8.18.1 image
       run: |
-        sudo apt-get update
-        sudo apt-get install -y curl m4 build-essential git bubblewrap wget unzip ca-certificates
-        if ! command -v opam >/dev/null 2>&1; then
-          sudo apt-get install -y opam
+        docker run --rm -v "${{ github.workspace }}":/work -w /work \
+          coqorg/coq:8.18.1 \
+          bash -lc "chmod +x ./build_kernel.sh && ./build_kernel.sh"
+
+    - name: Verify kernel created
+      run: |
+        if [ ! -f "UELAT/kernel_verified.so" ]; then
+          echo "ERROR: kernel_verified.so not produced"
+          ls -la UELAT || true
+          exit 1
         fi
-        opam init --bare --disable-sandboxing || true
-        eval $(opam env)
-        opam switch create esm-kernel 4.14.0 || opam switch set esm-kernel
-        eval $(opam env)
-        opam install -y coq.8.18.1 dune ocamlfind ocamlbuild
-        echo "=== tool versions ==="
-        coqc --version || true
-        ocamlopt -version || true
-        opam --version || true
-
-    - name: Build verified kernel
-      run: |
-        set -o pipefail
-        ./build_kernel.sh 2>&1 | tee kernel_build.log
-
-    - name: Upload kernel build logs on failure
-      if: failure()
-      uses: actions/upload-artifact@v3
-      with:
-        name: kernel-build-logs
-        path: kernel_build.log
+        sha256sum UELAT/kernel_verified.so > UELAT/kernel_verified.so.sha256
+        cat UELAT/kernel_verified.so.sha256
 
     - name: Upload kernel artifact
       uses: actions/upload-artifact@v3
       with:
         name: verified-kernel
-        path: UELAT/kernel_verified.so
+        path: |
+          UELAT/kernel_verified.so
+          UELAT/kernel_verified.so.sha256
         if-no-files-found: error
 
   validate-phase1:
