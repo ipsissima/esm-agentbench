@@ -8,7 +8,7 @@
 set -euo pipefail
 set -x
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 # Allow user/CI to override the UELAT directory or to provide a prebuilt kernel
