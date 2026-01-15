@@ -543,7 +543,7 @@ def run_unit_tests(code_text: str, tests: List[Dict[str, str]]) -> Dict[str, Any
                 "spec.loader.exec_module(solution)\n"
                 "globals().update({k: v for k, v in solution.__dict__.items() if not k.startswith('_')})\n"
             )
-            test_file.write_text(f\"{loader}\\n{script}\\n\", encoding=\"utf-8\")
+            test_file.write_text(f"{loader}\n{script}\n", encoding="utf-8")
 
         if env.get("SKIP_UNSAFE_TESTS"):
             env["PYTEST_ADDOPTS"] = env.get("PYTEST_ADDOPTS", "") + " -k 'not unsafe'"
