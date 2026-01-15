@@ -38,7 +38,7 @@ jobs:
           -v "${{ github.workspace }}/.kernel_out":/kernel_out \
           -w /work \
           coqorg/coq:8.18.0 \
-          bash -lc "eval \$(opam env --switch=esm-kernel) >/dev/null 2>&1 || true; chmod +x ./build_kernel.sh && KERNEL_OUTPUT=/kernel_out/kernel_verified.so ./build_kernel.sh && chown -R $(id -u):$(id -g) /kernel_out || true"
+          bash -lc "eval \$(opam env) && chmod +x ./build_kernel.sh && KERNEL_OUTPUT=/kernel_out/kernel_verified.so ./build_kernel.sh"
 
     - name: Verify created artifact and produce checksum
       run: |
