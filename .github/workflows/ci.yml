@@ -186,12 +186,15 @@ jobs:
           fi
 
           # Run tests inside Coq container where OCaml runtime is available
-          docker run --rm -u "$(id -u):$(id -g)" \
+          # Use --user root and eval opam env like the build step does
+          docker run --rm --user root \
             -v "${{ github.workspace }}":/work \
             -w /work \
+            -e OPAMROOT=/home/coq/.opam \
             coqorg/coq:8.18.0 \
-            bash -lc "
+            bash -c "
               set -euo pipefail
+              eval \$(opam env)
               export VERIFIED_KERNEL_PATH=/work/UELAT/kernel_verified.so
               # Prepare Python venv inside container
               python3 -m venv .venv-docker
