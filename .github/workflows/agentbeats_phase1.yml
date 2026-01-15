@@ -14,10 +14,17 @@ jobs:
     name: Build Verified Kernel (Docker Coq 8.18.1)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        submodules: recursive
 
     - name: Ensure docker available
       run: docker --version
+
+    - name: Verify Coq image available
+      run: docker pull coqorg/coq:8.18.1
 
     - name: Build kernel inside Coq 8.18.1 image
       run: |
@@ -25,17 +32,18 @@ jobs:
           coqorg/coq:8.18.1 \
           bash -lc "chmod +x ./build_kernel.sh && ./build_kernel.sh"
 
-    - name: Verify kernel created
+    - name: Verify created artifact and produce checksum
       run: |
         if [ ! -f "UELAT/kernel_verified.so" ]; then
-          echo "ERROR: kernel_verified.so not produced"
+          echo "ERROR: UELAT/kernel_verified.so not produced"
           ls -la UELAT || true
           exit 1
         fi
         sha256sum UELAT/kernel_verified.so > UELAT/kernel_verified.so.sha256
+        echo "Produced:"
         cat UELAT/kernel_verified.so.sha256
 
-    - name: Upload kernel artifact
+    - name: Upload verified kernel artifact
       uses: actions/upload-artifact@v4
       with:
         name: verified-kernel
@@ -53,31 +61,34 @@ jobs:
       matrix:
         python-version: ["3.11"]
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        submodules: recursive
+
+    - name: Download kernel artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: verified-kernel
+        path: UELAT
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Prefer prebuilt kernel if present
-      id: prebuilt_kernel
-      run: |
-        if [ -f "${{ github.workspace }}/UELAT/kernel_verified.so" ]; then
-          echo "Using prebuilt kernel: UELAT/kernel_verified.so"
-          ls -la UELAT/kernel_verified.so
-          echo "found=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "Prebuilt kernel not found; CI will rely on build step artifact."
-          echo "found=false" >> "$GITHUB_OUTPUT"
-        fi
+    - name: Set VERIFIED_KERNEL_PATH
+      run: echo "VERIFIED_KERNEL_PATH=${{ github.workspace }}/UELAT/kernel_verified.so" >> "$GITHUB_ENV"
 
-    - name: Download kernel artifact
-      if: steps.prebuilt_kernel.outputs.found != 'true'
-      uses: actions/download-artifact@v3
-      with:
-        name: verified-kernel
-        path: UELAT/
+    - name: Verify kernel checksum
+      run: |
+        if [ -f "$VERIFIED_KERNEL_PATH" ]; then
+          echo "Using prebuilt kernel: $VERIFIED_KERNEL_PATH"
+          sha256sum -c UELAT/kernel_verified.so.sha256 || (echo "checksum mismatch" && exit 1)
+        else
+          echo "No prebuilt kernel found; falling back to source build (not recommended for judge runs)."
+        fi
 
     - name: Setup Python venv
       run: |
