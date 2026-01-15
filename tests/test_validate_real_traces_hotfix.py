@@ -67,6 +67,7 @@ def test_starvation_rank_test_and_exclusion(tmp_path, monkeypatch, capsys):
     _write_trace(starvation_file)
 
     def fake_analyze(trace, label, meta=None, gamma=None):
+        # r_rel is required for the starvation vs coherent rank test
         return {
             "label": label,
             "n_steps": len(trace),
@@ -75,6 +76,7 @@ def test_starvation_rank_test_and_exclusion(tmp_path, monkeypatch, capsys):
             "oos_residual": 0.2,
             "insample_residual": 0.2,
             "r_eff": 6.0 if "coherent" in label else 1.0,
+            "r_rel": 0.6 if "coherent" in label else 0.1,  # normalized rank for rank test
             "pca_explained": 0.7,
             "pca_tail_estimate": 0.1,
         }
@@ -86,7 +88,7 @@ def test_starvation_rank_test_and_exclusion(tmp_path, monkeypatch, capsys):
     assert isinstance(result, dict)
     captured = capsys.readouterr().out
     assert "[Starvation vs Coherent: Rank Test]" in captured
-    assert "Starvation mean rank" in captured
+    assert "Starvation mean normalized rank" in captured
     assert "All Good vs All Bad (excluding starvation; starvation tested separately)" in captured
     assert "Need both good and bad (non-starvation) traces for this test" in captured
     assert np.isclose(np.mean([1.0]), np.mean([result["results"]["starvation_trace"]["r_eff"]]))
