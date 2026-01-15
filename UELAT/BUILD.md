@@ -2,7 +2,7 @@
 
 Requirements:
 - Ubuntu 22.04 (or similar)
-- opam, coq 8.18.1, ocaml >= 4.14.0
+- opam, coq 8.18.0, ocaml >= 4.14.0
 
 Recommended reproducible flow (use dev-tools/Dockerfile.kernel):
 
@@ -13,11 +13,11 @@ docker run --rm -v $(pwd):/work esm-kernel-builder
 
 This will run ./build_kernel.sh in /work and produce UELAT/kernel_verified.so on success.
 
-Alternative: use the official Coq 8.18.1 image directly:
+Alternative: use the official Coq 8.18.0 image directly:
 
 ```
 docker run --rm -v $(pwd):/work -w /work \
-  coqorg/coq:8.18.1 \
+  coqorg/coq:8.18.0 \
   bash -lc "chmod +x ./build_kernel.sh && ./build_kernel.sh"
 ```
 
@@ -26,7 +26,7 @@ If building locally without Docker:
 2. opam init --bare --disable-sandboxing
 3. opam switch create esm-kernel 4.14.0
 4. eval $(opam env)
-5. opam install coq.8.18.1 dune ocamlfind
+5. opam install coq.8.18.0 dune ocamlfind
 6. ./build_kernel.sh
 
 Note: If kernel_verified.so is included in the repo or artifact, CI will prefer it over building from source and verify it using the accompanying .sha256 checksum.

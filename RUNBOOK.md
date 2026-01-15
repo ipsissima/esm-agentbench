@@ -7,7 +7,7 @@ The verified kernel artifact (`UELAT/kernel_verified.so`) is produced in CI by t
 - `.github/workflows/agentbeats_phase1.yml`
 - `.github/workflows/ci.yml`
 
-Each job builds the kernel inside `coqorg/coq:8.18.1`, writes a `UELAT/kernel_verified.so.sha256` checksum, and uploads the `verified-kernel` artifact for downstream jobs to download and verify.
+Each job builds the kernel inside `coqorg/coq:8.18.0`, writes a `UELAT/kernel_verified.so.sha256` checksum, and uploads the `verified-kernel` artifact for downstream jobs to download and verify.
 
 ### Build locally with Docker
 
@@ -15,7 +15,7 @@ From the repository root:
 
 ```
 docker run --rm -v $(pwd):/work -w /work \
-  coqorg/coq:8.18.1 \
+  coqorg/coq:8.18.0 \
   bash -lc "chmod +x ./build_kernel.sh && ./build_kernel.sh"
 ```
 

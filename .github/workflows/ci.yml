@@ -24,12 +24,12 @@ jobs:
         run: docker --version
 
       - name: Verify Coq image available
-        run: docker pull coqorg/coq:8.18.1
+        run: docker pull coqorg/coq:8.18.0
 
-      - name: Build kernel inside Coq 8.18.1 image
+      - name: Build kernel inside Coq 8.18.0 image
         run: |
           docker run --rm -v "${{ github.workspace }}":/work -w /work \
-            coqorg/coq:8.18.1 \
+            coqorg/coq:8.18.0 \
             bash -lc "chmod +x ./build_kernel.sh && ./build_kernel.sh"
 
       - name: Verify created artifact and produce checksum
