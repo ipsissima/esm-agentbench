@@ -65,7 +65,7 @@ mkdir -p .kernel_out
 docker run --rm \
   -v "$PWD":/work -v "$PWD/.kernel_out":/kernel_out -w /work \
   esm-kernel-builder \
-  bash -lc "eval $(opam env --switch=esm-kernel) >/dev/null 2>&1 || true; \
+  OPAMROOT=/opt/opam bash -lc "eval $(opam env --switch=esm-kernel) >/dev/null 2>&1 || true; \
     chmod +x ./build_kernel.sh && KERNEL_OUTPUT=/kernel_out/kernel_verified.so ./build_kernel.sh && \
     chown -R $(id -u):$(id -g) /kernel_out || true"
 ```
