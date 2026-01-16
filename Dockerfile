@@ -26,8 +26,19 @@ RUN python -c "from transformers import AutoModelForCausalLM, AutoTokenizer; \
     AutoTokenizer.from_pretrained('HuggingFaceH4/tiny-random-LlamaForCausalLM'); \
     AutoModelForCausalLM.from_pretrained('HuggingFaceH4/tiny-random-LlamaForCausalLM')"
 
-# Copy application files
-COPY . /app
+# Copy application files selectively (avoid .venv-docker and other large directories)
+# Note: .dockerignore also excludes these, but explicit listing is clearer
+COPY pyproject.toml /app/
+COPY certificates/ /app/certificates/
+COPY assessor/ /app/assessor/
+COPY esmassessor/ /app/esmassessor/
+COPY tools/ /app/tools/
+COPY config/ /app/config/
+COPY scenarios/ /app/scenarios/
+COPY tests/ /app/tests/
+COPY pkg/ /app/pkg/
+COPY run_judge_mode.py healthcheck.py sitecustomize.py /app/
+COPY UELAT/ /app/UELAT/
 
 # Copy and run the model prefetch script (additional safety net)
 # This uses the centralized script that reads from models.yaml

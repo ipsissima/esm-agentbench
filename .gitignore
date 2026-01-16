@@ -6,6 +6,7 @@ pycache/
 
 Virtual env
 .venv/
+.venv-docker/
 venv/
 ENV/
 env/
@@ -63,3 +64,16 @@ submissions/*/
 
 Docker
 docker-compose.override.yml
+
+# Kernel build artifacts
+UELAT/_build/
+UELAT/*.vo
+UELAT/*.vok
+UELAT/*.vos
+UELAT/*.glob
+UELAT/kernel_verified.ml
+UELAT/*.cmi
+UELAT/*.cmx
+UELAT/*.o
+UELAT/*.so
+.kernel_out/
