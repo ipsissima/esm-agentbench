@@ -16,6 +16,18 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+# Compatibility patch for DynamicCache.seen_tokens
+# In transformers >= 4.41, seen_tokens was removed from DynamicCache.
+# Some model code (e.g., Phi-3 with trust_remote_code=True) still uses it.
+# Add it back as a property that calls get_seq_length() for backwards compatibility.
+try:
+    from transformers.cache_utils import DynamicCache
+    if not hasattr(DynamicCache, 'seen_tokens'):
+        DynamicCache.seen_tokens = property(lambda self: self.get_seq_length())
+        logger.debug("Patched DynamicCache.seen_tokens for backwards compatibility")
+except ImportError:
+    pass  # transformers not installed yet
+
 
 @dataclass
 class ModelConfig:
