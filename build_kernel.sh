@@ -428,13 +428,12 @@ WRAPPER_END
 
 echo "[kernel] Created kernel_stub.c in ${BUILD_DIR}"
 
-# Step 3: Create complete object file with embedded OCaml runtime
-# Use -output-complete-obj to include the full OCaml runtime (caml_startup, etc.)
-# This eliminates runtime dependency on OCaml libraries and prevents
-# "undefined symbol: caml_exn_Assert_failure" errors on judge machines
-echo "[kernel] Creating complete object file with static OCaml runtime..."
-if ! ${OCAMLOPT} -output-complete-obj -I "${BUILD_DIR}" -o "${BUILD_DIR}/kernel_complete.o" "${BUILD_DIR}/kernel_verified.cmx"; then
-  echo "[kernel] ERROR: Failed to create complete object file with OCaml runtime"
+# Step 3: Create object file with embedded OCaml runtime
+# Use -output-obj which generates PIC-compatible code for shared libraries
+# The OCaml runtime symbols are provided by statically linking with libasmrun_pic.a
+echo "[kernel] Creating object file with OCaml runtime..."
+if ! ${OCAMLOPT} -output-obj -I "${BUILD_DIR}" -o "${BUILD_DIR}/kernel_caml.o" "${BUILD_DIR}/kernel_verified.cmx"; then
+  echo "[kernel] ERROR: Failed to create object file with OCaml runtime"
   popd > /dev/null
   exit 1
 fi
@@ -467,7 +466,7 @@ fi
 echo "[kernel] Using OCaml runtime: ${ASMRUN_LIB}"
 
 if ! gcc -shared -fPIC -o "${KERNEL_OUTPUT}" \
-    "${BUILD_DIR}/kernel_complete.o" \
+    "${BUILD_DIR}/kernel_caml.o" \
     "${BUILD_DIR}/kernel_stub.o" \
     "${ASMRUN_LIB}" \
     -L"${OCAML_WHERE}" \
