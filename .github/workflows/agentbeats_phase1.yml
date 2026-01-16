@@ -128,7 +128,7 @@ jobs:
         . .venv/bin/activate
         python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
         # canonical HF stack - install transformers>=4.36.0 for Phi-3 model compatibility (cache_utils module)
-        python -m pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers>=4.36.0"
+        python -m pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0"
         python -m pip install --no-cache-dir -r requirements.txt --no-deps
         # Use --no-deps to prevent pip from re-resolving and potentially downgrading transformers
         python -m pip install --no-deps -e .[signing]
