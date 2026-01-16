@@ -116,21 +116,25 @@ class TransformersBackend(InferenceBackend):
 
         logger.info(f"Loading {self.config.hf_id} with transformers backend...")
 
-        # Check if accelerate is available for device_map="auto"
-        try:
-            import accelerate
-            has_accelerate = True
-        except ImportError:
-            has_accelerate = False
-            logger.warning("accelerate not available, loading model on CPU without device_map")
+        # Check if we should use device_map="auto"
+        # Only useful with CUDA and requires accelerate to work properly
+        use_device_map = False
+        if torch.cuda.is_available():
+            try:
+                from accelerate import infer_auto_device_map
+                use_device_map = True
+            except ImportError:
+                logger.warning("accelerate not fully available, skipping device_map")
+        else:
+            logger.info("Running on CPU, skipping device_map")
 
         # Prepare kwargs
         model_kwargs = {
             "trust_remote_code": True,
         }
 
-        # Only use device_map if accelerate is available
-        if has_accelerate:
+        # Only use device_map if CUDA available and accelerate works
+        if use_device_map:
             model_kwargs["device_map"] = "auto"
 
         # Handle dtype
