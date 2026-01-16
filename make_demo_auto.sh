@@ -265,6 +265,75 @@ if (( $(echo "$total_audio < $DURATION_TARGET" | bc -l) )); then
 fi
 
 # -------------------------
+# Generate animated terminal screencast from run log
+# -------------------------
+info "Generating animated terminal screencast from run log"
+
+# Find monospace font (prefer DejaVu Mono, fallback to other monospace fonts)
+FONT_MONO=""
+for font_path in \
+  "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf" \
+  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" \
+  "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf" \
+  "/usr/share/fonts/truetype/freefont/FreeMono.ttf"; do
+  if [ -f "$font_path" ]; then
+    FONT_MONO="$font_path"
+    break
+  fi
+done
+if [ -z "$FONT_MONO" ]; then
+  info "Warning: No monospace font found, terminal video may use system default"
+  FONT_MONO="/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+fi
+info "Using font: $FONT_MONO"
+
+# Prepare wrapped log for terminal display (88 columns for readability)
+RUN_LOG_WRAP="$TMPDIR/run_wrap.txt"
+# Remove non-printable characters, convert tabs to spaces, wrap lines
+if [ -f "$RUN_LOG" ] && [ -s "$RUN_LOG" ]; then
+  tr -cd '\11\12\15\40-\176' < "$RUN_LOG" | sed 's/\t/    /g' | fold -s -w 88 > "$RUN_LOG_WRAP"
+else
+  echo "(No run log available)" > "$RUN_LOG_WRAP"
+fi
+
+# Terminal video parameters
+TERMINAL_VIDEO="$TMPDIR/terminal.mp4"
+# Compute integer duration for run segment (minimum 6 seconds)
+dur_run_int=$(printf "%.0f" "${dur_run:-10}")
+if [ "$dur_run_int" -lt 6 ]; then dur_run_int=6; fi
+
+# Calculate scroll speed based on log length and duration
+# Count total lines in wrapped log
+log_lines=$(wc -l < "$RUN_LOG_WRAP" 2>/dev/null || echo "50")
+# Each line is roughly 24 pixels (fontsize 18 + line_spacing 6)
+line_height=24
+total_text_height=$((log_lines * line_height))
+# Calculate scroll speed to show all content within duration
+# Add screen height to ensure we scroll through everything
+scroll_distance=$((total_text_height + SLIDE_H))
+SCROLL_SPEED=$((scroll_distance / dur_run_int))
+# Minimum scroll speed for visual effect
+if [ "$SCROLL_SPEED" -lt 30 ]; then SCROLL_SPEED=30; fi
+# Maximum scroll speed for readability
+if [ "$SCROLL_SPEED" -gt 200 ]; then SCROLL_SPEED=200; fi
+
+info "Terminal video: duration=${dur_run_int}s, scroll_speed=${SCROLL_SPEED}px/s, log_lines=${log_lines}"
+
+# Render terminal log as scrolling text using ffmpeg drawtext filter
+# Creates a dark background with green monospace text scrolling upward (terminal style)
+ffmpeg -y -f lavfi -i "color=size=${SLIDE_W}x${SLIDE_H}:duration=${dur_run_int}:rate=30:color=#0D1117" \
+  -vf "drawtext=fontfile=${FONT_MONO}:fontsize=18:fontcolor=#00FF00:x=40:y=h-(t*${SCROLL_SPEED}):textfile=${RUN_LOG_WRAP}:line_spacing=6:borderw=1:bordercolor=#003300" \
+  -c:v libx264 -t ${dur_run_int} -pix_fmt yuv420p -preset fast -crf 23 -movflags +faststart "${TERMINAL_VIDEO}" >/dev/null 2>&1
+
+# Verify terminal video was created, fall back to static image if not
+if [ ! -f "${TERMINAL_VIDEO}" ] || [ ! -s "${TERMINAL_VIDEO}" ]; then
+  info "Warning: Animated terminal video creation failed; using static fallback"
+  ffmpeg -y -loop 1 -i "$TMPDIR/run.png" -c:v libx264 -t ${dur_run_int} -pix_fmt yuv420p -r 30 -preset fast -movflags +faststart "${TERMINAL_VIDEO}" >/dev/null 2>&1
+else
+  info "Animated terminal screencast created successfully"
+fi
+
+# -------------------------
 # Create video segments from slides
 # -------------------------
 info "Creating video segments from slides"
@@ -274,7 +343,8 @@ seg_make() {
 }
 seg_make "$TMPDIR/intro.png"     "$dur_intro"   "$TMPDIR/seg_intro.mp4"
 seg_make "$TMPDIR/build.png"     "$dur_build"   "$TMPDIR/seg_build.mp4"
-seg_make "$TMPDIR/run.png"       "$dur_run"     "$TMPDIR/seg_run.mp4"
+# Use animated terminal video for run segment instead of static slide
+cp "${TERMINAL_VIDEO}" "$TMPDIR/seg_run.mp4"
 seg_make "$TMPDIR/artifacts.png" "$dur_art"     "$TMPDIR/seg_artifacts.mp4"
 seg_make "$TMPDIR/close.png"     "$dur_close"   "$TMPDIR/seg_close.mp4"
 if [ "$pad_sec" -gt 0 ]; then seg_make "$TMPDIR/close.png" "$pad_sec" "$TMPDIR/seg_pad.mp4"; fi
@@ -347,5 +417,6 @@ ffmpeg -y -i "$TMPDIR/merged.mp4" -vf "subtitles=$TMPDIR/demo.srt:force_style='F
 info "============================================"
 info "Demo video produced: $OUTPUT"
 info "Duration: $(get_duration "$OUTPUT") seconds"
+info "Features: animated terminal screencast (run segment)"
 info "Temporary files in: $TMPDIR"
 info "============================================"
