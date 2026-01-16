@@ -206,6 +206,25 @@ jobs:
       env:
         VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
+    - name: Validate drift vs creativity discrimination (real traces)
+      env:
+        ESM_SKIP_VERIFIED_KERNEL: "1"
+      run: |
+        . .venv/bin/activate
+        echo "================================"
+        echo "Validating metric discrimination on real traces"
+        echo "================================"
+
+        # Validate archived traces (baseline)
+        echo "Testing archived traces in tools/real_traces/..."
+        python tools/validate_real_traces.py || {
+          echo "WARNING: Archived trace validation failed"
+          exit 1
+        }
+
+        echo ""
+        echo "Trace validation completed successfully!"
+
     - name: Validate scenarios
       run: |
         . .venv/bin/activate
