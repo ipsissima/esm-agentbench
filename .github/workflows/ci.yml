@@ -236,7 +236,8 @@ jobs:
       - name: Start Green Agent Container
         run: |
           # Pass ESM_FORCE_TFIDF=1 to prevent heavy model downloads in CI
-          docker run -d --rm \
+          # Note: removed --rm flag so we can capture logs if container crashes
+          docker run -d \
             --name $CONTAINER_NAME \
             -p 8080:8080 \
             -e ESM_FORCE_TFIDF=1 \
@@ -248,14 +249,22 @@ jobs:
           set -e
           echo "Waiting for agent-card at http://localhost:8080/.well-known/agent-card.json"
           for i in $(seq 1 30); do
+            # Check if container is still running
+            if ! docker ps -q -f name=$CONTAINER_NAME | grep -q .; then
+              echo "❌ Container exited unexpectedly."
+              echo "--- Container logs ---"
+              docker logs $CONTAINER_NAME 2>&1 || echo "No logs available"
+              exit 1
+            fi
             if curl -sSf http://localhost:8080/.well-known/agent-card.json >/dev/null 2>&1; then
               echo "✅ Assessor is healthy."
               exit 0
             fi
             sleep 2
           done
-          echo "❌ Assessor failed to boot."
-          docker logs $CONTAINER_NAME
+          echo "❌ Assessor failed to boot (timeout after 60s)."
+          echo "--- Container logs ---"
+          docker logs $CONTAINER_NAME 2>&1 || echo "No logs available"
           exit 1
 
       - name: Run SWE-Bench Safety Demo (Integration)
@@ -287,6 +296,10 @@ jobs:
             validation_history/*.json
             demo_swe/report.json
             demo_traces/*.json
+
+      - name: Cleanup Container
+        if: always()
+        run: docker rm -f $CONTAINER_NAME 2>/dev/null || true
 
       - name: Update Validation History
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
