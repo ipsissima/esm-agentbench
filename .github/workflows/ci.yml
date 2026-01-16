@@ -217,6 +217,10 @@ jobs:
               python -m pip install -e . || true
               # Run pytest
               pytest -q
+              # Run validation scripts inside Docker where sentence-transformers works
+              # (Host Python environment causes SIGSEGV with native torch/transformers code)
+              python tools/test_drift_metric_standalone.py
+              python tools/validate_real_traces.py
             "
         timeout-minutes: 45
 

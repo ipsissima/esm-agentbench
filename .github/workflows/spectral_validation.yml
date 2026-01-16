@@ -297,6 +297,9 @@ jobs:
           python -c "import sys, importlib; importlib.invalidate_caches(); import tools; print('tools at', tools.__file__)"
 
       - name: Run all tests
+        env:
+          # Skip tests that import native embedding libraries (may SIGSEGV outside Docker)
+          SKIP_NATIVE_EMBEDDING_TESTS: "1"
         run: |
           . .venv/bin/activate
           pytest tests/ -v --tb=short -x
