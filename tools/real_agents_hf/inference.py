@@ -116,11 +116,22 @@ class TransformersBackend(InferenceBackend):
 
         logger.info(f"Loading {self.config.hf_id} with transformers backend...")
 
+        # Check if accelerate is available for device_map="auto"
+        try:
+            import accelerate
+            has_accelerate = True
+        except ImportError:
+            has_accelerate = False
+            logger.warning("accelerate not available, loading model on CPU without device_map")
+
         # Prepare kwargs
         model_kwargs = {
-            "device_map": "auto",
             "trust_remote_code": True,
         }
+
+        # Only use device_map if accelerate is available
+        if has_accelerate:
+            model_kwargs["device_map"] = "auto"
 
         # Handle dtype
         if self.config.dtype == "bfloat16":
