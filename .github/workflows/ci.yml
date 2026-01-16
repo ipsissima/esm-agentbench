@@ -108,19 +108,6 @@ jobs:
           python -m pip install --no-cache-dir -r requirements.txt --no-deps
           python -m pip install -e .
 
-      - name: Pre-download sentence-transformers model
-        run: |
-          . .venv/bin/activate
-          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
-
-      - name: Verify Embeddings (Real Traces) - BEFORE kernel download
-        env:
-          ESM_SKIP_VERIFIED_KERNEL: "1"
-        run: |
-          . .venv/bin/activate
-          echo "Running embedding validation in clean environment (no kernel artifact present)"
-          python tools/validate_real_traces.py
-
       - name: Download kernel artifact
         uses: actions/download-artifact@v4
         with:
@@ -241,6 +228,25 @@ jobs:
         run: |
           . .venv/bin/activate
           python tools/test_drift_metric_standalone.py
+
+      - name: Verify Embeddings (Real Traces) - Isolated Python Container
+        run: |
+          # Run embedding validation in clean Python container to avoid
+          # library conflicts between OCaml/Coq kernel and sentence-transformers
+          docker run --rm \
+            -v "${{ github.workspace }}":/work \
+            -w /work \
+            python:3.11-slim \
+            bash -c "
+              set -euo pipefail
+              # Install dependencies
+              pip install --no-cache-dir -q numpy scipy sentence-transformers==2.3.1 matplotlib
+              pip install --no-cache-dir -q -r requirements.txt --no-deps || true
+              pip install --no-cache-dir -q -e . || true
+              # Run validation with kernel explicitly skipped (no OCaml libs loaded)
+              export ESM_SKIP_VERIFIED_KERNEL=1
+              python tools/validate_real_traces.py
+            "
 
       - name: Build Docker image
         run: docker build -t $IMAGE_NAME .
