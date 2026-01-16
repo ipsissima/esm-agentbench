@@ -15,8 +15,8 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0" \
     && pip install --no-cache-dir -r /app/requirements.txt --no-deps \
     && pip install --no-cache-dir --upgrade scikit-learn \
-    # Ensure Flask's required dependency is present (defensive - fixes Flask 3.0 signals import)
-    && pip install --no-cache-dir "blinker>=1.6.2"
+    # Flask 3.0 requires these deps which --no-deps skips; install Flask with deps to ensure all present
+    && pip install --no-cache-dir "flask==3.0.0"
 
 # Pre-download the sentence-transformers model during build
 # This avoids network access at runtime and the unshare permission issue
