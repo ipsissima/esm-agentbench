@@ -110,19 +110,21 @@ jobs:
               OCAML_STDLIB=$(ocamlfind printconf stdlib 2>/dev/null || ocamlopt -where 2>/dev/null || echo "")
 
               # Install system BLAS/LAPACK (shared between OCaml and Python)
+              # Use ONLY OpenBLAS (includes LAPACK internally, no mixing)
               apt-get update -qq
-              apt-get install -y -qq libopenblas-dev libblas3 liblapack3 python3-pip python3-venv
+              apt-get install -y -qq libopenblas0-pthread libopenblas-dev python3-pip python3-venv
 
-              # Find the system BLAS library
-              BLAS_LIB=$(find /usr/lib -name "libblas.so*" -o -name "libopenblas.so*" | head -1)
-              LAPACK_LIB=$(find /usr/lib -name "liblapack.so*" | head -1)
+              # Find OpenBLAS library (it includes BLAS + LAPACK)
+              OPENBLAS_LIB=$(find /usr/lib -name "libopenblas*.so*" | grep -v ".a$" | head -1)
 
-              echo "Using BLAS library: $BLAS_LIB"
-              echo "Using LAPACK library: $LAPACK_LIB"
+              echo "Using OpenBLAS library: $OPENBLAS_LIB"
 
-              # Preload BLAS/LAPACK to force both kernel and PyTorch to use same libs
-              if [ -n "$BLAS_LIB" ] && [ -n "$LAPACK_LIB" ]; then
-                export LD_PRELOAD="$BLAS_LIB:$LAPACK_LIB"
+              # Preload ONLY OpenBLAS (don't mix with separate libblas/liblapack)
+              if [ -n "$OPENBLAS_LIB" ]; then
+                export LD_PRELOAD="$OPENBLAS_LIB"
+                echo "LD_PRELOAD set to: $LD_PRELOAD"
+              else
+                echo "WARNING: OpenBLAS not found, proceeding without LD_PRELOAD"
               fi
 
               # Add OCaml libs to library path
@@ -135,7 +137,10 @@ jobs:
               . .venv-kernel/bin/activate
               pip install --upgrade pip setuptools wheel -q
 
-              # Install CPU-only PyTorch first (smaller, uses system BLAS)
+              # Install numpy first, force it to use OpenBLAS
+              pip install --no-cache-dir numpy -q
+
+              # Install CPU-only PyTorch (will use system OpenBLAS via numpy)
               pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu -q
 
               # Install HF stack
@@ -152,9 +157,22 @@ jobs:
               echo "VERIFIED_KERNEL_PATH=$VERIFIED_KERNEL_PATH"
               echo "================================"
 
+              # Check what libraries will be loaded
+              echo "Checking library dependencies..."
+              ldd "$VERIFIED_KERNEL_PATH" | head -20 || true
+              echo ""
+
               # Run validation WITH kernel (ESM_SKIP_VERIFIED_KERNEL not set)
               python tools/validate_real_traces.py || {
-                echo "FAILED: validate_real_traces.py crashed"
+                echo "================================"
+                echo "SIGSEGV STILL OCCURRED - Library conflict persists"
+                echo "================================"
+                echo "This is a known limitation: OCaml/Coq kernel and PyTorch/sentence-transformers"
+                echo "have deep library conflicts that cannot be resolved with LD_PRELOAD alone."
+                echo ""
+                echo "The kernel IS verified separately in build_verified_kernel job."
+                echo "For trace validation, we use Python fallback (same formulas, not verified)."
+                echo "================================"
                 exit 1
               }
             '
