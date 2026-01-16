@@ -180,6 +180,32 @@ jobs:
         # Verify server is running
         curl -s http://localhost:8080/health || echo "Server health check (may not be implemented)"
 
+    - name: Generate real agent traces (judge mode)
+      run: |
+        . .venv/bin/activate
+        export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
+        echo "Generating real agent traces for all scenarios (judge mode: small, CPU-friendly)..."
+
+        # Run judge mode for each scenario to generate traces
+        for s in scenarios/*; do
+          if [ -d "$s" ]; then
+            scenario=$(basename "$s")
+            echo "==> Generating traces for $scenario"
+            python tools/real_agents_hf/run_real_agents.py \
+              --mode small \
+              --scenario "$scenario" \
+              --n 10 \
+              --max-steps 20 || {
+                echo "ERROR: Failed to generate traces for $scenario"
+                exit 1
+              }
+          fi
+        done
+
+        echo "All traces generated successfully!"
+      env:
+        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
+
     - name: Validate scenarios
       run: |
         . .venv/bin/activate
