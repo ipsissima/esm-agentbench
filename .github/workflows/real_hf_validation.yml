@@ -2,7 +2,7 @@ name: Real HF Agent Validation
 
 # This workflow tests the real agent HF evaluation pipeline.
 # It's optional and only runs when RUN_REAL_HF=1 or on manual dispatch.
-# Uses a tiny model for quick pipeline validation.
+# Uses phi-3-mini-instruct for efficient pipeline validation with proper context.
 
 on:
   workflow_dispatch:
@@ -79,7 +79,7 @@ jobs:
           python -c "import sentence_transformers; print('sentence-transformers OK')"
           python -c "import torch; print('torch:', torch.__version__)"
 
-      - name: Test agent loop with tiny model
+      - name: Test agent loop with small model
         run: |
           . .venv/bin/activate
           # Test the agent loop module standalone
@@ -87,11 +87,11 @@ jobs:
           python - <<'PY'
           from inference import create_backend
           print('Testing inference backend...')
-          backend = create_backend('tiny-test')
+          backend = create_backend('phi-3-mini-instruct')
           print('Backend created successfully')
           PY
 
-      - name: Run pipeline test (1 scenario, 2 runs, tiny model)
+      - name: Run pipeline test (1 scenario, 2 runs, small model)
         run: |
           . .venv/bin/activate
           # Use workflow input or default
@@ -100,7 +100,7 @@ jobs:
 
           python tools/real_agents_hf/run_real_agents.py \
             --scenario "$SCENARIO" \
-            --models tiny-test \
+            --models phi-3-mini-instruct \
             --labels gold,drift \
             --n "$N_RUNS" \
             --max-steps 10 \
