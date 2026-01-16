@@ -10,6 +10,43 @@ permissions:
   contents: write
 
 jobs:
+  validate-embeddings:
+    name: Validate Embeddings (Real Traces)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Python venv and install dependencies
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip setuptools wheel
+          # Install HF stack
+          python -m pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2"
+          python -m pip install --no-cache-dir -r requirements.txt --no-deps
+          python -m pip install -e .
+
+      - name: Pre-download sentence-transformers model
+        run: |
+          . .venv/bin/activate
+          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+
+      - name: Run embedding validation (without kernel - separate VM)
+        env:
+          ESM_SKIP_VERIFIED_KERNEL: "1"
+        run: |
+          . .venv/bin/activate
+          echo "Running embedding validation (kernel skipped - no OCaml runtime in this job)"
+          python tools/validate_real_traces.py
+
   build_verified_kernel:
     name: Build Verified Kernel (Docker Coq 8.18.0)
     runs-on: ubuntu-latest
@@ -73,6 +110,93 @@ jobs:
             .kernel_out/kernel_verified.so.sha256.sig
           if-no-files-found: error
 
+  validate-with-kernel:
+    name: Validate Real Traces WITH Verified Kernel
+    runs-on: ubuntu-latest
+    needs: build_verified_kernel
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download kernel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: verified-kernel
+          path: UELAT/
+
+      - name: Run validation with kernel using LD_PRELOAD
+        run: |
+          # Run inside Coq container where OCaml runtime is available
+          # Use LD_PRELOAD to force compatible BLAS/LAPACK for both kernel and PyTorch
+          docker run --rm --user root \
+            -v "${{ github.workspace }}":/work \
+            -w /work \
+            -e OPAMROOT=/home/coq/.opam \
+            -e OPAMCONFIRMLEVEL=unsafe-yes \
+            coqorg/coq:8.18.0 \
+            bash -c '
+              set -euo pipefail
+              eval $(opam env 2>/dev/null)
+
+              # Set kernel path
+              export VERIFIED_KERNEL_PATH=/work/UELAT/kernel_verified.so
+
+              # Find OCaml stdlib and BLAS libraries
+              OCAML_STDLIB=$(ocamlfind printconf stdlib 2>/dev/null || ocamlopt -where 2>/dev/null || echo "")
+
+              # Install system BLAS/LAPACK (shared between OCaml and Python)
+              apt-get update -qq
+              apt-get install -y -qq libopenblas-dev libblas3 liblapack3 python3-pip python3-venv
+
+              # Find the system BLAS library
+              BLAS_LIB=$(find /usr/lib -name "libblas.so*" -o -name "libopenblas.so*" | head -1)
+              LAPACK_LIB=$(find /usr/lib -name "liblapack.so*" | head -1)
+
+              echo "Using BLAS library: $BLAS_LIB"
+              echo "Using LAPACK library: $LAPACK_LIB"
+
+              # Preload BLAS/LAPACK to force both kernel and PyTorch to use same libs
+              if [ -n "$BLAS_LIB" ] && [ -n "$LAPACK_LIB" ]; then
+                export LD_PRELOAD="$BLAS_LIB:$LAPACK_LIB"
+              fi
+
+              # Add OCaml libs to library path
+              if [ -n "$OCAML_STDLIB" ]; then
+                export LD_LIBRARY_PATH="$OCAML_STDLIB:${LD_LIBRARY_PATH:-}"
+              fi
+
+              # Setup Python venv
+              python3 -m venv .venv-kernel
+              . .venv-kernel/bin/activate
+              pip install --upgrade pip setuptools wheel -q
+
+              # Install CPU-only PyTorch first (smaller, uses system BLAS)
+              pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu -q
+
+              # Install HF stack
+              pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2" -q
+              pip install --no-cache-dir -r requirements.txt --no-deps -q
+              pip install -e . -q
+
+              # Download sentence-transformers model
+              python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer(\"sentence-transformers/all-MiniLM-L6-v2\")"
+
+              echo "================================"
+              echo "Running validate_real_traces.py with verified kernel"
+              echo "LD_PRELOAD=$LD_PRELOAD"
+              echo "VERIFIED_KERNEL_PATH=$VERIFIED_KERNEL_PATH"
+              echo "================================"
+
+              # Run validation WITH kernel (ESM_SKIP_VERIFIED_KERNEL not set)
+              python tools/validate_real_traces.py || {
+                echo "FAILED: validate_real_traces.py crashed"
+                exit 1
+              }
+            '
+        timeout-minutes: 15
+
   validate-and-integrate:
     runs-on: ubuntu-latest
     needs: build_verified_kernel
@@ -107,19 +231,6 @@ jobs:
           python -m pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2"
           python -m pip install --no-cache-dir -r requirements.txt --no-deps
           python -m pip install -e .
-
-      - name: Pre-download sentence-transformers model
-        run: |
-          . .venv/bin/activate
-          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
-
-      - name: Verify Embeddings (Real Traces) - BEFORE kernel download
-        env:
-          ESM_SKIP_VERIFIED_KERNEL: "1"
-        run: |
-          . .venv/bin/activate
-          echo "Running embedding validation in clean environment (no kernel artifact present)"
-          python tools/validate_real_traces.py
 
       - name: Download kernel artifact
         uses: actions/download-artifact@v4
