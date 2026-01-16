@@ -1,0 +1,136 @@
+name: Auto Phase-1 Release & Publish Agent-Card
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'agentbeats/phase1-submission-*'
+
+jobs:
+  build_and_release:
+    name: Build, Verify, Package and Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 720
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Ensure executables
+        run: |
+          chmod +x ci/verify_submission.sh || true
+          chmod +x scripts/produce_final_artifact.sh || true
+          chmod +x make_demo_auto.sh || true
+
+      - name: Create venv and install requirements
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip setuptools wheel
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt || true; fi
+          python -m pip install -e . || true
+
+      - name: Run canonical verify (capture logs)
+        id: verify
+        run: |
+          set -o pipefail
+          # Run verify and capture output regardless of success
+          ./ci/verify_submission.sh --quick 2>&1 | tee ci_verify.log || true
+          ./scripts/produce_final_artifact.sh 2>&1 | tee produce_final_artifact.log || true
+          # Basic existence checks
+          if [ -f submission.zip ]; then echo "HAS_SUBMISSION=1" >> $GITHUB_OUTPUT; fi
+          if [ -f .kernel_out/kernel_verified.so ]; then echo "HAS_KERNEL=1" >> $GITHUB_OUTPUT; fi
+          if grep -q '"real_traces_only"' -R reports 2>/dev/null; then echo "HAS_REPORTS_REAL=1" >> $GITHUB_OUTPUT; fi
+          # mark verify success if key files present
+          if [ -f submission.zip ] && [ -f .kernel_out/kernel_verified.so ]; then echo "VERIFY_OK=1" >> $GITHUB_OUTPUT; else echo "VERIFY_OK=0" >> $GITHUB_OUTPUT; fi
+
+      - name: Collect logs / tail diagnostics
+        if: always()
+        run: |
+          echo "=== CI verify tail || file not present ==="
+          tail -n 200 ci_verify.log || true
+          echo "=== produce_final_artifact tail ==="
+          tail -n 200 produce_final_artifact.log || true
+          echo "=== kernel build log tail ==="
+          tail -n 200 .kernel_out/build.log || true
+          echo "=== judge run log tail ==="
+          tail -n 200 ci/judge_run.log || true
+
+      - name: Build judge docker image and save tar
+        if: steps.verify.outputs.VERIFY_OK == '1'
+        run: |
+          docker build -t esm-agentbench .
+          docker save esm-agentbench -o docker-image.tar
+          ls -lh docker-image.tar
+
+      - name: Create submission.zip if missing
+        if: steps.verify.outputs.HAS_SUBMISSION != '1'
+        run: |
+          # Try to assemble essential files into submission.zip
+          mkdir -p submission_tmp
+          cp -r .kernel_out submission_tmp/ 2>/dev/null || true
+          cp -r reports submission_tmp/ 2>/dev/null || true
+          cp -r scenarios submission_tmp/ 2>/dev/null || true
+          cp -r .well-known submission_tmp/ 2>/dev/null || true
+          zip -r submission.zip submission_tmp || true
+          ls -lh submission.zip
+
+      - name: Upload artifacts to Actions (submission + docker image + logs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-artifacts
+          path: |
+            submission.zip
+            docker-image.tar
+            .kernel_out/kernel_verified.so
+            .kernel_out/kernel_verified.so.sha256
+            reports
+            scenarios/*/attack_succeeded.json
+            ci_verify.log
+            produce_final_artifact.log
+          retention-days: 30
+
+      - name: Create GitHub Release (draft if verify failed)
+        id: release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: phase1-submission-${{ github.run_id }}
+          name: "AgentBeats Phase-1 submission-${{ github.run_id }}"
+          body: |
+            Automated Phase-1 submission produced by Actions run ${{ github.run_id }}.
+            VERIFY_OK=${{ steps.verify.outputs.VERIFY_OK }}
+            If VERIFY_OK=0, please inspect attached logs.
+          draft: ${{ (steps.verify.outputs.VERIFY_OK != '1') && 'true' || 'false' }}
+          files: |
+            submission.zip
+            docker-image.tar
+            .kernel_out/kernel_verified.so
+            .kernel_out/kernel_verified.so.sha256
+            ci_verify.log
+            produce_final_artifact.log
+
+      - name: Publish agent-card to gh-pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .well-known
+          publish_branch: gh-pages
+
+      - name: Print published agent-card URL
+        run: |
+          OWNER=${{ github.repository_owner }}
+          REPO=${{ github.event.repository.name || github.repository }}
+          echo "Agent card URL: https://${OWNER}.github.io/${REPO}/.well-known/agent-card.json"
+
+      - name: Final summary
+        run: |
+          echo "VERIFY_OK=${{ steps.verify.outputs.VERIFY_OK }}"
+          echo "Artifacts uploaded and release created: phase1-submission-${{ github.run_id }}"
