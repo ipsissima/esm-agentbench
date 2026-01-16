@@ -28,6 +28,45 @@ try:
 except ImportError:
     pass  # transformers not installed yet
 
+# Additional compatibility shims for DynamicCache:
+# Some remote modeling code expects methods like get_max_length() or get_capacity().
+# Provide safe fallbacks that call available methods/properties where possible.
+try:
+    from transformers.cache_utils import DynamicCache as _DynamicCacheShim
+    if hasattr(_DynamicCacheShim, '__class__'):
+        # seen_tokens may already have been added above; ensure get_max_length exists.
+        if not hasattr(_DynamicCacheShim, 'get_max_length'):
+            def _get_max_length(self):
+                # Prefer an explicit capacity or length-like method if present.
+                if hasattr(self, 'get_capacity'):
+                    try:
+                        return self.get_capacity()
+                    except Exception:
+                        pass
+                if hasattr(self, 'max_length'):
+                    try:
+                        return int(self.max_length)
+                    except Exception:
+                        pass
+                if hasattr(self, 'get_seq_length'):
+                    try:
+                        # fall back to current seq length as a conservative proxy
+                        return int(self.get_seq_length())
+                    except Exception:
+                        pass
+                # Lastly, try len(self) if it behaves like a sequence
+                try:
+                    return int(len(self))
+                except Exception:
+                    # Give a safe default (0). Model code should handle gracefully.
+                    return 0
+            _DynamicCacheShim.get_max_length = _get_max_length
+            logger.debug("Patched DynamicCache.get_max_length for backwards compatibility")
+except Exception:
+    # If any import/inspection fails, we silently continue. The generate() fallback
+    # below will handle the AttributeError at runtime.
+    pass
+
 
 @dataclass
 class ModelConfig:
@@ -86,6 +125,9 @@ class InferenceBackend:
         self.config = config
         self.model = None
         self.tokenizer = None
+        # If we detect incompatibilities with transformers cache internals,
+        # this flag forces generation calls to disable use_cache (safer).
+        self._force_no_cache = False
 
     def load(self):
         """Load model and tokenizer."""
@@ -212,16 +254,39 @@ class TransformersBackend(InferenceBackend):
         )
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
 
-        # Generate
+        # Generate — try normal generation, but be defensive for cache-internal
+        # AttributeErrors coming from remote model code mismatching transformers runtime.
+        gen_kwargs = dict(
+            **inputs,
+            max_new_tokens=max_tokens,
+            temperature=temperature,
+            do_sample=temperature > 0,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
+        )
+        # If we've seen cache incompatibilities before, force no cache.
+        if getattr(self, "_force_no_cache", False):
+            gen_kwargs["use_cache"] = False
+
         with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=max_tokens,
-                temperature=temperature,
-                do_sample=temperature > 0,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-            )
+            try:
+                outputs = self.model.generate(**gen_kwargs)
+            except AttributeError as ex:
+                # Common symptoms: remote model code expects DynamicCache.seen_tokens,
+                # DynamicCache.get_max_length, or other cache internals not present.
+                msg = str(ex)
+                if any(x in msg for x in ("seen_tokens", "get_max_length", "DynamicCache")):
+                    logger.warning(
+                        "Model generation failed due to cache-internals mismatch (%s). "
+                        "Retrying with use_cache=False (slower).", msg
+                    )
+                    # Persist the decision so subsequent generates avoid the slow fail/retry.
+                    self._force_no_cache = True
+                    gen_kwargs["use_cache"] = False
+                    outputs = self.model.generate(**gen_kwargs)
+                else:
+                    # Unknown AttributeError - re-raise so it surfaces
+                    raise
 
         # Decode (skip input prompt)
         generated = self.tokenizer.decode(
