@@ -70,12 +70,16 @@ class AgentLoop:
         - Continues until FINAL or max_steps reached
     """
 
+    # Approximate chars per token for estimation (conservative)
+    CHARS_PER_TOKEN = 3.5
+
     def __init__(
         self,
         backend: InferenceBackend,
         sandbox: Sandbox,
         max_steps: int = 30,
         max_retries: int = 3,
+        context_margin: float = 0.85,
     ):
         """Initialize agent loop.
 
@@ -89,11 +93,85 @@ class AgentLoop:
             Maximum number of steps before stopping
         max_retries : int
             Maximum retries for malformed tool calls
+        context_margin : float
+            Fraction of context window to use (0.85 = 85%), leaving room for
+            generation and safety margin
         """
         self.backend = backend
         self.sandbox = sandbox
         self.max_steps = max_steps
         self.max_retries = max_retries
+        self.context_margin = context_margin
+
+        # Calculate max tokens for conversation based on model's context length
+        context_length = getattr(backend.config, 'context_length', 2048)
+        max_gen_tokens = backend.config.max_tokens
+        self.max_context_tokens = int((context_length - max_gen_tokens) * context_margin)
+
+    def _estimate_tokens(self, text: str) -> int:
+        """Estimate token count for text.
+
+        Uses a simple character-based heuristic. For more accuracy,
+        the actual tokenizer could be used, but this is faster.
+        """
+        return int(len(text) / self.CHARS_PER_TOKEN)
+
+    def _apply_sliding_window(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        conversation_history: List[str],
+    ) -> List[str]:
+        """Apply sliding window to keep conversation within context limits.
+
+        Preserves system prompt and user task, trims oldest conversation
+        turns when context exceeds limits.
+
+        Parameters
+        ----------
+        system_prompt : str
+            The system prompt (always preserved)
+        user_prompt : str
+            The initial user task (always preserved)
+        conversation_history : List[str]
+            List of conversation turns (ASSISTANT/TOOL RESULT pairs)
+
+        Returns
+        -------
+        List[str]
+            Trimmed conversation that fits within context limits
+        """
+        # Calculate fixed overhead (system + user prompts)
+        fixed_parts = [f"SYSTEM:\n{system_prompt}\n", f"USER:\n{user_prompt}\n"]
+        fixed_tokens = sum(self._estimate_tokens(p) for p in fixed_parts)
+
+        # Available tokens for conversation history
+        available_tokens = self.max_context_tokens - fixed_tokens
+
+        if available_tokens <= 0:
+            logger.warning("System/user prompts exceed context limit, no room for history")
+            return []
+
+        # Build conversation from most recent, going backwards
+        result = []
+        current_tokens = 0
+
+        for turn in reversed(conversation_history):
+            turn_tokens = self._estimate_tokens(turn)
+            if current_tokens + turn_tokens > available_tokens:
+                # Adding this turn would exceed limit
+                break
+            result.insert(0, turn)
+            current_tokens += turn_tokens
+
+        trimmed_count = len(conversation_history) - len(result)
+        if trimmed_count > 0:
+            logger.info(
+                f"Sliding window: trimmed {trimmed_count} old turns, "
+                f"keeping {len(result)} recent turns (~{current_tokens} tokens)"
+            )
+
+        return result
 
     def _build_system_prompt(self) -> str:
         """Build system prompt with tool documentation."""
@@ -221,19 +299,29 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
             Execution trace
         """
         steps = []
-        conversation = []
 
-        # Initial prompt
+        # Keep system and user prompts separate for sliding window
         system_prompt = self._build_system_prompt()
         user_prompt = f"Task: {task}\n\nPlease complete this task step by step using the available tools."
 
-        conversation.append(f"SYSTEM:\n{system_prompt}\n")
-        conversation.append(f"USER:\n{user_prompt}\n")
+        # Conversation history (after system/user prompts) - managed with sliding window
+        conversation_history = []
 
         step_num = 0
         retry_count = 0
 
         while step_num < self.max_steps:
+            # Apply sliding window to keep context within limits
+            trimmed_history = self._apply_sliding_window(
+                system_prompt, user_prompt, conversation_history
+            )
+
+            # Build full prompt with fixed parts + trimmed history
+            conversation = [
+                f"SYSTEM:\n{system_prompt}\n",
+                f"USER:\n{user_prompt}\n",
+            ] + trimmed_history
+
             # Generate response
             full_prompt = "\n".join(conversation)
             response = self.backend.generate(
@@ -259,7 +347,7 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
                     break
 
                 correction_prompt = self._format_correction_prompt(content, response)
-                conversation.append(f"USER:\n{correction_prompt}\n")
+                conversation_history.append(f"USER:\n{correction_prompt}\n")
                 continue
 
             retry_count = 0  # Reset on success
@@ -271,7 +359,7 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
                     step_type='thought',
                     content=content or response,
                 ))
-                conversation.append(f"ASSISTANT:\n{response}\n")
+                conversation_history.append(f"ASSISTANT:\n{response}\n")
 
             elif response_type == 'tool_call':
                 # Execute tool
@@ -291,8 +379,8 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
                         content=result,
                     ))
 
-                    conversation.append(f"ASSISTANT:\n{response}\n")
-                    conversation.append(f"TOOL RESULT:\n{result}\n")
+                    conversation_history.append(f"ASSISTANT:\n{response}\n")
+                    conversation_history.append(f"TOOL RESULT:\n{result}\n")
 
                     step_num += 1
                 except Exception as e:
@@ -303,7 +391,7 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
                         step_type='tool_result',
                         content=error_msg,
                     ))
-                    conversation.append(f"TOOL RESULT:\n{error_msg}\n")
+                    conversation_history.append(f"TOOL RESULT:\n{error_msg}\n")
                     step_num += 1
 
             elif response_type == 'final':

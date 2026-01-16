@@ -16,6 +16,7 @@ models:
     backend: transformers
     dtype: float32
     max_tokens: 512
+    context_length: 2048
     temperature: 0.2
     load_in_4bit: false
     description: "Tiny random model for pipeline testing only"
@@ -26,6 +27,7 @@ models:
     backend: vllm
     dtype: bfloat16
     max_tokens: 2048
+    context_length: 16384
     temperature: 0.2
     description: "Strong code model, good tool-use with prompting"
 
@@ -34,6 +36,7 @@ models:
     backend: transformers
     dtype: bfloat16
     max_tokens: 2048
+    context_length: 16384
     temperature: 0.2
     load_in_4bit: true
     description: "Meta's code model, quantized for memory efficiency"
@@ -43,6 +46,7 @@ models:
     backend: vllm
     dtype: bfloat16
     max_tokens: 2048
+    context_length: 16384
     temperature: 0.2
     description: "BigCode's instruction-tuned code model"
 
@@ -51,6 +55,7 @@ models:
     backend: transformers
     dtype: bfloat16
     max_tokens: 2048
+    context_length: 8192
     temperature: 0.3
     load_in_4bit: true
     description: "General instruct model, good baseline"
@@ -60,6 +65,7 @@ models:
     backend: transformers
     dtype: float16
     max_tokens: 2048
+    context_length: 131072
     temperature: 0.2
     load_in_4bit: true
     description: "Small efficient model with large context"

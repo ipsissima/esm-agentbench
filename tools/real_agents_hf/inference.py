@@ -26,6 +26,7 @@ class ModelConfig:
     dtype: str
     max_tokens: int
     temperature: float
+    context_length: int = 2048  # Default context window size
     load_in_4bit: bool = False
     load_in_8bit: bool = False
     description: str = ""
@@ -39,6 +40,7 @@ class ModelConfig:
             dtype=data['dtype'],
             max_tokens=data['max_tokens'],
             temperature=data['temperature'],
+            context_length=data.get('context_length', 2048),
             load_in_4bit=data.get('load_in_4bit', False),
             load_in_8bit=data.get('load_in_8bit', False),
             description=data.get('description', ''),
@@ -170,8 +172,17 @@ class TransformersBackend(InferenceBackend):
         max_tokens = max_tokens or self.config.max_tokens
         temperature = temperature or self.config.temperature
 
-        # Tokenize
-        inputs = self.tokenizer(prompt, return_tensors="pt", padding=True)
+        # Calculate max input length, leaving room for generation
+        max_input_length = self.config.context_length - max_tokens
+
+        # Tokenize with truncation to prevent exceeding model's context window
+        inputs = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=max_input_length,
+        )
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
 
         # Generate
