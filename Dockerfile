@@ -14,7 +14,9 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0" \
     && pip install --no-cache-dir -r /app/requirements.txt --no-deps \
-    && pip install --no-cache-dir --upgrade scikit-learn
+    && pip install --no-cache-dir --upgrade scikit-learn \
+    # Ensure Flask's required dependency is present (defensive - fixes Flask 3.0 signals import)
+    && pip install --no-cache-dir "blinker>=1.6.2"
 
 # Pre-download the sentence-transformers model during build
 # This avoids network access at runtime and the unshare permission issue
