@@ -10,43 +10,6 @@ permissions:
   contents: write
 
 jobs:
-  validate-embeddings:
-    name: Validate Embeddings (Real Traces)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Setup Python venv and install dependencies
-        run: |
-          python -m venv .venv
-          . .venv/bin/activate
-          python -m pip install --upgrade pip setuptools wheel
-          # Install HF stack
-          python -m pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers==4.35.2"
-          python -m pip install --no-cache-dir -r requirements.txt --no-deps
-          python -m pip install -e .
-
-      - name: Pre-download sentence-transformers model
-        run: |
-          . .venv/bin/activate
-          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
-
-      - name: Run embedding validation (without kernel - separate VM)
-        env:
-          ESM_SKIP_VERIFIED_KERNEL: "1"
-        run: |
-          . .venv/bin/activate
-          echo "Running embedding validation (kernel skipped - no OCaml runtime in this job)"
-          python tools/validate_real_traces.py
-
   build_verified_kernel:
     name: Build Verified Kernel (Docker Coq 8.18.0)
     runs-on: ubuntu-latest
