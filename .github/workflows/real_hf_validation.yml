@@ -62,9 +62,10 @@ jobs:
           python -m venv .venv
           . .venv/bin/activate
           python -m pip install --upgrade pip
-          python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
+          python -m pip uninstall -y huggingface-hub sentence-transformers transformers accelerate || true
           # canonical HF stack - install transformers>=4.36.0 for Phi-3 model compatibility (cache_utils module)
-          python -m pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0"
+          # accelerate is required for device_map="auto" in transformers
+          python -m pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0" "accelerate>=0.25.0"
           python -m pip install --no-cache-dir -r requirements.txt --no-deps
           # Use --no-deps to prevent pip from re-resolving and potentially downgrading transformers
           python -m pip install --no-deps -e .
@@ -82,6 +83,7 @@ jobs:
           python -c "import transformers; print('transformers:', transformers.__version__)"
           python -c "import sentence_transformers; print('sentence-transformers OK')"
           python -c "import torch; print('torch:', torch.__version__)"
+          python -c "import accelerate; print('accelerate:', accelerate.__version__)"
 
       - name: Test agent loop with small model
         run: |

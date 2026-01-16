@@ -126,9 +126,10 @@ jobs:
     - name: Install HF stack + project
       run: |
         . .venv/bin/activate
-        python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
+        python -m pip uninstall -y huggingface-hub sentence-transformers transformers accelerate || true
         # canonical HF stack - install transformers>=4.36.0 for Phi-3 model compatibility (cache_utils module)
-        python -m pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0"
+        # accelerate is required for device_map="auto" in transformers
+        python -m pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0" "accelerate>=0.25.0"
         python -m pip install --no-cache-dir -r requirements.txt --no-deps
         # Use --no-deps to prevent pip from re-resolving and potentially downgrading transformers
         python -m pip install --no-deps -e .[signing]
@@ -144,8 +145,10 @@ jobs:
         try:
             import tools
             print("tools importable:", tools.__file__)
+            import accelerate
+            print("accelerate:", accelerate.__version__)
         except Exception as e:
-            print("ERROR: tools not importable:", e, file=sys.stderr)
+            print("ERROR: import failed:", e, file=sys.stderr)
             raise
         PY
 
