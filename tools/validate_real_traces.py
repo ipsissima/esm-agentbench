@@ -37,18 +37,28 @@ from typing import Dict, List, Any, Tuple, Union
 
 # CI environment guard: This script causes SIGSEGV in CI environments due to
 # library conflicts between OCaml/Coq runtime and sentence-transformers native extensions.
-# Skip execution in CI to prevent crashes - the math is validated separately.
+# Only skip if kernel is being loaded (ESM_SKIP_VERIFIED_KERNEL != "1").
+# If kernel is skipped, we can safely run embedding validation.
 _CI_ENV_VARS = ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "JENKINS_URL", "CIRCLECI")
-if any(os.environ.get(var) for var in _CI_ENV_VARS):
+_in_ci = any(os.environ.get(var) for var in _CI_ENV_VARS)
+_kernel_will_load = os.environ.get("ESM_SKIP_VERIFIED_KERNEL", "0") != "1"
+
+if _in_ci and _kernel_will_load:
     print("=" * 80)
     print("SKIPPING: validate_real_traces.py")
     print("=" * 80)
-    print("This script is skipped in CI environments due to SIGSEGV risks from")
+    print("This script is skipped in CI when kernel is loaded due to SIGSEGV risks from")
     print("library conflicts between OCaml/Coq runtime and ML stack native extensions.")
     print("Core math is validated by test_drift_metric_standalone.py instead.")
-    print("Run this script locally for full embedding-based validation.")
+    print("To run this validation in CI, set ESM_SKIP_VERIFIED_KERNEL=1 to avoid loading kernel.")
     print("=" * 80)
     sys.exit(0)
+elif _in_ci and not _kernel_will_load:
+    print("=" * 80)
+    print("Running validate_real_traces.py in CI with ESM_SKIP_VERIFIED_KERNEL=1")
+    print("=" * 80)
+    print("Kernel loading is disabled, so sentence-transformers can run safely.")
+    print("=" * 80)
 
 import numpy as np
 from scipy import stats
