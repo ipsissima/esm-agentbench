@@ -9,10 +9,10 @@ ENV HF_HOME=/app/models
 COPY requirements.txt /app/
 # Install CPU-only torch first to avoid downloading CUDA libs
 # Then install compatible huggingface-hub and sentence-transformers versions
-# huggingface-hub>=0.16.4 is required by transformers>=4.35.2
+# huggingface-hub>=0.19.3 is required by transformers>=4.36.0 (for cache_utils module)
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir "huggingface-hub==0.16.4" "sentence-transformers==2.3.1" "transformers>=4.36.0" \
+    && pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0" \
     && pip install --no-cache-dir -r /app/requirements.txt --no-deps \
     && pip install --no-cache-dir --upgrade scikit-learn
 

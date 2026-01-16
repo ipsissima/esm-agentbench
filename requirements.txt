@@ -1,5 +1,5 @@
 # This file is for reproducible developer installs; the canonical package metadata is pyproject.toml.
-huggingface-hub==0.16.4
+huggingface-hub>=0.19.3
 sentence-transformers==2.3.1
 flask==3.0.0
 numpy==1.26.2

@@ -27,7 +27,7 @@ classifiers = [
 
 # pyproject.toml is canonical; requirements.txt is for convenience installs.
 dependencies = [
-    "huggingface-hub==0.16.4",
+    "huggingface-hub>=0.19.3",
     "sentence-transformers==2.3.1",
     "flask==3.0.0",
     "numpy==1.26.2",
