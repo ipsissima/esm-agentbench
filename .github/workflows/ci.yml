@@ -221,11 +221,17 @@ jobs:
         timeout-minutes: 45
 
       - name: Verify Math (Drift Metric Standalone)
+        env:
+          # Must skip kernel outside Docker - OCaml runtime not available
+          ESM_SKIP_VERIFIED_KERNEL: "1"
         run: |
           . .venv/bin/activate
           python tools/test_drift_metric_standalone.py
 
       - name: Verify Embeddings (Real Traces)
+        env:
+          # Must skip kernel outside Docker - OCaml runtime not available
+          ESM_SKIP_VERIFIED_KERNEL: "1"
         run: |
           . .venv/bin/activate
           python tools/validate_real_traces.py
