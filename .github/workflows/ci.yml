@@ -88,12 +88,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download kernel artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: verified-kernel
-          path: UELAT/
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -114,6 +108,25 @@ jobs:
           python -m pip install --no-cache-dir -r requirements.txt --no-deps
           python -m pip install -e .
 
+      - name: Pre-download sentence-transformers model
+        run: |
+          . .venv/bin/activate
+          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+
+      - name: Verify Embeddings (Real Traces) - BEFORE kernel download
+        env:
+          ESM_SKIP_VERIFIED_KERNEL: "1"
+        run: |
+          . .venv/bin/activate
+          echo "Running embedding validation in clean environment (no kernel artifact present)"
+          python tools/validate_real_traces.py
+
+      - name: Download kernel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: verified-kernel
+          path: UELAT/
+
       - name: Verify importability
         run: |
           . .venv/bin/activate
@@ -127,11 +140,6 @@ jobs:
               print("ERROR: tools not importable:", e, file=sys.stderr)
               raise
           PY
-
-      - name: Pre-download sentence-transformers model
-        run: |
-          . .venv/bin/activate
-          python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
 
       - name: Prefetch models for judge-mode
         run: |
@@ -233,14 +241,6 @@ jobs:
         run: |
           . .venv/bin/activate
           python tools/test_drift_metric_standalone.py
-
-      - name: Verify Embeddings (Real Traces)
-        env:
-          # Must skip kernel outside Docker - OCaml runtime not available
-          ESM_SKIP_VERIFIED_KERNEL: "1"
-        run: |
-          . .venv/bin/activate
-          python tools/validate_real_traces.py
 
       - name: Build Docker image
         run: docker build -t $IMAGE_NAME .
