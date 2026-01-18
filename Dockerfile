@@ -31,6 +31,22 @@ RUN python -c "from transformers import AutoModelForCausalLM, AutoTokenizer; \
     AutoTokenizer.from_pretrained('HuggingFaceH4/tiny-random-LlamaForCausalLM'); \
     AutoModelForCausalLM.from_pretrained('HuggingFaceH4/tiny-random-LlamaForCausalLM')"
 
+# Pre-download the pinned Phi-3 model revision for deterministic loads
+# This prevents runtime downloads of remote model code and ensures reproducibility
+# Note: We only download tokenizer and config here to avoid large model weights in Docker image
+# The actual model weights are downloaded on first use (cached in /app/models)
+RUN python - <<'PY'
+from transformers import AutoTokenizer, AutoConfig
+hf_id = "microsoft/Phi-3-mini-128k-instruct"
+rev = "f3c06aed622e14ca0abf5115094e4fc9a9948f36"
+try:
+    AutoTokenizer.from_pretrained(hf_id, revision=rev, trust_remote_code=True)
+    AutoConfig.from_pretrained(hf_id, revision=rev, trust_remote_code=True)
+    print(f"Prefetched Phi-3 tokenizer and config (revision {rev})")
+except Exception as e:
+    print(f"Phi-3 prefetch skipped (optional): {e}")
+PY
+
 # Copy application files selectively (avoid .venv-docker and other large directories)
 # Note: .dockerignore also excludes these, but explicit listing is clearer
 COPY pyproject.toml /app/
