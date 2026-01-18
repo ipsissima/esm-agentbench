@@ -131,6 +131,9 @@ jobs:
         # accelerate is required for device_map="auto" in transformers
         # Phi-3 model requires transformers>=4.40.0 for DynamicCache.seen_tokens support
         python -m pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.40.0" "accelerate>=0.25.0"
+        # Install critical runtime packages WITH their dependencies before --no-deps install
+        # This ensures pydantic-core, itsdangerous, pyparsing, etc. are present
+        python -m pip install --no-cache-dir pydantic==2.5.0 flask==3.0.0 matplotlib==3.8.1
         python -m pip install --no-cache-dir -r requirements.txt --no-deps
         # Use --no-deps to prevent pip from re-resolving and potentially downgrading transformers
         python -m pip install --no-deps -e .[signing]
@@ -213,21 +216,29 @@ jobs:
       env:
         VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
+    - name: Build validator Docker image
+      run: |
+        echo "Building Docker image with ML stack for semantic validation..."
+        docker build -t esm-validator:latest .
+
     - name: Validate drift vs creativity discrimination (real traces)
       env:
         ESM_SKIP_VERIFIED_KERNEL: "1"
       run: |
-        . .venv/bin/activate
         echo "================================"
-        echo "Validating metric discrimination on real traces"
+        echo "Validating metric discrimination on real traces (inside Docker)"
         echo "================================"
 
-        # Validate archived traces (baseline)
-        echo "Testing archived traces in tools/real_traces/..."
-        python tools/validate_real_traces.py || {
-          echo "WARNING: Archived trace validation failed"
-          exit 1
-        }
+        # Run validator inside Docker container where sentence-transformers/torch
+        # are isolated from the host OCaml/Coq runtime (prevents SIGSEGV)
+        docker run --rm \
+          -v "${{ github.workspace }}/tools/real_traces:/app/tools/real_traces:ro" \
+          -e ESM_SKIP_VERIFIED_KERNEL=1 \
+          esm-validator:latest \
+          python tools/validate_real_traces.py || {
+            echo "WARNING: Archived trace validation failed"
+            exit 1
+          }
 
         echo ""
         echo "Trace validation completed successfully!"
