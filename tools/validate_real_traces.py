@@ -74,10 +74,15 @@ _embedding_method = "unknown"
 
 HAS_MATPLOTLIB = importlib.util.find_spec("matplotlib") is not None
 if HAS_MATPLOTLIB:
-    import matplotlib
+    try:
+        import matplotlib
 
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as e:
+        # If matplotlib or any of its runtime deps cannot be imported, turn plotting off.
+        HAS_MATPLOTLIB = False
+        warnings.warn(f"matplotlib import failed; plotting disabled: {e}")
 
 
 def _check_embedding_availability() -> str:

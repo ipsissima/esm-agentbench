@@ -106,6 +106,11 @@ jobs:
           python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
           # canonical HF stack - install transformers>=4.36.0 for Phi-3 model compatibility (cache_utils module)
           python -m pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0"
+          # Install matplotlib with dependencies (so pyparsing, packaging, kiwisolver, fonttools, ...)
+          # We install matplotlib explicitly so that installing requirements with --no-deps
+          # won't leave matplotlib half-installed.
+          python -m pip install --no-cache-dir matplotlib==3.8.1
+          # Install the rest of the pinned requirements without re-resolving the HF stack
           python -m pip install --no-cache-dir -r requirements.txt --no-deps
           # Use --no-deps to prevent pip from re-resolving and potentially downgrading transformers
           python -m pip install --no-deps -e .
