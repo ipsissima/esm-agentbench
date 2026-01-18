@@ -216,14 +216,20 @@ jobs:
     - name: Validate drift vs creativity discrimination (real traces)
       env:
         ESM_SKIP_VERIFIED_KERNEL: "1"
+        # Force TF-IDF fallback in Actions to avoid sentence-transformers native extensions (prevents SIGSEGV)
+        ESM_FORCE_TFIDF: "1"
       run: |
         . .venv/bin/activate
         echo "================================"
         echo "Validating metric discrimination on real traces"
         echo "================================"
 
+        # Install a tiny plotting dependency to silence matplotlib import warnings
+        python -m pip install --no-cache-dir pyparsing >/dev/null 2>&1 || true
+
         # Validate archived traces (baseline)
         echo "Testing archived traces in tools/real_traces/..."
+        # Force TF-IDF in CI to avoid sentence-transformers native extensions triggering a SIGSEGV
         python tools/validate_real_traces.py || {
           echo "WARNING: Archived trace validation failed"
           exit 1
