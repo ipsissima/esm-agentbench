@@ -131,6 +131,9 @@ jobs:
         # accelerate is required for device_map="auto" in transformers
         # Phi-3 model requires transformers>=4.40.0 for DynamicCache.seen_tokens support
         python -m pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.40.0" "accelerate>=0.25.0"
+        # Install critical runtime packages WITH their dependencies before --no-deps install
+        # This ensures pydantic-core, itsdangerous, pyparsing, etc. are present
+        python -m pip install --no-cache-dir pydantic==2.5.0 flask==3.0.0 matplotlib==3.8.1
         python -m pip install --no-cache-dir -r requirements.txt --no-deps
         # Use --no-deps to prevent pip from re-resolving and potentially downgrading transformers
         python -m pip install --no-deps -e .[signing]

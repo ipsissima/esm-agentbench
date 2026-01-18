@@ -13,9 +13,9 @@ COPY requirements.txt /app/
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0" \
-    # Install runtime deps for packages that need them (flask, matplotlib) before --no-deps
-    # This ensures itsdangerous, pyparsing, etc. are present while still avoiding HF stack re-resolution
-    && pip install --no-cache-dir flask==3.0.0 matplotlib==3.8.1 \
+    # Install runtime deps for packages that need them (pydantic, flask, matplotlib) before --no-deps
+    # This ensures pydantic-core, itsdangerous, pyparsing, etc. are present while still avoiding HF stack re-resolution
+    && pip install --no-cache-dir pydantic==2.5.0 flask==3.0.0 matplotlib==3.8.1 \
     && pip install --no-cache-dir -r /app/requirements.txt --no-deps \
     && pip install --no-cache-dir --upgrade scikit-learn \
     # Ensure Flask's required dependency is present (defensive - fixes Flask 3.0 signals import)
