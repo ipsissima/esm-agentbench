@@ -71,16 +71,54 @@ except Exception:
 try:
     from transformers.cache_utils import DynamicCache as _DynamicCache
     if not hasattr(_DynamicCache, "get_usable_length"):
-        def _get_usable_length(self):
-            # Try a few safe fallbacks used by various remote model implementations
-            if hasattr(self, "get_seq_length"):
-                return int(self.get_seq_length())
-            if hasattr(self, "get_capacity"):
-                return int(self.get_capacity())
+        def _get_usable_length(self, *args, **kwargs):
+            """
+            Compatibility shim for DynamicCache.get_usable_length.
+
+            Remote model code sometimes calls get_usable_length(seq_length). Accept
+            either the explicit seq_length or no args. Return a conservative integer:
+            - if seq_length provided, return int(seq_length)
+            - else try get_seq_length(), get_capacity(), len(self), else 0.
+            """
+            # Accept either positional or keyword 'seq_length'
+            seq_length = None
+            if args:
+                # first positional arg usually the requested seq_length
+                seq_length = args[0]
+            elif "seq_length" in kwargs:
+                seq_length = kwargs["seq_length"]
+
             try:
-                return int(len(self))
+                if seq_length is not None:
+                    # If caller provided a seq_length, echo it back as usable length.
+                    # As a safer option, if the cache object exposes a capacity,
+                    # clamp to that value.
+                    try:
+                        seq_val = int(seq_length)
+                    except Exception:
+                        seq_val = None
+                    if seq_val is not None:
+                        if hasattr(self, "get_capacity"):
+                            try:
+                                cap = int(self.get_capacity())
+                                return min(seq_val, cap)
+                            except Exception:
+                                return seq_val
+                        return seq_val
+
+                # No seq_length provided: try conservative fallbacks
+                if hasattr(self, "get_seq_length"):
+                    return int(self.get_seq_length())
+                if hasattr(self, "get_capacity"):
+                    return int(self.get_capacity())
+                try:
+                    return int(len(self))
+                except Exception:
+                    return 0
             except Exception:
+                # Last resort: return 0 (safe conservative value)
                 return 0
+
         _DynamicCache.get_usable_length = _get_usable_length
         logger.debug("Patched DynamicCache.get_usable_length for backwards compatibility")
 except Exception:
