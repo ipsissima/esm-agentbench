@@ -245,15 +245,41 @@ class TransformersBackend(InferenceBackend):
             "trust_remote_code": True,
         }
 
+        # --- CPU safety: if running on CPU, avoid quantized / float16 code paths ---
+        # This prevents tensor shape mismatches caused by GPU/quant-specific code paths
+        # in remote model code (e.g., Phi-3) when running on CPU.
+        if not torch.cuda.is_available():
+            if getattr(self.config, "load_in_4bit", False) or getattr(self.config, "load_in_8bit", False):
+                logger.warning(
+                    "Running on CPU but model config requests 4/8-bit loading. "
+                    "Disabling quantized loading for safe CPU execution."
+                )
+            # Disable quantization flags on CPU
+            self.config.load_in_4bit = False
+            self.config.load_in_8bit = False
+            # Force float32 dtype for safe CPU inference
+            if getattr(self.config, "dtype", None) in ("float16", "bfloat16"):
+                logger.warning(
+                    "Model configured with dtype=%s but running on CPU. "
+                    "Forcing dtype=float32 for safe CPU execution.",
+                    self.config.dtype,
+                )
+                self.config.dtype = "float32"
+        # --- end CPU safety ---
+
         # Only use device_map if CUDA available and accelerate works
         if use_device_map:
             model_kwargs["device_map"] = "auto"
 
-        # Handle dtype
+        # Handle dtype (with CPU safety fallback)
         if self.config.dtype == "bfloat16":
             model_kwargs["torch_dtype"] = torch.bfloat16
         elif self.config.dtype == "float16":
-            model_kwargs["torch_dtype"] = torch.float16
+            # Avoid float16 on CPU to prevent tensor shape mismatches
+            if torch.cuda.is_available():
+                model_kwargs["torch_dtype"] = torch.float16
+            else:
+                model_kwargs["torch_dtype"] = torch.float32
         else:
             model_kwargs["torch_dtype"] = torch.float32
 
@@ -271,6 +297,15 @@ class TransformersBackend(InferenceBackend):
         elif self.config.load_in_8bit:
             model_kwargs["load_in_8bit"] = True
             logger.info("Using 8-bit quantization")
+
+        # Force eager attention when flash-attention is not available
+        # This avoids tensor shape mismatches in models that default to flash-attn
+        # code paths but fall back incorrectly when flash-attn is missing.
+        try:
+            import flash_attn  # noqa: F401
+        except ImportError:
+            model_kwargs.setdefault("attn_implementation", "eager")
+            logger.debug("flash-attn not available, using eager attention implementation")
 
         # Load model and tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
