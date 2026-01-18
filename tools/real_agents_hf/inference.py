@@ -6,6 +6,7 @@ All operations are local - no external API calls.
 """
 from __future__ import annotations
 
+import importlib.util
 import logging
 import warnings
 from dataclasses import dataclass
@@ -13,6 +14,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
+
+# Detect availability of GPU-acceleration packages at import time
+_have_bitsandbytes = importlib.util.find_spec("bitsandbytes") is not None
+_have_flash_attn = importlib.util.find_spec("flash_attn") is not None
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +144,7 @@ class ModelConfig:
     load_in_4bit: bool = False
     load_in_8bit: bool = False
     description: str = ""
+    revision: Optional[str] = None  # HF model revision/commit SHA for deterministic loads
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ModelConfig:
@@ -153,6 +159,7 @@ class ModelConfig:
             load_in_4bit=data.get('load_in_4bit', False),
             load_in_8bit=data.get('load_in_8bit', False),
             description=data.get('description', ''),
+            revision=data.get('revision'),
         )
 
 
@@ -216,7 +223,15 @@ class TransformersBackend(InferenceBackend):
     """Inference backend using Hugging Face transformers."""
 
     def load(self):
-        """Load model using transformers."""
+        """Load model using transformers.
+
+        This method implements CPU-safe loading logic:
+        - Disables 4/8-bit quantization on CPU (requires bitsandbytes + CUDA)
+        - Forces float32 dtype on CPU to avoid tensor shape mismatches
+        - Forces eager attention when flash-attn is missing
+        - Pins model revision when specified for deterministic loads
+        - Forces use_cache=False on CPU to avoid past-key-value compatibility issues
+        """
         try:
             import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -228,10 +243,12 @@ class TransformersBackend(InferenceBackend):
 
         logger.info(f"Loading {self.config.hf_id} with transformers backend...")
 
+        is_cuda_available = torch.cuda.is_available()
+
         # Check if we should use device_map="auto"
         # Only useful with CUDA and requires accelerate to work properly
         use_device_map = False
-        if torch.cuda.is_available():
+        if is_cuda_available:
             try:
                 from accelerate import infer_auto_device_map
                 use_device_map = True
@@ -240,15 +257,10 @@ class TransformersBackend(InferenceBackend):
         else:
             logger.info("Running on CPU, skipping device_map")
 
-        # Prepare kwargs
-        model_kwargs = {
-            "trust_remote_code": True,
-        }
-
         # --- CPU safety: if running on CPU, avoid quantized / float16 code paths ---
         # This prevents tensor shape mismatches caused by GPU/quant-specific code paths
         # in remote model code (e.g., Phi-3) when running on CPU.
-        if not torch.cuda.is_available():
+        if not is_cuda_available:
             if getattr(self.config, "load_in_4bit", False) or getattr(self.config, "load_in_8bit", False):
                 logger.warning(
                     "Running on CPU but model config requests 4/8-bit loading. "
@@ -265,26 +277,45 @@ class TransformersBackend(InferenceBackend):
                     self.config.dtype,
                 )
                 self.config.dtype = "float32"
+            # Force no-cache mode on CPU to avoid past-key-value tensor shape mismatches
+            self._force_no_cache = True
+            logger.info("CPU mode: forcing use_cache=False for safe generation")
+        else:
+            # GPU present: check if bitsandbytes is available before allowing 4-bit
+            if getattr(self.config, "load_in_4bit", False) and not _have_bitsandbytes:
+                logger.warning("load_in_4bit requested but bitsandbytes not available; disabling 4-bit.")
+                self.config.load_in_4bit = False
+            if getattr(self.config, "load_in_8bit", False) and not _have_bitsandbytes:
+                logger.warning("load_in_8bit requested but bitsandbytes not available; disabling 8-bit.")
+                self.config.load_in_8bit = False
         # --- end CPU safety ---
+
+        # Prepare kwargs
+        model_kwargs = {
+            "trust_remote_code": True,
+            "low_cpu_mem_usage": True,  # Reduces memory during loading
+        }
 
         # Only use device_map if CUDA available and accelerate works
         if use_device_map:
             model_kwargs["device_map"] = "auto"
 
-        # Handle dtype (with CPU safety fallback)
+        # Handle dtype - use both 'dtype' (new) and 'torch_dtype' (compat) for robustness
         if self.config.dtype == "bfloat16":
-            model_kwargs["torch_dtype"] = torch.bfloat16
+            model_dtype = torch.bfloat16
         elif self.config.dtype == "float16":
             # Avoid float16 on CPU to prevent tensor shape mismatches
-            if torch.cuda.is_available():
-                model_kwargs["torch_dtype"] = torch.float16
-            else:
-                model_kwargs["torch_dtype"] = torch.float32
+            model_dtype = torch.float16 if is_cuda_available else torch.float32
         else:
-            model_kwargs["torch_dtype"] = torch.float32
+            model_dtype = torch.float32
 
-        # Handle quantization
-        if self.config.load_in_4bit:
+        # Set both for compatibility with different transformers versions
+        model_kwargs["torch_dtype"] = model_dtype
+        # Note: Some newer transformers versions use 'dtype' instead of 'torch_dtype'
+        # but torch_dtype is still widely supported and recommended
+
+        # Handle quantization (only if bitsandbytes available and on GPU)
+        if self.config.load_in_4bit and _have_bitsandbytes and is_cuda_available:
             try:
                 from transformers import BitsAndBytesConfig
                 model_kwargs["quantization_config"] = BitsAndBytesConfig(
@@ -293,29 +324,49 @@ class TransformersBackend(InferenceBackend):
                 )
                 logger.info("Using 4-bit quantization")
             except ImportError:
-                warnings.warn("bitsandbytes not available, skipping quantization")
-        elif self.config.load_in_8bit:
+                logger.warning("BitsAndBytesConfig not available, skipping quantization")
+        elif self.config.load_in_8bit and _have_bitsandbytes and is_cuda_available:
             model_kwargs["load_in_8bit"] = True
             logger.info("Using 8-bit quantization")
 
-        # Force eager attention when flash-attention is not available
+        # Force eager attention when flash-attention is not available or on CPU
         # This avoids tensor shape mismatches in models that default to flash-attn
         # code paths but fall back incorrectly when flash-attn is missing.
-        try:
-            import flash_attn  # noqa: F401
-        except ImportError:
-            model_kwargs.setdefault("attn_implementation", "eager")
-            logger.debug("flash-attn not available, using eager attention implementation")
+        if not _have_flash_attn or not is_cuda_available:
+            model_kwargs["attn_implementation"] = "eager"
+            logger.info("Using eager attention implementation (flash-attn unavailable or CPU mode)")
 
-        # Load model and tokenizer
+        # Pin model revision if specified for deterministic loads
+        revision = getattr(self.config, "revision", None)
+        tokenizer_kwargs = {"trust_remote_code": True}
+        if revision:
+            model_kwargs["revision"] = revision
+            tokenizer_kwargs["revision"] = revision
+            logger.info(f"Using pinned model revision: {revision}")
+
+        # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.config.hf_id,
-            trust_remote_code=True,
+            **tokenizer_kwargs,
         )
+
+        # Load model
         self.model = AutoModelForCausalLM.from_pretrained(
             self.config.hf_id,
             **model_kwargs,
         )
+
+        # Post-load: set attn_implementation on model config for remote code that checks it
+        # This ensures consistent behavior even if remote model code reads config after loading
+        if not _have_flash_attn or not is_cuda_available:
+            try:
+                if hasattr(self.model, "config"):
+                    self.model.config.attn_implementation = "eager"
+                    # Also disable any sliding window attention that might cause issues
+                    if hasattr(self.model.config, "_attn_implementation"):
+                        self.model.config._attn_implementation = "eager"
+            except Exception as e:
+                logger.debug(f"Could not set attn_implementation on model config: {e}")
 
         # Ensure pad token exists
         if self.tokenizer.pad_token is None:
@@ -379,6 +430,29 @@ class TransformersBackend(InferenceBackend):
                     outputs = self.model.generate(**gen_kwargs)
                 else:
                     # Unknown AttributeError - re-raise so it surfaces
+                    raise
+            except RuntimeError as ex:
+                # Handle tensor shape mismatches that can occur with mixed attention paths
+                # or cache incompatibilities (e.g., 970 vs 1940 shape errors)
+                msg = str(ex)
+                if any(x in msg.lower() for x in ("shape", "size", "mismatch", "dimension")):
+                    if not getattr(self, "_force_no_cache", False):
+                        logger.warning(
+                            "Model generation failed due to tensor shape mismatch (%s). "
+                            "Retrying with use_cache=False.", msg[:200]
+                        )
+                        self._force_no_cache = True
+                        gen_kwargs["use_cache"] = False
+                        outputs = self.model.generate(**gen_kwargs)
+                    else:
+                        # Already tried with no cache, re-raise
+                        logger.error(
+                            "Tensor shape mismatch persists even with use_cache=False. "
+                            "This may indicate incompatible model code. Run debug_phi3_shapes.py for diagnosis."
+                        )
+                        raise
+                else:
+                    # Unknown RuntimeError - re-raise
                     raise
 
         # Decode (skip input prompt)
