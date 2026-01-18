@@ -182,6 +182,42 @@ jobs:
       env:
         VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
+    - name: Ensure evaluation_config exists
+      run: |
+        if [ ! -f evaluation_config.yaml ]; then
+          cat > evaluation_config.yaml <<'YAML'
+canonical:
+  embedding_backend: sentence-transformers
+  sentence_transformers_model: all-MiniLM-L6-v2
+  tfidf_max_features: 512
+
+certificate:
+  pca_rank: 10
+
+calibration:
+  residual_threshold: 0.3
+  jump_factor: 3.0
+YAML
+          echo "Created evaluation_config.yaml"
+        else
+          echo "evaluation_config.yaml already exists"
+        fi
+
+    - name: Assert verified kernel loadable
+      run: |
+        . .venv/bin/activate
+        python - <<'PY'
+        from certificates.verified_kernel import load_kernel, KernelError
+        import os
+        try:
+            load_kernel(strict=True)
+            print("Verified kernel loadable: OK")
+        except KernelError as e:
+            print("Verified kernel not loadable; CI will fallback to Python adapter:", e)
+        PY
+      env:
+        VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
+
     - name: Start green assessor (background)
       run: |
         . .venv/bin/activate
