@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -322,13 +323,16 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
                 f"USER:\n{user_prompt}\n",
             ] + trimmed_history
 
-            # Generate response
+            # Generate response (heartbeat visible at INFO)
             full_prompt = "\n".join(conversation)
+            logger.info(f"Generating step {step_num} (model={self.backend.config.name})")
+            t0 = time.time()
             response = self.backend.generate(
                 full_prompt,
                 stop=['USER:', 'SYSTEM:'],
             )
-
+            t1 = time.time()
+            logger.info(f"Generated step {step_num} in {t1 - t0:.1f}s")
             logger.debug(f"Step {step_num}: {response[:200]}")
 
             # Parse response

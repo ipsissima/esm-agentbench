@@ -67,6 +67,26 @@ except Exception:
     # below will handle the AttributeError at runtime.
     pass
 
+# Extra compatibility shim: provide get_usable_length for some remote model code
+try:
+    from transformers.cache_utils import DynamicCache as _DynamicCache
+    if not hasattr(_DynamicCache, "get_usable_length"):
+        def _get_usable_length(self):
+            # Try a few safe fallbacks used by various remote model implementations
+            if hasattr(self, "get_seq_length"):
+                return int(self.get_seq_length())
+            if hasattr(self, "get_capacity"):
+                return int(self.get_capacity())
+            try:
+                return int(len(self))
+            except Exception:
+                return 0
+        _DynamicCache.get_usable_length = _get_usable_length
+        logger.debug("Patched DynamicCache.get_usable_length for backwards compatibility")
+except Exception:
+    # If transformers not available or introspection fails, continue silently
+    pass
+
 
 @dataclass
 class ModelConfig:
@@ -275,7 +295,7 @@ class TransformersBackend(InferenceBackend):
                 # Common symptoms: remote model code expects DynamicCache.seen_tokens,
                 # DynamicCache.get_max_length, or other cache internals not present.
                 msg = str(ex)
-                if any(x in msg for x in ("seen_tokens", "get_max_length", "DynamicCache")):
+                if any(x in msg for x in ("seen_tokens", "get_max_length", "get_usable_length", "DynamicCache")):
                     logger.warning(
                         "Model generation failed due to cache-internals mismatch (%s). "
                         "Retrying with use_cache=False (slower).", msg
