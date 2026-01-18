@@ -63,11 +63,12 @@ models:
   - name: phi-3-mini-instruct
     hf_id: microsoft/Phi-3-mini-128k-instruct
     backend: transformers
-    dtype: float16
+    dtype: float32  # Use float32 for safe CPU execution; GPU will use float16 if available
     max_tokens: 2048
     context_length: 131072
     temperature: 0.2
-    load_in_4bit: true
+    load_in_4bit: true  # Only enabled on GPU with bitsandbytes installed
+    revision: f3c06aed622e14ca0abf5115094e4fc9a9948f36  # Pin for deterministic loads
     description: "Small efficient model with large context"
 
 # Default model to use if none specified
