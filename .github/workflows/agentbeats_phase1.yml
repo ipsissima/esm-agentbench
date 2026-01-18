@@ -213,27 +213,29 @@ jobs:
       env:
         VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
 
+    - name: Build validator Docker image
+      run: |
+        echo "Building Docker image with ML stack for semantic validation..."
+        docker build -t esm-validator:latest .
+
     - name: Validate drift vs creativity discrimination (real traces)
       env:
         ESM_SKIP_VERIFIED_KERNEL: "1"
-        # Force TF-IDF fallback in Actions to avoid sentence-transformers native extensions (prevents SIGSEGV)
-        ESM_FORCE_TFIDF: "1"
       run: |
-        . .venv/bin/activate
         echo "================================"
-        echo "Validating metric discrimination on real traces"
+        echo "Validating metric discrimination on real traces (inside Docker)"
         echo "================================"
 
-        # Install a tiny plotting dependency to silence matplotlib import warnings
-        python -m pip install --no-cache-dir pyparsing >/dev/null 2>&1 || true
-
-        # Validate archived traces (baseline)
-        echo "Testing archived traces in tools/real_traces/..."
-        # Force TF-IDF in CI to avoid sentence-transformers native extensions triggering a SIGSEGV
-        python tools/validate_real_traces.py || {
-          echo "WARNING: Archived trace validation failed"
-          exit 1
-        }
+        # Run validator inside Docker container where sentence-transformers/torch
+        # are isolated from the host OCaml/Coq runtime (prevents SIGSEGV)
+        docker run --rm \
+          -v "${{ github.workspace }}/tools/real_traces:/app/tools/real_traces:ro" \
+          -e ESM_SKIP_VERIFIED_KERNEL=1 \
+          esm-validator:latest \
+          python tools/validate_real_traces.py || {
+            echo "WARNING: Archived trace validation failed"
+            exit 1
+          }
 
         echo ""
         echo "Trace validation completed successfully!"
