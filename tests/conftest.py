@@ -2,6 +2,17 @@
 
 This module provides test fixtures and mocks for running tests without
 the verified kernel (which requires Coq/OCaml build).
+
+Test Tiers:
+- Tier 1 (unit): Fast tests with no native code or model loading
+- Tier 2 (integration): Container tests with kernel and small models
+- Tier 3 (heavy): GPU tests with full models and attestation
+
+Environment Variables:
+- ESM_ALLOW_KERNEL_LOAD: Allow kernel loading (default: 1)
+- ESM_ALLOW_MODEL_LOAD: Allow model loading (default: 1)
+- ESM_STRICT: Enable strict invariant checking (default: 0)
+- ESM_KERNEL_SERVICE: Enable kernel-as-service mode (default: 0)
 """
 import json
 import os
@@ -14,6 +25,13 @@ import pytest
 import numpy as np
 
 from tools.real_agents_hf.trace import RUN_GENERATOR, create_index
+from tests.test_guards import (
+    pytest_configure,
+    pytest_collection_modifyitems,
+    is_kernel_allowed,
+    is_model_allowed,
+    TestTierManager,
+)
 
 # Repository root and key directories
 REPO_ROOT = Path(__file__).parent.parent
@@ -91,12 +109,20 @@ def setup_submission_traces():
 
 @pytest.fixture(autouse=True)
 def mock_verified_kernel():
-    """Mock the verified kernel for all tests.
+    """Mock the verified kernel for tests that don't have kernel access.
 
     The verified kernel requires a compiled Coq/OCaml library that may not
     be available in all test environments. This fixture provides a Python
     fallback implementation for testing purposes.
+
+    In integration/heavy tiers where kernel is allowed, this fixture does
+    nothing and lets the real kernel be used.
     """
+    # Skip mocking if kernel loading is allowed and we're in integration tier
+    if is_kernel_allowed() and TestTierManager.current_tier() >= TestTierManager.TIER_INTEGRATION:
+        yield
+        return
+
     def mock_kernel_compute_certificate(X0, X1, A, tail_energy, semantic_divergence, lipschitz_margin, strict=True):
         """Fallback Python implementation of kernel certificate computation.
 
@@ -130,6 +156,52 @@ def mock_verified_kernel():
         # Also patch the import in make_certificate
         with patch('certificates.make_certificate.kernel_compute_certificate', side_effect=mock_kernel_compute_certificate):
             yield
+
+
+@pytest.fixture
+def kernel_adapter():
+    """Provide a kernel adapter for tests.
+
+    Returns the appropriate adapter based on test tier.
+    """
+    from esmassessor.kernel_adapter import make_kernel_adapter, reset_kernel_adapter
+
+    # Reset to ensure clean state
+    reset_kernel_adapter()
+
+    adapter = make_kernel_adapter(prefer_verified=is_kernel_allowed())
+    yield adapter
+
+    # Cleanup
+    reset_kernel_adapter()
+
+
+@pytest.fixture
+def runtime_policy():
+    """Provide a runtime policy for tests."""
+    from tools.real_agents_hf.runtime_policy import get_runtime_policy, reset_runtime_policy
+
+    reset_runtime_policy()
+    policy = get_runtime_policy()
+    yield policy
+    reset_runtime_policy()
+
+
+@pytest.fixture
+def strict_mode(monkeypatch):
+    """Enable strict mode for a test."""
+    monkeypatch.setenv("ESM_STRICT", "1")
+    yield
+    # monkeypatch auto-restores
+
+
+@pytest.fixture
+def unit_environment(monkeypatch):
+    """Configure unit test environment (no native code)."""
+    monkeypatch.setenv("ESM_ALLOW_KERNEL_LOAD", "0")
+    monkeypatch.setenv("ESM_ALLOW_MODEL_LOAD", "0")
+    monkeypatch.setenv("ESM_STRICT", "0")
+    yield
 
 
 @pytest.fixture
