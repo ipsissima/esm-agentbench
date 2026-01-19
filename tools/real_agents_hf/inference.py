@@ -3,11 +3,17 @@
 
 Supports both transformers and vLLM backends with automatic fallback.
 All operations are local - no external API calls.
+
+ESM_STRICT mode:
+    Set ESM_STRICT=1 to enable strict invariant checking. This will:
+    - Verify all attention modules use the same implementation post-load
+    - Fail fast on configuration mismatches instead of silently continuing
 """
 from __future__ import annotations
 
 import importlib.util
 import logging
+import os
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -197,21 +203,91 @@ class TransformersBackend(InferenceBackend):
         try:
             if hasattr(self.model, "config"):
                 self.model.config.attn_implementation = attn_impl
-                # Also set _attn_implementation for internal use
+                # Also set _attn_implementation for internal use (private transformers attribute)
                 if hasattr(self.model.config, "_attn_implementation"):
                     self.model.config._attn_implementation = attn_impl
                 # Some models use attention dict
                 if hasattr(self.model.config, "attention") and isinstance(self.model.config.attention, dict):
                     self.model.config.attention["implementation"] = attn_impl
+                # Some models use _attn_implementation_internal
+                if hasattr(self.model.config, "_attn_implementation_internal"):
+                    self.model.config._attn_implementation_internal = attn_impl
                 logger.debug("Synced model.config.attn_implementation = %s", attn_impl)
         except Exception as e:
             logger.debug(f"Could not sync attn_implementation on model config: {e}")
+
+        # ESM_STRICT mode: verify attention contract is satisfied
+        # Invariant: All attention submodules must agree on attention implementation
+        if os.getenv("ESM_STRICT", "0") == "1":
+            mismatches = self._verify_attention_contract(attn_impl)
+            if mismatches:
+                raise RuntimeError(
+                    f"Attention implementation mismatch post-load (ESM_STRICT=1): {mismatches}. "
+                    f"Expected all modules to use '{attn_impl}'."
+                )
 
         # Ensure pad token exists
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         logger.info(f"Model {self.config.name} loaded successfully")
+
+    def _verify_attention_contract(self, expected_impl: str) -> List[tuple]:
+        """Verify all attention modules agree on implementation.
+
+        Checks attention-related submodules for consistency with the expected
+        implementation. This enforces the invariant that all attention modules
+        must use the same implementation to avoid shape mismatches.
+
+        Parameters
+        ----------
+        expected_impl : str
+            The expected attention implementation ("eager", "flash_attention_2", "sdpa").
+
+        Returns
+        -------
+        List[tuple]
+            List of (module_name, found_impl) tuples for mismatching modules.
+            Empty list if all modules match.
+        """
+        if self.model is None:
+            return []
+
+        mismatches = []
+        attention_keywords = ("attn", "attention", "self_attn", "multihead")
+
+        for name, module in self.model.named_modules():
+            # Heuristically identify attention-like modules
+            name_lower = name.lower()
+            if not any(k in name_lower for k in attention_keywords):
+                continue
+
+            # Check various places where attention implementation might be stored
+            found_impl = None
+
+            # Check direct attribute
+            if hasattr(module, "attn_impl"):
+                found_impl = getattr(module, "attn_impl", None)
+            elif hasattr(module, "_attn_implementation"):
+                found_impl = getattr(module, "_attn_implementation", None)
+            elif hasattr(module, "implementation"):
+                found_impl = getattr(module, "implementation", None)
+
+            # Check module config if present
+            if found_impl is None and hasattr(module, "config"):
+                cfg = module.config
+                if hasattr(cfg, "attn_implementation"):
+                    found_impl = cfg.attn_implementation
+                elif hasattr(cfg, "_attn_implementation"):
+                    found_impl = cfg._attn_implementation
+                elif isinstance(getattr(cfg, "attention", None), dict):
+                    found_impl = cfg.attention.get("implementation")
+
+            # Only flag if we found a conflicting implementation
+            if found_impl is not None and found_impl != expected_impl:
+                mismatches.append((name, found_impl))
+
+        return mismatches
 
     def generate(self, prompt: str, max_tokens: Optional[int] = None,
                  temperature: Optional[float] = None, stop: Optional[List[str]] = None) -> str:
