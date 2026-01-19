@@ -121,6 +121,18 @@ def load_kernel(strict: bool = True) -> Optional[ctypes.CDLL]:
             )
         return None
 
+    # ---- SAFETY GUARD: allow tests/CI to disable loading the native kernel ----
+    # If ESM_ALLOW_KERNEL_LOAD != "1" then do not attempt to load the native kernel.
+    # This prevents unit-test processes from getting killed by a faulty shared object.
+    allow = os.environ.get("ESM_ALLOW_KERNEL_LOAD", "1")
+    if allow != "1":
+        # Mark that we attempted (so callers behave the same next time)
+        _kernel_load_attempted = True
+        if strict:
+            raise KernelError("Native verified kernel loading disabled by ESM_ALLOW_KERNEL_LOAD!=1")
+        _warn_python_fallback_once()
+        return None
+
     # Mark that we're attempting to load
     _kernel_load_attempted = True
 
