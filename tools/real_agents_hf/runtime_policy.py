@@ -14,10 +14,14 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
+
+# Thread-safe initialization lock
+_policy_lock = threading.Lock()
 
 
 @dataclass
@@ -259,21 +263,38 @@ _policy: Optional[RuntimePolicy] = None
 def get_runtime_policy() -> RuntimePolicy:
     """Get the global RuntimePolicy instance.
 
+    This function is thread-safe and uses double-check locking for
+    efficient concurrent access.
+
     Returns
     -------
     RuntimePolicy
         The global policy instance.
     """
     global _policy
-    if _policy is None:
+
+    # Fast path: return cached policy without lock
+    if _policy is not None:
+        return _policy
+
+    # Slow path: acquire lock for initialization
+    with _policy_lock:
+        # Double-check after acquiring lock (another thread may have initialized)
+        if _policy is not None:
+            return _policy
+
         _policy = RuntimePolicy()
-    return _policy
+        return _policy
 
 
 def reset_runtime_policy() -> None:
-    """Reset the global RuntimePolicy (mainly for testing)."""
+    """Reset the global RuntimePolicy (mainly for testing).
+
+    Thread-safe: acquires lock before clearing.
+    """
     global _policy
-    _policy = None
+    with _policy_lock:
+        _policy = None
 
 
 __all__ = [

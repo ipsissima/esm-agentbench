@@ -91,6 +91,11 @@ class TestRuntimePolicy:
 
     def test_get_model_kwargs_structure(self):
         """get_model_kwargs should return valid kwargs dict."""
+        try:
+            import torch
+        except ImportError:
+            pytest.skip("torch not installed")
+
         from tools.real_agents_hf.runtime_policy import RuntimePolicy
 
         policy = RuntimePolicy()
@@ -104,6 +109,11 @@ class TestRuntimePolicy:
 
     def test_get_model_kwargs_no_quant_on_cpu(self):
         """On CPU, model kwargs should not include quantization."""
+        try:
+            import torch
+        except ImportError:
+            pytest.skip("torch not installed")
+
         from tools.real_agents_hf.runtime_policy import RuntimePolicy
 
         policy = RuntimePolicy()
@@ -155,6 +165,11 @@ class TestRuntimePolicyMocked:
 
     def test_policy_with_mocked_cuda(self):
         """Test policy behavior with mocked CUDA availability."""
+        try:
+            import torch
+        except ImportError:
+            pytest.skip("torch not installed")
+
         from tools.real_agents_hf.runtime_policy import RuntimePolicy
 
         with mock.patch("torch.cuda.is_available", return_value=True):
