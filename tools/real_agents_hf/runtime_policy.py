@@ -83,15 +83,29 @@ class RuntimePolicy:
     def attn_impl(self) -> Literal["flash_attention_2", "eager", "sdpa"]:
         """Return the recommended attention implementation.
 
+        Returns normalized names that transformers expects:
         - "flash_attention_2": If CUDA and flash_attn are available
-        - "sdpa": If CUDA is available but flash_attn is not (PyTorch 2.0+)
-        - "eager": If running on CPU or no optimized attention available
+        - "sdpa": If CUDA is available, flash_attn is not, and PyTorch 2.0+ SDPA works
+        - "eager": If running on CPU or no optimized attention available (safest)
+
+        Note: We default to "eager" rather than "sdpa" on GPU without flash-attn
+        because eager is the most compatible and predictable code path. SDPA can
+        cause shape mismatches in some models.
         """
         if self.cuda and self.have_flash:
             return "flash_attention_2"
         elif self.cuda:
-            # SDPA (Scaled Dot Product Attention) is available in PyTorch 2.0+
-            # but eager is safer and more compatible
+            # Check if PyTorch 2.0+ SDPA is available
+            try:
+                import torch
+                if hasattr(torch.nn.functional, "scaled_dot_product_attention"):
+                    # SDPA available, but we still prefer eager for safety
+                    # Uncomment line below to use SDPA when flash-attn unavailable:
+                    # return "sdpa"
+                    pass
+            except Exception:
+                pass
+            # Default to eager for maximum compatibility
             return "eager"
         else:
             return "eager"

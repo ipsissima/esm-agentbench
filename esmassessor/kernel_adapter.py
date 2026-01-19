@@ -16,12 +16,16 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# Thread-safe initialization lock
+_adapter_lock = threading.Lock()
 
 
 class KernelAdapterError(RuntimeError):
@@ -229,6 +233,50 @@ class VerifiedKernelAdapter(KernelPort):
         except Exception as exc:
             raise KernelAdapterError(f"Unexpected error in compute_certificate: {exc}") from exc
 
+    def selftest(self, n: int = 2, r: int = 4, tol: float = 1e-6) -> bool:
+        """Run a self-test to verify kernel is working correctly.
+
+        Parameters
+        ----------
+        n : int
+            Number of time steps for test matrices.
+        r : int
+            Rank/dimension of test matrices.
+        tol : float
+            Tolerance for numerical checks.
+
+        Returns
+        -------
+        bool
+            True if self-test passes.
+
+        Raises
+        ------
+        KernelAdapterError
+            If self-test fails.
+        """
+        # Generate random test data
+        np.random.seed(42)  # Reproducible test
+        X0 = np.random.randn(r, n).astype(np.float64)
+        A = np.random.randn(r, r).astype(np.float64)
+        X1 = A @ X0 + 0.001 * np.random.randn(r, n).astype(np.float64)
+
+        # Compute certificate
+        res, bound = self.compute_certificate(X0, X1, A, 0.01, 0.01, 0.01)
+
+        # Basic sanity checks
+        if not isinstance(res, (int, float)):
+            raise KernelAdapterError(f"Self-test failed: residual not numeric ({type(res)})")
+        if not isinstance(bound, (int, float)):
+            raise KernelAdapterError(f"Self-test failed: bound not numeric ({type(bound)})")
+        if res < 0:
+            raise KernelAdapterError(f"Self-test failed: residual negative ({res})")
+        if bound < 0:
+            raise KernelAdapterError(f"Self-test failed: bound negative ({bound})")
+
+        logger.debug("VerifiedKernelAdapter self-test passed: res=%.6f, bound=%.6f", res, bound)
+        return True
+
 
 class PythonKernelAdapter(KernelPort):
     """Pure Python adapter for kernel operations.
@@ -290,6 +338,50 @@ class PythonKernelAdapter(KernelPort):
         bound = self.compute_bound(residual, tail_energy, semantic_divergence, lipschitz_margin)
         return (residual, bound)
 
+    def selftest(self, n: int = 2, r: int = 4, tol: float = 1e-6) -> bool:
+        """Run a self-test to verify Python fallback is working correctly.
+
+        Parameters
+        ----------
+        n : int
+            Number of time steps for test matrices.
+        r : int
+            Rank/dimension of test matrices.
+        tol : float
+            Tolerance for numerical checks.
+
+        Returns
+        -------
+        bool
+            True if self-test passes.
+
+        Raises
+        ------
+        KernelAdapterError
+            If self-test fails.
+        """
+        # Generate random test data
+        np.random.seed(42)  # Reproducible test
+        X0 = np.random.randn(r, n).astype(np.float64)
+        A = np.random.randn(r, r).astype(np.float64)
+        X1 = A @ X0 + 0.001 * np.random.randn(r, n).astype(np.float64)
+
+        # Compute certificate
+        res, bound = self.compute_certificate(X0, X1, A, 0.01, 0.01, 0.01)
+
+        # Basic sanity checks
+        if not isinstance(res, (int, float)):
+            raise KernelAdapterError(f"Self-test failed: residual not numeric ({type(res)})")
+        if not isinstance(bound, (int, float)):
+            raise KernelAdapterError(f"Self-test failed: bound not numeric ({type(bound)})")
+        if res < 0:
+            raise KernelAdapterError(f"Self-test failed: residual negative ({res})")
+        if bound < 0:
+            raise KernelAdapterError(f"Self-test failed: bound negative ({bound})")
+
+        logger.debug("PythonKernelAdapter self-test passed: res=%.6f, bound=%.6f", res, bound)
+        return True
+
 
 # Global adapter instance (lazy initialized)
 _kernel_adapter: Optional[KernelPort] = None
@@ -299,8 +391,8 @@ _adapter_init_attempted: bool = False
 def make_kernel_adapter(prefer_verified: bool = True) -> KernelPort:
     """Factory function to create the best available kernel adapter.
 
-    This function attempts to create a VerifiedKernelAdapter first, and
-    falls back to PythonKernelAdapter if the verified kernel is unavailable.
+    This function is thread-safe and attempts to create a VerifiedKernelAdapter
+    first, falling back to PythonKernelAdapter if the verified kernel is unavailable.
 
     Parameters
     ----------
@@ -315,30 +407,36 @@ def make_kernel_adapter(prefer_verified: bool = True) -> KernelPort:
     """
     global _kernel_adapter, _adapter_init_attempted
 
-    # Return cached adapter if available
+    # Fast path: return cached adapter without lock
     if _kernel_adapter is not None:
         return _kernel_adapter
 
-    # Avoid repeated initialization attempts
-    if _adapter_init_attempted:
-        # Fall back to Python adapter if we already tried and failed
+    # Slow path: acquire lock for initialization
+    with _adapter_lock:
+        # Double-check after acquiring lock (another thread may have initialized)
+        if _kernel_adapter is not None:
+            return _kernel_adapter
+
+        # Avoid repeated initialization attempts
+        if _adapter_init_attempted:
+            # Fall back to Python adapter if we already tried and failed
+            _kernel_adapter = PythonKernelAdapter()
+            return _kernel_adapter
+
+        _adapter_init_attempted = True
+
+        if prefer_verified:
+            try:
+                _kernel_adapter = VerifiedKernelAdapter()
+                logger.info("Using verified kernel adapter")
+                return _kernel_adapter
+            except KernelAdapterError as exc:
+                logger.warning(
+                    "Verified kernel unavailable, using Python fallback: %s", exc
+                )
+
         _kernel_adapter = PythonKernelAdapter()
         return _kernel_adapter
-
-    _adapter_init_attempted = True
-
-    if prefer_verified:
-        try:
-            _kernel_adapter = VerifiedKernelAdapter()
-            logger.info("Using verified kernel adapter")
-            return _kernel_adapter
-        except KernelAdapterError as exc:
-            logger.warning(
-                "Verified kernel unavailable, using Python fallback: %s", exc
-            )
-
-    _kernel_adapter = PythonKernelAdapter()
-    return _kernel_adapter
 
 
 def get_kernel_adapter() -> KernelPort:
@@ -359,10 +457,12 @@ def reset_kernel_adapter() -> None:
     """Reset the kernel adapter (mainly for testing).
 
     This clears the cached adapter and allows re-initialization.
+    Thread-safe.
     """
     global _kernel_adapter, _adapter_init_attempted
-    _kernel_adapter = None
-    _adapter_init_attempted = False
+    with _adapter_lock:
+        _kernel_adapter = None
+        _adapter_init_attempted = False
 
 
 __all__ = [
