@@ -15,120 +15,14 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-# Detect availability of GPU-acceleration packages at import time
-_have_bitsandbytes = importlib.util.find_spec("bitsandbytes") is not None
-_have_flash_attn = importlib.util.find_spec("flash_attn") is not None
+# Apply transformers compatibility shims early (before any model loading)
+from .shims import apply_transformers_shims
+apply_transformers_shims()
+
+# Import runtime policy for centralized environment decisions
+from .runtime_policy import get_runtime_policy
 
 logger = logging.getLogger(__name__)
-
-# Compatibility patch for DynamicCache.seen_tokens
-# In transformers >= 4.41, seen_tokens was removed from DynamicCache.
-# Some model code (e.g., Phi-3 with trust_remote_code=True) still uses it.
-# Add it back as a property that calls get_seq_length() for backwards compatibility.
-try:
-    from transformers.cache_utils import DynamicCache
-    if not hasattr(DynamicCache, 'seen_tokens'):
-        DynamicCache.seen_tokens = property(lambda self: self.get_seq_length())
-        logger.debug("Patched DynamicCache.seen_tokens for backwards compatibility")
-except ImportError:
-    pass  # transformers not installed yet
-
-# Additional compatibility shims for DynamicCache:
-# Some remote modeling code expects methods like get_max_length() or get_capacity().
-# Provide safe fallbacks that call available methods/properties where possible.
-try:
-    from transformers.cache_utils import DynamicCache as _DynamicCacheShim
-    if hasattr(_DynamicCacheShim, '__class__'):
-        # seen_tokens may already have been added above; ensure get_max_length exists.
-        if not hasattr(_DynamicCacheShim, 'get_max_length'):
-            def _get_max_length(self):
-                # Prefer an explicit capacity or length-like method if present.
-                if hasattr(self, 'get_capacity'):
-                    try:
-                        return self.get_capacity()
-                    except Exception:
-                        pass
-                if hasattr(self, 'max_length'):
-                    try:
-                        return int(self.max_length)
-                    except Exception:
-                        pass
-                if hasattr(self, 'get_seq_length'):
-                    try:
-                        # fall back to current seq length as a conservative proxy
-                        return int(self.get_seq_length())
-                    except Exception:
-                        pass
-                # Lastly, try len(self) if it behaves like a sequence
-                try:
-                    return int(len(self))
-                except Exception:
-                    # Give a safe default (0). Model code should handle gracefully.
-                    return 0
-            _DynamicCacheShim.get_max_length = _get_max_length
-            logger.debug("Patched DynamicCache.get_max_length for backwards compatibility")
-except Exception:
-    # If any import/inspection fails, we silently continue. The generate() fallback
-    # below will handle the AttributeError at runtime.
-    pass
-
-# Extra compatibility shim: provide get_usable_length for some remote model code
-try:
-    from transformers.cache_utils import DynamicCache as _DynamicCache
-    if not hasattr(_DynamicCache, "get_usable_length"):
-        def _get_usable_length(self, *args, **kwargs):
-            """
-            Compatibility shim for DynamicCache.get_usable_length.
-
-            Remote model code sometimes calls get_usable_length(seq_length). Accept
-            either the explicit seq_length or no args. Return a conservative integer:
-            - if seq_length provided, return int(seq_length)
-            - else try get_seq_length(), get_capacity(), len(self), else 0.
-            """
-            # Accept either positional or keyword 'seq_length'
-            seq_length = None
-            if args:
-                # first positional arg usually the requested seq_length
-                seq_length = args[0]
-            elif "seq_length" in kwargs:
-                seq_length = kwargs["seq_length"]
-
-            try:
-                if seq_length is not None:
-                    # If caller provided a seq_length, echo it back as usable length.
-                    # As a safer option, if the cache object exposes a capacity,
-                    # clamp to that value.
-                    try:
-                        seq_val = int(seq_length)
-                    except Exception:
-                        seq_val = None
-                    if seq_val is not None:
-                        if hasattr(self, "get_capacity"):
-                            try:
-                                cap = int(self.get_capacity())
-                                return min(seq_val, cap)
-                            except Exception:
-                                return seq_val
-                        return seq_val
-
-                # No seq_length provided: try conservative fallbacks
-                if hasattr(self, "get_seq_length"):
-                    return int(self.get_seq_length())
-                if hasattr(self, "get_capacity"):
-                    return int(self.get_capacity())
-                try:
-                    return int(len(self))
-                except Exception:
-                    return 0
-            except Exception:
-                # Last resort: return 0 (safe conservative value)
-                return 0
-
-        _DynamicCache.get_usable_length = _get_usable_length
-        logger.debug("Patched DynamicCache.get_usable_length for backwards compatibility")
-except Exception:
-    # If transformers not available or introspection fails, continue silently
-    pass
 
 
 @dataclass
@@ -225,7 +119,7 @@ class TransformersBackend(InferenceBackend):
     def load(self):
         """Load model using transformers.
 
-        This method implements CPU-safe loading logic:
+        This method uses RuntimePolicy for CPU-safe loading logic:
         - Disables 4/8-bit quantization on CPU (requires bitsandbytes + CUDA)
         - Forces float32 dtype on CPU to avoid tensor shape mismatches
         - Forces eager attention when flash-attn is missing
@@ -243,98 +137,39 @@ class TransformersBackend(InferenceBackend):
 
         logger.info(f"Loading {self.config.hf_id} with transformers backend...")
 
-        is_cuda_available = torch.cuda.is_available()
+        # Get runtime policy for centralized environment decisions
+        policy = get_runtime_policy()
+        logger.debug("RuntimePolicy: %s", policy)
 
-        # Check if we should use device_map="auto"
-        # Only useful with CUDA and requires accelerate to work properly
-        use_device_map = False
-        if is_cuda_available:
-            try:
-                from accelerate import infer_auto_device_map
-                use_device_map = True
-            except ImportError:
-                logger.warning("accelerate not fully available, skipping device_map")
-        else:
-            logger.info("Running on CPU, skipping device_map")
-
-        # --- CPU safety: if running on CPU, avoid quantized / float16 code paths ---
-        # This prevents tensor shape mismatches caused by GPU/quant-specific code paths
-        # in remote model code (e.g., Phi-3) when running on CPU.
-        if not is_cuda_available:
+        # --- Apply policy-based safety rules ---
+        # Disable quantization if not allowed
+        if not policy.allow_quant():
             if getattr(self.config, "load_in_4bit", False) or getattr(self.config, "load_in_8bit", False):
                 logger.warning(
-                    "Running on CPU but model config requests 4/8-bit loading. "
-                    "Disabling quantized loading for safe CPU execution."
+                    "Quantization requested but not allowed by policy (cuda=%s, bnb=%s). Disabling.",
+                    policy.cuda, policy.have_bnb
                 )
-            # Disable quantization flags on CPU
             self.config.load_in_4bit = False
             self.config.load_in_8bit = False
-            # Force float32 dtype for safe CPU inference
-            if getattr(self.config, "dtype", None) in ("float16", "bfloat16"):
-                logger.warning(
-                    "Model configured with dtype=%s but running on CPU. "
-                    "Forcing dtype=float32 for safe CPU execution.",
-                    self.config.dtype,
-                )
-                self.config.dtype = "float32"
-            # Force no-cache mode on CPU to avoid past-key-value tensor shape mismatches
+
+        # Force safe dtype based on policy
+        recommended_dtype = policy.recommended_dtype(getattr(self.config, "dtype", None))
+        if recommended_dtype != getattr(self.config, "dtype", None):
+            logger.info("Policy recommends dtype=%s (was %s)", recommended_dtype, self.config.dtype)
+            self.config.dtype = recommended_dtype
+
+        # Force no-cache mode if policy disallows caching
+        if not policy.allow_cache():
             self._force_no_cache = True
-            logger.info("CPU mode: forcing use_cache=False for safe generation")
-        else:
-            # GPU present: check if bitsandbytes is available before allowing 4-bit
-            if getattr(self.config, "load_in_4bit", False) and not _have_bitsandbytes:
-                logger.warning("load_in_4bit requested but bitsandbytes not available; disabling 4-bit.")
-                self.config.load_in_4bit = False
-            if getattr(self.config, "load_in_8bit", False) and not _have_bitsandbytes:
-                logger.warning("load_in_8bit requested but bitsandbytes not available; disabling 8-bit.")
-                self.config.load_in_8bit = False
-        # --- end CPU safety ---
+            logger.info("Policy: forcing use_cache=False for safe generation")
+        # --- end policy-based safety ---
 
-        # Prepare kwargs
-        model_kwargs = {
-            "trust_remote_code": True,
-            "low_cpu_mem_usage": True,  # Reduces memory during loading
-        }
-
-        # Only use device_map if CUDA available and accelerate works
-        if use_device_map:
-            model_kwargs["device_map"] = "auto"
-
-        # Handle dtype - use both 'dtype' (new) and 'torch_dtype' (compat) for robustness
-        if self.config.dtype == "bfloat16":
-            model_dtype = torch.bfloat16
-        elif self.config.dtype == "float16":
-            # Avoid float16 on CPU to prevent tensor shape mismatches
-            model_dtype = torch.float16 if is_cuda_available else torch.float32
-        else:
-            model_dtype = torch.float32
-
-        # Set both for compatibility with different transformers versions
-        model_kwargs["torch_dtype"] = model_dtype
-        # Note: Some newer transformers versions use 'dtype' instead of 'torch_dtype'
-        # but torch_dtype is still widely supported and recommended
-
-        # Handle quantization (only if bitsandbytes available and on GPU)
-        if self.config.load_in_4bit and _have_bitsandbytes and is_cuda_available:
-            try:
-                from transformers import BitsAndBytesConfig
-                model_kwargs["quantization_config"] = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch.bfloat16,
-                )
-                logger.info("Using 4-bit quantization")
-            except ImportError:
-                logger.warning("BitsAndBytesConfig not available, skipping quantization")
-        elif self.config.load_in_8bit and _have_bitsandbytes and is_cuda_available:
-            model_kwargs["load_in_8bit"] = True
-            logger.info("Using 8-bit quantization")
-
-        # Force eager attention when flash-attention is not available or on CPU
-        # This avoids tensor shape mismatches in models that default to flash-attn
-        # code paths but fall back incorrectly when flash-attn is missing.
-        if not _have_flash_attn or not is_cuda_available:
-            model_kwargs["attn_implementation"] = "eager"
-            logger.info("Using eager attention implementation (flash-attn unavailable or CPU mode)")
+        # Prepare kwargs using policy helpers
+        model_kwargs = policy.get_model_kwargs(
+            load_in_4bit=self.config.load_in_4bit,
+            load_in_8bit=self.config.load_in_8bit,
+            dtype=self.config.dtype,
+        )
 
         # Pin model revision if specified for deterministic loads
         revision = getattr(self.config, "revision", None)
@@ -356,17 +191,21 @@ class TransformersBackend(InferenceBackend):
             **model_kwargs,
         )
 
-        # Post-load: set attn_implementation on model config for remote code that checks it
+        # Post-load: sync attn_implementation on model config for remote code that checks it
         # This ensures consistent behavior even if remote model code reads config after loading
-        if not _have_flash_attn or not is_cuda_available:
-            try:
-                if hasattr(self.model, "config"):
-                    self.model.config.attn_implementation = "eager"
-                    # Also disable any sliding window attention that might cause issues
-                    if hasattr(self.model.config, "_attn_implementation"):
-                        self.model.config._attn_implementation = "eager"
-            except Exception as e:
-                logger.debug(f"Could not set attn_implementation on model config: {e}")
+        attn_impl = policy.attn_impl()
+        try:
+            if hasattr(self.model, "config"):
+                self.model.config.attn_implementation = attn_impl
+                # Also set _attn_implementation for internal use
+                if hasattr(self.model.config, "_attn_implementation"):
+                    self.model.config._attn_implementation = attn_impl
+                # Some models use attention dict
+                if hasattr(self.model.config, "attention") and isinstance(self.model.config.attention, dict):
+                    self.model.config.attention["implementation"] = attn_impl
+                logger.debug("Synced model.config.attn_implementation = %s", attn_impl)
+        except Exception as e:
+            logger.debug(f"Could not sync attn_implementation on model config: {e}")
 
         # Ensure pad token exists
         if self.tokenizer.pad_token is None:

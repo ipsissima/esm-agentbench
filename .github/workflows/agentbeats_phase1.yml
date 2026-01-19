@@ -184,39 +184,62 @@ jobs:
 
     - name: Ensure evaluation_config exists
       run: |
-        if [ ! -f evaluation_config.yaml ]; then
-          cat > evaluation_config.yaml <<'YAML'
-canonical:
-  embedding_backend: sentence-transformers
-  sentence_transformers_model: all-MiniLM-L6-v2
-  tfidf_max_features: 512
+        . .venv/bin/activate
+        python -c "
+        import os, yaml
+        if not os.path.exists('evaluation_config.yaml'):
+            config = {
+                'canonical': {
+                    'embedding_backend': 'sentence-transformers',
+                    'sentence_transformers_model': 'all-MiniLM-L6-v2',
+                    'tfidf_max_features': 512
+                },
+                'certificate': {'pca_rank': 10},
+                'calibration': {'residual_threshold': 0.3, 'jump_factor': 3.0}
+            }
+            with open('evaluation_config.yaml', 'w') as f:
+                yaml.safe_dump(config, f, default_flow_style=False)
+            print('Created evaluation_config.yaml')
+        else:
+            print('evaluation_config.yaml already exists')
+        "
 
-certificate:
-  pca_rank: 10
-
-calibration:
-  residual_threshold: 0.3
-  jump_factor: 3.0
-YAML
-          echo "Created evaluation_config.yaml"
-        else
-          echo "evaluation_config.yaml already exists"
-        fi
-
-    - name: Assert verified kernel loadable
+    - name: Assert verified kernel loadable and selftest
       run: |
         . .venv/bin/activate
         python - <<'PY'
-        from certificates.verified_kernel import load_kernel, KernelError
+        from esmassessor.kernel_adapter import make_kernel_adapter, reset_kernel_adapter, KernelAdapterError
         import os
+
+        reset_kernel_adapter()
+
         try:
-            load_kernel(strict=True)
-            print("Verified kernel loadable: OK")
-        except KernelError as e:
-            print("Verified kernel not loadable; CI will fallback to Python adapter:", e)
+            adapter = make_kernel_adapter(prefer_verified=True)
+            print(f"Kernel adapter: {type(adapter).__name__}")
+            print(f"Is verified: {adapter.is_verified}")
+
+            # Run selftest
+            adapter.selftest()
+            print("Kernel adapter selftest: PASSED")
+        except KernelAdapterError as e:
+            print(f"Kernel adapter error: {e}")
+            print("Will use Python fallback for certificate computation")
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            raise
         PY
       env:
         VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
+
+    - name: Verify runtime deps installed
+      run: |
+        . .venv/bin/activate
+        python -c "
+        import pydantic
+        import yaml
+        print('pydantic:', pydantic.__version__)
+        print('Runtime deps OK')
+        "
 
     - name: Start green assessor (background)
       run: |
