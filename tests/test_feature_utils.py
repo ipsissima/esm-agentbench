@@ -1,6 +1,10 @@
 import numpy as np
+import pytest
 
 from tools.feature_utils import NormalizationConfig, compute_trace_features
+
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
 
 
 def test_compute_trace_features_returns_new_keys():

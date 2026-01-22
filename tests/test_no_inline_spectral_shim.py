@@ -3,6 +3,9 @@ import re
 
 import pytest
 
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
+
 SHIM_PATTERNS = [
     r"\bnp\.linalg\.pinv\b",
     r"\bkoopman_residual\b",

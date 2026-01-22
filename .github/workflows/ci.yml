@@ -46,9 +46,16 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          # Install pytest with timeout plugin for per-test timeouts
           python -m pip install pytest pytest-timeout numpy scipy pyyaml
-          # Install transformers for shim tests (but no model loading)
-          python -m pip install transformers torch --index-url https://download.pytorch.org/whl/cpu
+          # Install critical runtime packages with their binary dependencies
+          # pydantic pulls pydantic-core binary; flask pulls itsdangerous; matplotlib pulls pyparsing
+          python -m pip install --index-url https://pypi.org/simple \
+            pydantic flask matplotlib pyparsing itsdangerous
+          # Install transformers for shim tests (but no model loading) - CPU-only torch
+          python -m pip install --index-url https://pypi.org/simple \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+            transformers torch
           python -m pip install -e . || true
 
       - name: Run unit tests
@@ -169,12 +176,20 @@ jobs:
         run: |
           . .venv/bin/activate
           python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
+          # Install CPU-only torch first with proper index URLs
+          python -m pip install --no-cache-dir \
+            --index-url https://pypi.org/simple \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+            torch
           # canonical HF stack - install transformers>=4.36.0 for Phi-3 model compatibility (cache_utils module)
-          python -m pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0"
-          # Install matplotlib with dependencies (so pyparsing, packaging, kiwisolver, fonttools, ...)
-          # We install matplotlib explicitly so that installing requirements with --no-deps
-          # won't leave matplotlib half-installed.
-          python -m pip install --no-cache-dir matplotlib==3.8.1
+          python -m pip install --no-cache-dir \
+            --index-url https://pypi.org/simple \
+            "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0"
+          # Install critical runtime packages with their binary dependencies
+          # pydantic pulls pydantic-core binary; flask pulls itsdangerous; matplotlib pulls pyparsing
+          python -m pip install --no-cache-dir \
+            --index-url https://pypi.org/simple \
+            pydantic flask matplotlib pyparsing itsdangerous
           # Install the rest of the pinned requirements without re-resolving the HF stack
           python -m pip install --no-cache-dir -r requirements.txt --no-deps
           # Use --no-deps to prevent pip from re-resolving and potentially downgrading transformers
@@ -301,7 +316,14 @@ jobs:
               . .venv-docker/bin/activate
               python -m pip install --upgrade pip setuptools wheel
               # Install CPU-only torch first to avoid huge CUDA downloads
-              python -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+              python -m pip install --no-cache-dir \
+                --index-url https://pypi.org/simple \
+                --extra-index-url https://download.pytorch.org/whl/cpu \
+                torch
+              # Install critical runtime packages with their binary dependencies
+              python -m pip install --no-cache-dir \
+                --index-url https://pypi.org/simple \
+                pydantic flask matplotlib pyparsing itsdangerous
               # Install Python deps (skip torch since we installed CPU version)
               python -m pip install --no-cache-dir -r requirements.txt --no-deps
               python -m pip install -e . || true

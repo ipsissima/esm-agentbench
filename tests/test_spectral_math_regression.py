@@ -9,6 +9,9 @@ All benchmark evidence comes from real agent traces only.
 import numpy as np
 import pytest
 
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
+
 
 def generate_synthetic_trace(seed: int, dim: int = 128, n_steps: int = 8) -> np.ndarray:
     """Generate a synthetic trace for testing (NOT for benchmarking).

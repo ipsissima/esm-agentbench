@@ -1,4 +1,13 @@
+"""Test kernel loading with actual kernel artifact.
+
+This test is for integration tier only because:
+1. It requires the verified kernel to be built and available
+2. It loads the kernel with strict=True (no fallback)
+3. It requires OCaml/Coq runtime to be available
+"""
 import subprocess
+
+import pytest
 
 
 def _print_versions():
@@ -10,6 +19,8 @@ def _print_versions():
             print("Failed to run", cmd, ":", ex)
 
 
+@pytest.mark.integration
+@pytest.mark.kernel
 def test_kernel_load_and_smoke():
     from certificates.verified_kernel import load_kernel
 

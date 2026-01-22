@@ -3,6 +3,9 @@ import pytest
 
 from certificates.witness_checker import WitnessValidationError, check_witness
 
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
+
 
 def test_check_witness_valid() -> None:
     np.random.seed(0)

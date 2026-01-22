@@ -76,8 +76,13 @@ jobs:
   validate-phase1:
     runs-on: ubuntu-latest
     needs: build_verified_kernel
+    timeout-minutes: 60
     env:
       PHASE1_EVIDENCE: "1"
+      # Integration tier - kernel and model loading allowed
+      ESM_ALLOW_KERNEL_LOAD: "1"
+      ESM_ALLOW_MODEL_LOAD: "1"
+      ESM_STRICT: "1"
     strategy:
       matrix:
         python-version: ["3.11"]
@@ -127,13 +132,21 @@ jobs:
       run: |
         . .venv/bin/activate
         python -m pip uninstall -y huggingface-hub sentence-transformers transformers accelerate || true
-        # canonical HF stack - install transformers>=4.36.0 for Phi-3 model compatibility (cache_utils module)
+        # Install CPU-only torch first with proper index URLs
+        python -m pip install --no-cache-dir \
+          --index-url https://pypi.org/simple \
+          --extra-index-url https://download.pytorch.org/whl/cpu \
+          torch
+        # canonical HF stack - install transformers>=4.40.0 for Phi-3 model compatibility
         # accelerate is required for device_map="auto" in transformers
-        # Phi-3 model requires transformers>=4.40.0 for DynamicCache.seen_tokens support
-        python -m pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.40.0" "accelerate>=0.25.0"
+        python -m pip install --no-cache-dir \
+          --index-url https://pypi.org/simple \
+          "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.40.0" "accelerate>=0.25.0"
         # Install critical runtime packages WITH their dependencies before --no-deps install
-        # This ensures pydantic-core, itsdangerous, pyparsing, etc. are present
-        python -m pip install --no-cache-dir pydantic==2.5.0 flask==3.0.0 matplotlib==3.8.1
+        # pydantic pulls pydantic-core binary; flask pulls itsdangerous; matplotlib pulls pyparsing
+        python -m pip install --no-cache-dir \
+          --index-url https://pypi.org/simple \
+          pydantic flask matplotlib pyparsing itsdangerous
         python -m pip install --no-cache-dir -r requirements.txt --no-deps
         # Use --no-deps to prevent pip from re-resolving and potentially downgrading transformers
         python -m pip install --no-deps -e .[signing]

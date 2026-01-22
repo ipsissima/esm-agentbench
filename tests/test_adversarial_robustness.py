@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from numpy.linalg import norm
 
 from certificates.make_certificate import compute_certificate
+
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
 
 
 def _create_task_embedding(dim: int = 64, seed: int = 123) -> np.ndarray:

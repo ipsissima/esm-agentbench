@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import pytest
 
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
+
 
 class TestShims:
     """Test suite for transformers compatibility shims."""

@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from certificates.make_certificate import compute_certificate
+
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
 
 
 def test_canonical_matrix_stability() -> None:
