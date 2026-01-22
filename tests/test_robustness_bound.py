@@ -10,6 +10,9 @@ import pytest
 from certificates.make_certificate import compute_certificate
 from certificates import uelat_bridge
 
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
+
 
 def create_dummy_trace_embeddings(n_steps: int = 10, dim: int = 32) -> np.ndarray:
     """Create a simple dummy trace of embeddings for testing.

@@ -11,6 +11,9 @@ from unittest import mock
 
 import pytest
 
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
+
 
 class TestRuntimePolicy:
     """Test suite for RuntimePolicy functionality."""

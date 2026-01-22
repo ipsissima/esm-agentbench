@@ -7,8 +7,12 @@ Where C_res, C_tail, and C_sem are constants from formal verification (Coq/UELAT
 The semantic_divergence term enables detection of poison/adversarial attacks.
 """
 import numpy as np
+import pytest
 
 from certificates.make_certificate import compute_certificate
+
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
 
 
 def test_theoretical_bound_matches_formula():

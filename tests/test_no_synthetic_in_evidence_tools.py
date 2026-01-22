@@ -7,6 +7,9 @@ from pathlib import Path
 
 import pytest
 
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
+
 PROJECT_ROOT = Path(__file__).parent.parent
 
 CHECK_FILES = [

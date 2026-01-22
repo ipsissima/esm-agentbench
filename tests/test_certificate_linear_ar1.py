@@ -2,12 +2,16 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from certificates.make_certificate import compute_certificate
+
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
 
 
 def test_ar1_low_residual_and_correct_koopman_sigma():

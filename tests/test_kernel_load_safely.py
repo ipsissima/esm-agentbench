@@ -1,8 +1,18 @@
+"""Test kernel loading in an isolated subprocess.
+
+This test is safe for unit tests because:
+1. It runs in a subprocess that inherits ESM_ALLOW_KERNEL_LOAD=0
+2. The subprocess uses strict=False so it falls back gracefully
+3. No actual kernel loading occurs in the unit test environment
+"""
 import subprocess
 import sys
 import textwrap
 
+import pytest
 
+
+@pytest.mark.unit
 def test_kernel_load_in_subprocess():
     code = textwrap.dedent(
         """

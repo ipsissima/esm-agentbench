@@ -19,6 +19,9 @@ import pytest
 
 from certificates.make_certificate import compute_certificate
 
+# Mark all tests in this module as unit tests (Tier 1)
+pytestmark = pytest.mark.unit
+
 
 def _create_task_embedding(dim: int = 64, seed: int = 42) -> np.ndarray:
     """Create a normalized task embedding."""
