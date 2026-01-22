@@ -34,6 +34,15 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-unit-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-unit-
+            ${{ runner.os }}-pip-
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -47,9 +56,7 @@ jobs:
           pytest tests/ -v -m "unit" \
             --ignore=tests/test_hybrid_certification.py \
             --ignore=tests/test_spectral_prover.py \
-            -x --tb=short --durations=20 --timeout=600 || true
-        env:
-          ESM_ALLOW_KERNEL_LOAD: "0"
+            -x --tb=short --durations=20 --timeout=600
 
       - name: Verify test guards work
         run: |
@@ -218,6 +225,27 @@ jobs:
             echo "ESM_SKIP_VERIFIED_KERNEL=1" >> "$GITHUB_ENV"
           fi
 
+      - name: Collect verified kernel diagnostics
+        run: |
+          KERNEL_PATH="${{ github.workspace }}/UELAT/kernel_verified.so"
+          mkdir -p kernel_diagnostics
+          if [ -f "$KERNEL_PATH" ]; then
+            echo "Collecting diagnostics for $KERNEL_PATH"
+            file "$KERNEL_PATH" > kernel_diagnostics/kernel_file.txt || true
+            if command -v ldd >/dev/null 2>&1; then
+              ldd "$KERNEL_PATH" > kernel_diagnostics/kernel_ldd.txt || true
+            else
+              echo "ldd not available" > kernel_diagnostics/kernel_ldd.txt
+            fi
+            if command -v readelf >/dev/null 2>&1; then
+              readelf -d "$KERNEL_PATH" > kernel_diagnostics/kernel_readelf.txt || true
+            else
+              echo "readelf not available" > kernel_diagnostics/kernel_readelf.txt
+            fi
+          else
+            echo "Kernel not found; skipping diagnostics." > kernel_diagnostics/kernel_missing.txt
+          fi
+
       - name: Verify Python environment
         run: |
           . .venv/bin/activate
@@ -365,6 +393,7 @@ jobs:
             validation_history/*.json
             demo_swe/report.json
             demo_traces/*.json
+            kernel_diagnostics/*
 
       - name: Cleanup Container
         if: always()
