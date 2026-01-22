@@ -99,6 +99,7 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_functions = "test_*"
 addopts = "-v --tb=short"
+timeout = 600  # Default 10-minute timeout per test (requires pytest-timeout)
 
 [tool.mypy]
 python_version = "3.8"
