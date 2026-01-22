@@ -98,18 +98,36 @@ jobs:
           print('Backend created successfully')
           PY
 
-      - name: Run pipeline test (1 scenario, 2 runs, small model)
+      - name: Debug single generate() timing
+        run: |
+          . .venv/bin/activate
+          # Show system resources before generate
+          echo "=== System resources before generate ==="
+          free -h || true
+          ps aux --sort=-%mem | head -10 || true
+          echo "========================================"
+
+          # Run debug script to measure single generate() timing
+          timeout 600 python tools/debug_generate.py --model phi-3-mini-instruct --max-tokens 50 || {
+            echo "=== Debug generate timed out or failed ==="
+            echo "=== System resources after timeout ==="
+            free -h || true
+            ps aux --sort=-%mem | head -10 || true
+            echo "========================================"
+            exit 1
+          }
+
+      - name: Run pipeline test (1 scenario, 3 runs, small model, max 10 steps)
         run: |
           . .venv/bin/activate
           # Use workflow input or default
           SCENARIO="${{ github.event.inputs.scenario || 'supply_chain_poisoning' }}"
-          N_RUNS="${{ github.event.inputs.n_runs || '2' }}"
 
           python tools/real_agents_hf/run_real_agents.py \
             --scenario "$SCENARIO" \
             --models phi-3-mini-instruct \
             --labels gold,drift \
-            --n "$N_RUNS" \
+            --n 3 \
             --max-steps 10 \
             --team ci_test \
             --verbose
