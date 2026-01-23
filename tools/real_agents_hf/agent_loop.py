@@ -14,15 +14,18 @@ import json
 import logging
 import os
 import re
+import subprocess
+import sys
+import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .inference import InferenceBackend
 from .sandbox import Sandbox
 from .tools import execute_tool, generate_tool_docs, TOOLS
 from .generation_timeout import (
-    generate_with_timeout,
     check_memory_available,
     log_system_resources,
     GenerationTimeout,
@@ -349,12 +352,72 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
                 logger.debug(f"System resources: {resources}")
 
             t0 = time.time()
+            prompt_path = None
             try:
-                response = generate_with_timeout(
-                    self.backend,
-                    full_prompt,
-                    stop=['USER:', 'SYSTEM:'],
+                # Write prompt to temp file for subprocess
+                with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt") as tf:
+                    tf.write(full_prompt)
+                    tf.flush()
+                    prompt_path = tf.name
+
+                # Build subprocess command
+                worker_script = Path(__file__).parent / "generate_worker.py"
+                revision = getattr(self.backend.config, "revision", None) or ""
+                stop_sequences = json.dumps(['USER:', 'SYSTEM:'])
+                max_new_tokens = str(self.backend.config.max_tokens)
+                temperature = str(self.backend.config.temperature)
+
+                cmd = [
+                    sys.executable,
+                    str(worker_script),
+                    "--model_id", self.backend.config.hf_id,
+                    "--revision", revision,
+                    "--prompt_file", prompt_path,
+                    "--max_new_tokens", max_new_tokens,
+                    "--temperature", temperature,
+                    "--stop_sequences", stop_sequences,
+                ]
+
+                # Run subprocess with timeout
+                timeout = int(os.getenv("ESM_GEN_TIMEOUT", "300"))
+                logger.debug(f"Running generation subprocess with {timeout}s timeout")
+
+                completed = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
                 )
+
+                if completed.returncode != 0:
+                    logger.error("Worker failed: %s", completed.stderr)
+                    steps.append(AgentStep(
+                        step_num=step_num,
+                        step_type='error',
+                        content=f"Generation worker failed: {completed.stderr[:500]}",
+                    ))
+                    break
+
+                # Parse JSON output
+                out_json = json.loads(completed.stdout)
+                response = out_json["output"]
+
+            except subprocess.TimeoutExpired as e:
+                logger.error(f"Generation timeout at step {step_num}: subprocess exceeded {timeout}s")
+                steps.append(AgentStep(
+                    step_num=step_num,
+                    step_type='error',
+                    content=f"Generation timeout: subprocess exceeded {timeout}s",
+                ))
+                break
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse worker output: {e}")
+                steps.append(AgentStep(
+                    step_num=step_num,
+                    step_type='error',
+                    content=f"Generation failed: invalid JSON output from worker",
+                ))
+                break
             except GenerationTimeout as e:
                 logger.error(f"Generation timeout at step {step_num}: {e}")
                 steps.append(AgentStep(
@@ -363,8 +426,16 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
                     content=f"Generation timeout: {e}",
                 ))
                 break
+            finally:
+                # Clean up temp file
+                if prompt_path:
+                    try:
+                        os.unlink(prompt_path)
+                    except Exception:
+                        pass
+
             t1 = time.time()
-            logger.info(f"Generated step {step_num} in {t1 - t0:.1f}s")
+            logger.info(f"Generated step {step_num} in {t1 - t0:.1f}s (subprocess)")
             logger.debug(f"Step {step_num}: {response[:200]}")
 
             # Parse response
