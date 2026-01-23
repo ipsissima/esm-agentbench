@@ -99,18 +99,28 @@ jobs:
           PY
 
       - name: Debug single generate() timing
+        env:
+          ESM_GEN_TIMEOUT: "300"  # 5 minute timeout per generate() call
         run: |
           . .venv/bin/activate
-          # Show system resources before generate
-          echo "=== System resources before generate ==="
-          free -h || true
-          ps aux --sort=-%mem | head -10 || true
-          echo "========================================"
+          # Run debug script with built-in timeout wrapper and system diagnostics
+          # --system-info-only first to log baseline
+          python tools/debug_generate.py --system-info-only
 
-          # Run debug script to measure single generate() timing
-          timeout 600 python tools/debug_generate.py --model phi-3-mini-instruct --max-tokens 50 || {
-            echo "=== Debug generate timed out or failed ==="
-            echo "=== System resources after timeout ==="
+          # Now run actual generate with timeout wrapper
+          timeout 600 python tools/debug_generate.py \
+            --model phi-3-mini-instruct \
+            --max-tokens 50 \
+            --with-timeout \
+            --timeout 300 || {
+            EXIT_CODE=$?
+            echo "=== Debug generate failed with exit code $EXIT_CODE ==="
+            if [ $EXIT_CODE -eq 2 ]; then
+              echo "=== Generation timed out ==="
+            elif [ $EXIT_CODE -eq 3 ]; then
+              echo "=== Generation error ==="
+            fi
+            echo "=== System resources after failure ==="
             free -h || true
             ps aux --sort=-%mem | head -10 || true
             echo "========================================"
@@ -118,10 +128,17 @@ jobs:
           }
 
       - name: Run pipeline test (1 scenario, 3 runs, small model, max 10 steps)
+        env:
+          ESM_GEN_TIMEOUT: "300"  # 5 minute timeout per generate() call
+          ESM_MIN_MEMORY_GB: "2.0"  # Warn if less than 2GB available
         run: |
           . .venv/bin/activate
           # Use workflow input or default
           SCENARIO="${{ github.event.inputs.scenario || 'supply_chain_poisoning' }}"
+
+          # Show system resources before pipeline run
+          echo "=== System resources before pipeline ==="
+          free -h || true
 
           python tools/real_agents_hf/run_real_agents.py \
             --scenario "$SCENARIO" \
@@ -131,6 +148,9 @@ jobs:
             --max-steps 10 \
             --team ci_test \
             --verbose
+
+          echo "=== System resources after pipeline ==="
+          free -h || true
 
       - name: Verify traces generated
         run: |

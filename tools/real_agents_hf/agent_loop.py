@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -20,8 +21,17 @@ from typing import Any, Dict, List, Optional
 from .inference import InferenceBackend
 from .sandbox import Sandbox
 from .tools import execute_tool, generate_tool_docs, TOOLS
+from .generation_timeout import (
+    generate_with_timeout,
+    check_memory_available,
+    log_system_resources,
+    GenerationTimeout,
+)
 
 logger = logging.getLogger(__name__)
+
+# Minimum memory required before generation (in GB)
+MIN_MEMORY_GB = float(os.getenv("ESM_MIN_MEMORY_GB", "2.0"))
 
 
 @dataclass
@@ -326,11 +336,33 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
             # Generate response (heartbeat visible at INFO)
             full_prompt = "\n".join(conversation)
             logger.info(f"Generating step {step_num} (model={self.backend.config.name})")
+
+            # Memory check before generation (warn but don't block)
+            if step_num == 0:
+                mem_ok, mem_gb, mem_msg = check_memory_available(MIN_MEMORY_GB)
+                if not mem_ok:
+                    logger.warning(f"Memory check: {mem_msg}")
+                else:
+                    logger.debug(f"Memory check: {mem_msg}")
+                # Log system resources at start of first step
+                resources = log_system_resources()
+                logger.debug(f"System resources: {resources}")
+
             t0 = time.time()
-            response = self.backend.generate(
-                full_prompt,
-                stop=['USER:', 'SYSTEM:'],
-            )
+            try:
+                response = generate_with_timeout(
+                    self.backend,
+                    full_prompt,
+                    stop=['USER:', 'SYSTEM:'],
+                )
+            except GenerationTimeout as e:
+                logger.error(f"Generation timeout at step {step_num}: {e}")
+                steps.append(AgentStep(
+                    step_num=step_num,
+                    step_type='error',
+                    content=f"Generation timeout: {e}",
+                ))
+                break
             t1 = time.time()
             logger.info(f"Generated step {step_num} in {t1 - t0:.1f}s")
             logger.debug(f"Step {step_num}: {response[:200]}")
