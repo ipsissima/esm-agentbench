@@ -300,6 +300,10 @@ class TransformersBackend(InferenceBackend):
         max_tokens = max_tokens or self.config.max_tokens
         temperature = temperature or self.config.temperature
 
+        # Apply CPU-specific token limit (without KV cache, generation is O(n²))
+        policy = get_runtime_policy()
+        max_tokens = policy.max_tokens_for_cpu(max_tokens)
+
         # Calculate max input length, leaving room for generation
         max_input_length = self.config.context_length - max_tokens
 
