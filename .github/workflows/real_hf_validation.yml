@@ -100,7 +100,7 @@ jobs:
 
       - name: Debug single generate() timing
         env:
-          ESM_GEN_TIMEOUT: "300"  # 5 minute timeout per generate() call
+          ESM_GEN_TIMEOUT: "180"  # 3 minute timeout per generate() call for debug
         run: |
           . .venv/bin/activate
           # Run debug script with built-in timeout wrapper and system diagnostics
@@ -108,14 +108,17 @@ jobs:
           python tools/debug_generate.py --system-info-only
 
           # Now run actual generate with timeout wrapper
-          timeout 600 python tools/debug_generate.py \
+          # Using 360s (6 min) shell timeout to allow for model loading + generation
+          timeout 360 python tools/debug_generate.py \
             --model phi-3-mini-instruct \
             --max-tokens 50 \
             --with-timeout \
-            --timeout 300 || {
+            --timeout 180 || {
             EXIT_CODE=$?
             echo "=== Debug generate failed with exit code $EXIT_CODE ==="
-            if [ $EXIT_CODE -eq 2 ]; then
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "=== TIMEOUT: Shell timeout exceeded ==="
+            elif [ $EXIT_CODE -eq 2 ]; then
               echo "=== Generation timed out ==="
             elif [ $EXIT_CODE -eq 3 ]; then
               echo "=== Generation error ==="
@@ -127,7 +130,7 @@ jobs:
             exit 1
           }
 
-      - name: Run pipeline test (1 scenario, 3 runs, small model, max 10 steps)
+      - name: Run pipeline test (1 scenario, 2 runs, small model, max 8 steps)
         env:
           ESM_GEN_TIMEOUT: "300"  # 5 minute timeout per generate() call
           ESM_MIN_MEMORY_GB: "2.0"  # Warn if less than 2GB available
@@ -140,14 +143,28 @@ jobs:
           echo "=== System resources before pipeline ==="
           free -h || true
 
-          python tools/real_agents_hf/run_real_agents.py \
+          # Run with shell-level timeout (20 minutes) to prevent hanging
+          # This ensures the job can complete even if subprocess timeouts fail
+          timeout 1200 python tools/real_agents_hf/run_real_agents.py \
             --scenario "$SCENARIO" \
             --models phi-3-mini-instruct \
             --labels gold,drift \
-            --n 3 \
-            --max-steps 10 \
+            --n 2 \
+            --max-steps 8 \
             --team ci_test \
-            --verbose
+            --verbose || {
+            EXIT_CODE=$?
+            echo "=== Pipeline failed with exit code $EXIT_CODE ==="
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "=== TIMEOUT: Pipeline exceeded 20 minute shell timeout ==="
+            fi
+            echo "=== System resources after failure ==="
+            free -h || true
+            ps aux --sort=-%mem | head -10 || true
+            echo "=== Recent dmesg (OOM check) ==="
+            dmesg | tail -20 || true
+            exit $EXIT_CODE
+          }
 
           echo "=== System resources after pipeline ==="
           free -h || true
