@@ -170,6 +170,65 @@ def generate_with_timeout(
         )
 
 
+def _worker_generate_spawn(
+    backend_config_dict: Dict[str, Any],
+    prompt: str,
+    max_tokens: Optional[int],
+    temperature: Optional[float],
+    stop: Optional[List[str]],
+    result_queue: Queue,
+) -> None:
+    """Worker function that runs in a spawned subprocess.
+
+    Loads the model fresh in the subprocess to avoid fork issues with PyTorch.
+    This is slower (model reload) but safe and reliable.
+    """
+    import traceback
+    try:
+        # Import inside worker for clean interpreter state
+        from .inference import ModelConfig, TransformersBackend
+
+        # Reconstruct model config from serialized dict
+        model_config = ModelConfig.from_dict(backend_config_dict)
+
+        # Load model in subprocess
+        backend = TransformersBackend(model_config)
+        backend.load()
+
+        # Generate
+        result = backend.generate(
+            prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stop=stop,
+        )
+        result_queue.put(("success", result))
+
+        # Clean up
+        try:
+            backend.unload()
+        except Exception:
+            pass
+
+    except Exception as e:
+        result_queue.put(("error", type(e).__name__, f"{e}\n{traceback.format_exc()}"))
+
+
+def _serialize_backend_config(backend: Any) -> Dict[str, Any]:
+    """Serialize backend config to a dict for passing to spawned worker."""
+    config = getattr(backend, "config", None)
+    if config is None:
+        raise ValueError("Backend has no config attribute")
+
+    # Convert dataclass/object to dict
+    if hasattr(config, "__dict__"):
+        return dict(config.__dict__)
+    elif hasattr(config, "_asdict"):  # namedtuple
+        return config._asdict()
+    else:
+        raise ValueError(f"Cannot serialize backend config: {type(config)}")
+
+
 def _generate_with_multiprocessing(
     backend: Any,
     prompt: str,
@@ -180,34 +239,33 @@ def _generate_with_multiprocessing(
 ) -> str:
     """Generate with multiprocessing timeout (for CPU-bound operations).
 
-    Uses fork to share the loaded model memory with a child process.
-    The child process runs generation and puts the result on a queue.
-    If timeout is exceeded, the child process is forcibly terminated.
+    Uses 'spawn' to create a fresh interpreter process that loads the model
+    cleanly. This avoids fork issues with PyTorch (thread duplication, deadlocks).
+
+    The worker reloads the model in the subprocess, which is slower but safe
+    and works reliably on GitHub Actions and other CI environments.
 
     This is more reliable than SIGALRM for CPU-bound operations because
     SIGALRM cannot interrupt blocked C library calls.
     """
-    # Use fork to share model memory (avoids reloading)
-    ctx = multiprocessing.get_context('fork')
+    # Use spawn for clean interpreter (avoids PyTorch fork issues)
+    ctx = multiprocessing.get_context('spawn')
     result_queue = ctx.Queue()
 
-    def worker():
-        """Worker that runs in forked process."""
-        try:
-            result = backend.generate(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stop=stop,
-            )
-            result_queue.put(("success", result))
-        except Exception as e:
-            result_queue.put(("error", type(e).__name__, str(e)))
+    # Serialize backend config for IPC
+    try:
+        backend_config_dict = _serialize_backend_config(backend)
+    except Exception as e:
+        logger.error(f"Failed to serialize backend config: {e}")
+        raise GenerationError(f"Cannot use multiprocessing timeout: {e}")
 
-    logger.debug(f"Starting generate() in subprocess with {timeout_seconds}s timeout")
+    logger.debug(f"Starting generate() in spawned subprocess with {timeout_seconds}s timeout")
     t0 = time.time()
 
-    proc = ctx.Process(target=worker)
+    proc = ctx.Process(
+        target=_worker_generate_spawn,
+        args=(backend_config_dict, prompt, max_tokens, temperature, stop, result_queue),
+    )
     proc.start()
 
     # Wait for result with timeout
