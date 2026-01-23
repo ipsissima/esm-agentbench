@@ -5,6 +5,10 @@ This module provides a timeout-protected wrapper around model generation
 to prevent indefinite hangs. It uses multiprocessing to isolate the
 generate() call and enforce a hard timeout.
 
+IMPORTANT: SIGALRM-based timeouts CANNOT interrupt blocking C library calls
+(like PyTorch matrix operations on CPU). For CPU execution, this module uses
+a multiprocessing approach that can forcibly terminate hung generation.
+
 Usage:
     from .generation_timeout import generate_with_timeout
 
@@ -15,10 +19,12 @@ Usage:
 Environment variables:
     ESM_GEN_TIMEOUT: Default timeout in seconds (default: 300)
     ESM_GEN_TIMEOUT_ENABLED: Set to "0" to disable timeout wrapper
+    ESM_GEN_USE_MP: Set to "1" to force multiprocessing timeout (slower but reliable)
 """
 from __future__ import annotations
 
 import logging
+import multiprocessing
 import os
 import signal
 import sys
@@ -28,11 +34,15 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Default timeout: 5 minutes per generate() call
+# Default timeout: 5 minutes for GPU, 2 minutes for CPU (since tokens are limited)
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("ESM_GEN_TIMEOUT", "300"))
+CPU_TIMEOUT_SECONDS = int(os.getenv("ESM_GEN_CPU_TIMEOUT", "120"))
 
 # Allow disabling timeout wrapper via environment
 TIMEOUT_ENABLED = os.getenv("ESM_GEN_TIMEOUT_ENABLED", "1") != "0"
+
+# Force multiprocessing-based timeout (more reliable for CPU-bound ops)
+FORCE_MP_TIMEOUT = os.getenv("ESM_GEN_USE_MP", "0") == "1"
 
 
 class GenerationTimeout(Exception):
@@ -68,6 +78,15 @@ def _worker_generate(
     except Exception as e:
         # Can't pickle full exception, send type and message
         queue.put(("error", type(e).__name__, str(e)))
+
+
+def _is_cuda_available() -> bool:
+    """Check if CUDA is available for the loaded model."""
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except ImportError:
+        return False
 
 
 def generate_with_timeout(
@@ -111,7 +130,12 @@ def generate_with_timeout(
         If generate() fails with an error
     """
     if timeout_seconds is None:
-        timeout_seconds = DEFAULT_TIMEOUT_SECONDS
+        # Use shorter timeout for CPU (since max_tokens is also limited)
+        if _is_cuda_available():
+            timeout_seconds = DEFAULT_TIMEOUT_SECONDS
+        else:
+            timeout_seconds = CPU_TIMEOUT_SECONDS
+            logger.debug(f"Using CPU timeout: {timeout_seconds}s")
 
     if not TIMEOUT_ENABLED:
         # Timeout disabled - run directly
@@ -123,9 +147,19 @@ def generate_with_timeout(
             stop=stop,
         )
 
-    # Use a simpler approach with threading + alarm on Unix
-    # This avoids the complexity of multiprocessing with loaded models
-    if hasattr(signal, 'SIGALRM'):
+    # Determine if we should use multiprocessing-based timeout
+    # SIGALRM cannot interrupt blocked C library calls (PyTorch CPU ops)
+    # So on CPU, we need multiprocessing to forcibly kill hung generation
+    use_mp = FORCE_MP_TIMEOUT or not _is_cuda_available()
+
+    if use_mp and sys.platform != 'win32':
+        # Use multiprocessing with fork for reliable timeout on CPU
+        logger.debug("Using multiprocessing timeout (CPU-bound or forced)")
+        return _generate_with_multiprocessing(
+            backend, prompt, max_tokens, temperature, stop, timeout_seconds
+        )
+    elif hasattr(signal, 'SIGALRM'):
+        # SIGALRM approach - works well for GPU where ops check for interrupts
         return _generate_with_alarm(
             backend, prompt, max_tokens, temperature, stop, timeout_seconds
         )
@@ -134,6 +168,86 @@ def generate_with_timeout(
         return _generate_with_thread_timeout(
             backend, prompt, max_tokens, temperature, stop, timeout_seconds
         )
+
+
+def _generate_with_multiprocessing(
+    backend: Any,
+    prompt: str,
+    max_tokens: Optional[int],
+    temperature: Optional[float],
+    stop: Optional[List[str]],
+    timeout_seconds: int,
+) -> str:
+    """Generate with multiprocessing timeout (for CPU-bound operations).
+
+    Uses fork to share the loaded model memory with a child process.
+    The child process runs generation and puts the result on a queue.
+    If timeout is exceeded, the child process is forcibly terminated.
+
+    This is more reliable than SIGALRM for CPU-bound operations because
+    SIGALRM cannot interrupt blocked C library calls.
+    """
+    # Use fork to share model memory (avoids reloading)
+    ctx = multiprocessing.get_context('fork')
+    result_queue = ctx.Queue()
+
+    def worker():
+        """Worker that runs in forked process."""
+        try:
+            result = backend.generate(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stop=stop,
+            )
+            result_queue.put(("success", result))
+        except Exception as e:
+            result_queue.put(("error", type(e).__name__, str(e)))
+
+    logger.debug(f"Starting generate() in subprocess with {timeout_seconds}s timeout")
+    t0 = time.time()
+
+    proc = ctx.Process(target=worker)
+    proc.start()
+
+    # Wait for result with timeout
+    proc.join(timeout=timeout_seconds)
+
+    if proc.is_alive():
+        # Process still running - timeout exceeded
+        logger.warning(
+            f"generate() exceeded {timeout_seconds}s timeout, terminating subprocess"
+        )
+        proc.terminate()
+        proc.join(timeout=5)  # Give it 5s to terminate gracefully
+
+        if proc.is_alive():
+            # Still alive - force kill
+            logger.warning("Process did not terminate, sending SIGKILL")
+            proc.kill()
+            proc.join(timeout=5)
+
+        raise GenerationTimeout(
+            f"model.generate() exceeded {timeout_seconds}s timeout (terminated)"
+        )
+
+    # Process finished - check result
+    elapsed = time.time() - t0
+    logger.debug(f"Subprocess completed in {elapsed:.1f}s")
+
+    if result_queue.empty():
+        raise GenerationError("Worker process died without producing result")
+
+    status, *data = result_queue.get_nowait()
+
+    if status == "success":
+        logger.debug(f"generate() completed in {elapsed:.1f}s (under {timeout_seconds}s timeout)")
+        return data[0]
+    elif status == "error":
+        exc_type, exc_msg = data
+        raise GenerationError(f"Generation failed in subprocess: {exc_type}: {exc_msg}")
+    else:
+        raise GenerationError(f"Unknown status from worker: {status}")
 
 
 def _generate_with_alarm(
@@ -146,8 +260,9 @@ def _generate_with_alarm(
 ) -> str:
     """Generate with Unix SIGALRM timeout.
 
-    This is the preferred method on Unix as it doesn't require
-    serializing the model across processes.
+    This works well for GPU operations where PyTorch periodically checks
+    for signals. NOT effective for CPU-bound operations where C library
+    calls block signal delivery.
     """
     def timeout_handler(signum, frame):
         raise GenerationTimeout(

@@ -246,6 +246,39 @@ class RuntimePolicy:
 
         return kwargs
 
+    def max_tokens_for_cpu(self, requested_max_tokens: int) -> int:
+        """Return the effective max_tokens for CPU execution.
+
+        On CPU without KV cache, each token generation requires recomputing
+        all attention weights from scratch. This makes large generation
+        budgets prohibitively slow. This method limits max_tokens to a
+        reasonable value for CPU execution.
+
+        Parameters
+        ----------
+        requested_max_tokens : int
+            The max_tokens from model config.
+
+        Returns
+        -------
+        int
+            The effective max_tokens to use.
+        """
+        # CPU generation limit: 256 tokens is reasonable (use_cache=False is O(n²))
+        CPU_MAX_TOKENS = 256
+
+        if self.cuda:
+            return requested_max_tokens
+
+        if requested_max_tokens > CPU_MAX_TOKENS:
+            logger.warning(
+                "max_tokens=%d is too slow for CPU (use_cache=False); limiting to %d",
+                requested_max_tokens, CPU_MAX_TOKENS
+            )
+            return CPU_MAX_TOKENS
+
+        return requested_max_tokens
+
     def __str__(self) -> str:
         return (
             f"RuntimePolicy(cuda={self.cuda}, bnb={self.have_bnb}, "
