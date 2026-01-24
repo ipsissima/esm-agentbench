@@ -29,6 +29,7 @@ from .generation_timeout import (
     check_memory_available,
     log_system_resources,
     GenerationTimeout,
+    generate_with_timeout,
 )
 
 logger = logging.getLogger(__name__)
@@ -352,72 +353,25 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
                 logger.debug(f"System resources: {resources}")
 
             t0 = time.time()
-            prompt_path = None
             try:
-                # Write prompt to temp file for subprocess
-                with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt") as tf:
-                    tf.write(full_prompt)
-                    tf.flush()
-                    prompt_path = tf.name
-
-                # Build subprocess command
-                worker_script = Path(__file__).parent / "generate_worker.py"
-                revision = getattr(self.backend.config, "revision", None) or ""
-                stop_sequences = json.dumps(['USER:', 'SYSTEM:'])
-                max_new_tokens = str(self.backend.config.max_tokens)
-                temperature = str(self.backend.config.temperature)
-
-                cmd = [
-                    sys.executable,
-                    str(worker_script),
-                    "--model_id", self.backend.config.hf_id,
-                    "--revision", revision,
-                    "--prompt_file", prompt_path,
-                    "--max_new_tokens", max_new_tokens,
-                    "--temperature", temperature,
-                    "--stop_sequences", stop_sequences,
-                ]
-
-                # Run subprocess with timeout
+                # Use the already-loaded model directly (no subprocess to avoid OOM)
+                # The model is already in memory - spawning a subprocess that reloads
+                # the 7GB model would double memory usage and cause OOM on CI runners.
                 timeout = int(os.getenv("ESM_GEN_TIMEOUT", "300"))
-                logger.debug(f"Running generation subprocess with {timeout}s timeout")
+                stop_sequences = ['USER:', 'SYSTEM:']
 
-                completed = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
+                # Use generate_with_timeout which handles SIGALRM/threading timeout
+                # Note: On CPU, SIGALRM can't interrupt blocked C calls, but at least
+                # we won't OOM. Shell-level timeout is the final safety net.
+                response = generate_with_timeout(
+                    self.backend,
+                    full_prompt,
+                    max_tokens=self.backend.config.max_tokens,
+                    temperature=self.backend.config.temperature,
+                    stop=stop_sequences,
+                    timeout_seconds=timeout,
                 )
 
-                if completed.returncode != 0:
-                    logger.error("Worker failed: %s", completed.stderr)
-                    steps.append(AgentStep(
-                        step_num=step_num,
-                        step_type='error',
-                        content=f"Generation worker failed: {completed.stderr[:500]}",
-                    ))
-                    break
-
-                # Parse JSON output
-                out_json = json.loads(completed.stdout)
-                response = out_json["output"]
-
-            except subprocess.TimeoutExpired as e:
-                logger.error(f"Generation timeout at step {step_num}: subprocess exceeded {timeout}s")
-                steps.append(AgentStep(
-                    step_num=step_num,
-                    step_type='error',
-                    content=f"Generation timeout: subprocess exceeded {timeout}s",
-                ))
-                break
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse worker output: {e}")
-                steps.append(AgentStep(
-                    step_num=step_num,
-                    step_type='error',
-                    content=f"Generation failed: invalid JSON output from worker",
-                ))
-                break
             except GenerationTimeout as e:
                 logger.error(f"Generation timeout at step {step_num}: {e}")
                 steps.append(AgentStep(
@@ -426,13 +380,14 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
                     content=f"Generation timeout: {e}",
                 ))
                 break
-            finally:
-                # Clean up temp file
-                if prompt_path:
-                    try:
-                        os.unlink(prompt_path)
-                    except Exception:
-                        pass
+            except Exception as e:
+                logger.error(f"Generation error at step {step_num}: {e}")
+                steps.append(AgentStep(
+                    step_num=step_num,
+                    step_type='error',
+                    content=f"Generation error: {e}",
+                ))
+                break
 
             t1 = time.time()
             logger.info(f"Generated step {step_num} in {t1 - t0:.1f}s (subprocess)")

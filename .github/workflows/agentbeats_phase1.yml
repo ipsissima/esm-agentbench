@@ -267,26 +267,42 @@ jobs:
         . .venv/bin/activate
         export VERIFIED_KERNEL_PATH="${PWD}/UELAT/kernel_verified.so"
         echo "Generating real agent traces for all scenarios (judge mode: small, CPU-friendly)..."
+        echo "=== System resources before generation ==="
+        free -h || true
 
         # Run judge mode for each scenario to generate traces
+        # Use reduced parameters for CI: --n 2, --max-steps 8 (vs production --n 10, --max-steps 20)
+        # Each scenario gets a 15-minute shell timeout to prevent hanging
         for s in scenarios/*; do
           if [ -d "$s" ]; then
             scenario=$(basename "$s")
             echo "==> Generating traces for $scenario"
-            python tools/real_agents_hf/run_real_agents.py \
+            timeout 900 python tools/real_agents_hf/run_real_agents.py \
               --mode small \
               --scenario "$scenario" \
-              --n 10 \
-              --max-steps 20 || {
-                echo "ERROR: Failed to generate traces for $scenario"
+              --n 2 \
+              --max-steps 8 || {
+                EXIT_CODE=$?
+                echo "ERROR: Failed to generate traces for $scenario (exit code: $EXIT_CODE)"
+                if [ $EXIT_CODE -eq 124 ]; then
+                  echo "=== TIMEOUT: Scenario exceeded 15 minute shell timeout ==="
+                fi
+                echo "=== System resources after failure ==="
+                free -h || true
+                ps aux --sort=-%mem | head -10 || true
                 exit 1
               }
+            echo "=== Completed $scenario ==="
           fi
         done
 
+        echo "=== System resources after generation ==="
+        free -h || true
         echo "All traces generated successfully!"
       env:
         VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
+        ESM_GEN_TIMEOUT: "300"
+        ESM_MIN_MEMORY_GB: "2.0"
 
     - name: Build validator Docker image
       run: |

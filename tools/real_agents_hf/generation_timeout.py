@@ -147,24 +147,31 @@ def generate_with_timeout(
             stop=stop,
         )
 
-    # Determine if we should use multiprocessing-based timeout
-    # SIGALRM cannot interrupt blocked C library calls (PyTorch CPU ops)
-    # So on CPU, we need multiprocessing to forcibly kill hung generation
-    use_mp = FORCE_MP_TIMEOUT or not _is_cuda_available()
+    # IMPORTANT: Do NOT use multiprocessing on CPU by default!
+    # Multiprocessing spawns a new process that reloads the 7GB model,
+    # doubling memory usage and causing OOM on CI runners with 14-15GB RAM.
+    #
+    # Instead, use SIGALRM (Unix) or threading (Windows) timeout.
+    # These cannot truly interrupt blocked C library calls (PyTorch CPU ops),
+    # but they won't cause OOM. The shell-level timeout is the final safety net.
+    #
+    # Only use multiprocessing if explicitly forced via ESM_GEN_USE_MP=1
+    use_mp = FORCE_MP_TIMEOUT  # Only if explicitly requested
 
     if use_mp and sys.platform != 'win32':
-        # Use multiprocessing with fork for reliable timeout on CPU
-        logger.debug("Using multiprocessing timeout (CPU-bound or forced)")
+        # Multiprocessing - only when forced (will reload model, use more memory)
+        logger.debug("Using multiprocessing timeout (explicitly forced)")
         return _generate_with_multiprocessing(
             backend, prompt, max_tokens, temperature, stop, timeout_seconds
         )
     elif hasattr(signal, 'SIGALRM'):
-        # SIGALRM approach - works well for GPU where ops check for interrupts
+        # SIGALRM approach - won't interrupt blocked C calls on CPU, but won't OOM
+        logger.debug("Using SIGALRM timeout (shell timeout is final safety net)")
         return _generate_with_alarm(
             backend, prompt, max_tokens, temperature, stop, timeout_seconds
         )
     else:
-        # Windows fallback - run with threading timeout
+        # Windows fallback - threading timeout
         return _generate_with_thread_timeout(
             backend, prompt, max_tokens, temperature, stop, timeout_seconds
         )
