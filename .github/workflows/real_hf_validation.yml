@@ -130,10 +130,49 @@ jobs:
             exit 1
           }
 
-      - name: Run pipeline test (1 scenario, 2 runs, small model, max 8 steps)
+      - name: Start persistent model worker
+        run: |
+          . .venv/bin/activate
+          echo "=== Starting persistent model worker ==="
+
+          # Start worker in background
+          export ESM_WORKER_SOCKET=/tmp/esm_model_worker.sock
+          export ESM_MODEL_ID=microsoft/Phi-3-mini-128k-instruct
+
+          nohup python tools/real_agents_hf/model_worker.py > worker.log 2>&1 &
+          echo $! > worker.pid
+          echo "Worker PID: $(cat worker.pid)"
+
+          # Wait for worker to be ready (model loading takes ~30s)
+          echo "Waiting for worker to load model..."
+          for i in $(seq 1 120); do
+            if [ -S "$ESM_WORKER_SOCKET" ]; then
+              echo "Worker socket ready after ${i}s"
+              break
+            fi
+            if ! kill -0 $(cat worker.pid) 2>/dev/null; then
+              echo "ERROR: Worker process died"
+              cat worker.log
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [ ! -S "$ESM_WORKER_SOCKET" ]; then
+            echo "ERROR: Worker did not become ready within 120s"
+            cat worker.log
+            exit 1
+          fi
+
+          echo "=== Worker ready ==="
+          free -h || true
+
+      - name: Run pipeline test (1 scenario, 3 runs, small model, max 10 steps)
         env:
           ESM_GEN_TIMEOUT: "300"  # 5 minute timeout per generate() call
           ESM_MIN_MEMORY_GB: "2.0"  # Warn if less than 2GB available
+          ESM_GEN_USE_PERSISTENT: "1"  # Use persistent worker
+          ESM_WORKER_SOCKET: /tmp/esm_model_worker.sock
         run: |
           . .venv/bin/activate
           # Use workflow input or default
@@ -144,13 +183,13 @@ jobs:
           free -h || true
 
           # Run with shell-level timeout (20 minutes) to prevent hanging
-          # This ensures the job can complete even if subprocess timeouts fail
+          # Using persistent worker eliminates model reload overhead per generation
           timeout 1200 python tools/real_agents_hf/run_real_agents.py \
             --scenario "$SCENARIO" \
             --models phi-3-mini-instruct \
             --labels gold,drift \
-            --n 2 \
-            --max-steps 8 \
+            --n 3 \
+            --max-steps 10 \
             --team ci_test \
             --verbose || {
             EXIT_CODE=$?
@@ -168,6 +207,15 @@ jobs:
 
           echo "=== System resources after pipeline ==="
           free -h || true
+
+      - name: Stop worker and collect logs
+        if: always()
+        run: |
+          if [ -f worker.pid ]; then
+            kill $(cat worker.pid) 2>/dev/null || true
+            echo "=== Worker log (last 50 lines) ==="
+            tail -50 worker.log || true
+          fi
 
       - name: Verify traces generated
         run: |

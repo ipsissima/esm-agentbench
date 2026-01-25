@@ -31,11 +31,21 @@ from .generation_timeout import (
     GenerationTimeout,
     generate_with_timeout,
 )
+from .worker_client import (
+    is_worker_available,
+    generate_via_worker,
+    WorkerTimeout,
+    WorkerError,
+    WorkerUnavailable,
+)
 
 logger = logging.getLogger(__name__)
 
 # Minimum memory required before generation (in GB)
 MIN_MEMORY_GB = float(os.getenv("ESM_MIN_MEMORY_GB", "2.0"))
+
+# Use persistent worker if available (set ESM_GEN_USE_PERSISTENT=1)
+USE_PERSISTENT_WORKER = os.getenv("ESM_GEN_USE_PERSISTENT", "0") == "1"
 
 
 @dataclass
@@ -353,26 +363,37 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
                 logger.debug(f"System resources: {resources}")
 
             t0 = time.time()
+            timeout = int(os.getenv("ESM_GEN_TIMEOUT", "300"))
+            stop_sequences = ['USER:', 'SYSTEM:']
+
             try:
-                # Use the already-loaded model directly (no subprocess to avoid OOM)
-                # The model is already in memory - spawning a subprocess that reloads
-                # the 7GB model would double memory usage and cause OOM on CI runners.
-                timeout = int(os.getenv("ESM_GEN_TIMEOUT", "300"))
-                stop_sequences = ['USER:', 'SYSTEM:']
+                # Try persistent worker first (if enabled and available)
+                # Worker loads model once, eliminating 25-30s reload per call
+                if USE_PERSISTENT_WORKER and is_worker_available():
+                    logger.debug("Using persistent worker for generation")
+                    response = generate_via_worker(
+                        prompt=full_prompt,
+                        max_tokens=self.backend.config.max_tokens,
+                        temperature=self.backend.config.temperature,
+                        stop_sequences=stop_sequences,
+                        timeout=timeout,
+                    )
+                    generation_method = "worker"
+                else:
+                    # Fall back to direct generation with timeout wrapper
+                    # Uses already-loaded model (no subprocess to avoid OOM)
+                    logger.debug("Using direct generation")
+                    response = generate_with_timeout(
+                        self.backend,
+                        full_prompt,
+                        max_tokens=self.backend.config.max_tokens,
+                        temperature=self.backend.config.temperature,
+                        stop=stop_sequences,
+                        timeout_seconds=timeout,
+                    )
+                    generation_method = "direct"
 
-                # Use generate_with_timeout which handles SIGALRM/threading timeout
-                # Note: On CPU, SIGALRM can't interrupt blocked C calls, but at least
-                # we won't OOM. Shell-level timeout is the final safety net.
-                response = generate_with_timeout(
-                    self.backend,
-                    full_prompt,
-                    max_tokens=self.backend.config.max_tokens,
-                    temperature=self.backend.config.temperature,
-                    stop=stop_sequences,
-                    timeout_seconds=timeout,
-                )
-
-            except GenerationTimeout as e:
+            except (WorkerTimeout, GenerationTimeout) as e:
                 logger.error(f"Generation timeout at step {step_num}: {e}")
                 steps.append(AgentStep(
                     step_num=step_num,
@@ -380,6 +401,35 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
                     content=f"Generation timeout: {e}",
                 ))
                 break
+            except (WorkerError, WorkerUnavailable) as e:
+                logger.warning(f"Worker error at step {step_num}: {e}, retrying with direct generation")
+                # Retry with direct generation
+                try:
+                    response = generate_with_timeout(
+                        self.backend,
+                        full_prompt,
+                        max_tokens=self.backend.config.max_tokens,
+                        temperature=self.backend.config.temperature,
+                        stop=stop_sequences,
+                        timeout_seconds=timeout,
+                    )
+                    generation_method = "direct-fallback"
+                except GenerationTimeout as e2:
+                    logger.error(f"Fallback generation timeout at step {step_num}: {e2}")
+                    steps.append(AgentStep(
+                        step_num=step_num,
+                        step_type='error',
+                        content=f"Generation timeout: {e2}",
+                    ))
+                    break
+                except Exception as e2:
+                    logger.error(f"Fallback generation error at step {step_num}: {e2}")
+                    steps.append(AgentStep(
+                        step_num=step_num,
+                        step_type='error',
+                        content=f"Generation error: {e2}",
+                    ))
+                    break
             except Exception as e:
                 logger.error(f"Generation error at step {step_num}: {e}")
                 steps.append(AgentStep(
@@ -390,7 +440,7 @@ Make sure the JSON is valid and includes both "tool" and "args" keys.
                 break
 
             t1 = time.time()
-            logger.info(f"Generated step {step_num} in {t1 - t0:.1f}s (subprocess)")
+            logger.info(f"Generated step {step_num} in {t1 - t0:.1f}s ({generation_method})")
             logger.debug(f"Step {step_num}: {response[:200]}")
 
             # Parse response

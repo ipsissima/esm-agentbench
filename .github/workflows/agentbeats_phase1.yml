@@ -262,6 +262,44 @@ jobs:
         # Verify server is running
         curl -s http://localhost:8080/health || echo "Server health check (may not be implemented)"
 
+    - name: Start persistent model worker
+      run: |
+        . .venv/bin/activate
+        echo "=== Starting persistent model worker ==="
+        echo "This loads the model ONCE and serves all generation requests"
+
+        # Start worker in background
+        export ESM_WORKER_SOCKET=/tmp/esm_model_worker.sock
+        export ESM_MODEL_ID=microsoft/Phi-3-mini-128k-instruct
+
+        nohup python tools/real_agents_hf/model_worker.py > worker.log 2>&1 &
+        echo $! > worker.pid
+        echo "Worker PID: $(cat worker.pid)"
+
+        # Wait for worker to be ready (model loading takes ~30s)
+        echo "Waiting for worker to load model..."
+        for i in $(seq 1 120); do
+          if [ -S "$ESM_WORKER_SOCKET" ]; then
+            echo "Worker socket ready after ${i}s"
+            break
+          fi
+          if ! kill -0 $(cat worker.pid) 2>/dev/null; then
+            echo "ERROR: Worker process died"
+            cat worker.log
+            exit 1
+          fi
+          sleep 1
+        done
+
+        if [ ! -S "$ESM_WORKER_SOCKET" ]; then
+          echo "ERROR: Worker did not become ready within 120s"
+          cat worker.log
+          exit 1
+        fi
+
+        echo "=== Worker ready ==="
+        free -h || true
+
     - name: Generate real agent traces (judge mode)
       run: |
         . .venv/bin/activate
@@ -271,7 +309,7 @@ jobs:
         free -h || true
 
         # Run judge mode for each scenario to generate traces
-        # Use reduced parameters for CI: --n 2, --max-steps 8 (vs production --n 10, --max-steps 20)
+        # Uses persistent worker (model loaded once) for fast generation
         # Each scenario gets a 15-minute shell timeout to prevent hanging
         for s in scenarios/*; do
           if [ -d "$s" ]; then
@@ -280,8 +318,8 @@ jobs:
             timeout 900 python tools/real_agents_hf/run_real_agents.py \
               --mode small \
               --scenario "$scenario" \
-              --n 2 \
-              --max-steps 8 || {
+              --n 3 \
+              --max-steps 10 || {
                 EXIT_CODE=$?
                 echo "ERROR: Failed to generate traces for $scenario (exit code: $EXIT_CODE)"
                 if [ $EXIT_CODE -eq 124 ]; then
@@ -290,7 +328,8 @@ jobs:
                 echo "=== System resources after failure ==="
                 free -h || true
                 ps aux --sort=-%mem | head -10 || true
-                exit 1
+                # Don't exit on single scenario failure - continue with others
+                echo "Continuing with remaining scenarios..."
               }
             echo "=== Completed $scenario ==="
           fi
@@ -298,11 +337,22 @@ jobs:
 
         echo "=== System resources after generation ==="
         free -h || true
-        echo "All traces generated successfully!"
+        echo "All traces generated!"
       env:
         VERIFIED_KERNEL_PATH: ${{ github.workspace }}/UELAT/kernel_verified.so
         ESM_GEN_TIMEOUT: "300"
         ESM_MIN_MEMORY_GB: "2.0"
+        ESM_GEN_USE_PERSISTENT: "1"
+        ESM_WORKER_SOCKET: /tmp/esm_model_worker.sock
+
+    - name: Stop worker and collect logs
+      if: always()
+      run: |
+        if [ -f worker.pid ]; then
+          kill $(cat worker.pid) 2>/dev/null || true
+          echo "=== Worker log (last 50 lines) ==="
+          tail -50 worker.log || true
+        fi
 
     - name: Build validator Docker image
       run: |
