@@ -43,7 +43,12 @@ _CI_ENV_VARS = ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "JENKINS_URL", "CIRCLECI")
 _in_ci = any(os.environ.get(var) for var in _CI_ENV_VARS)
 _kernel_will_load = os.environ.get("ESM_SKIP_VERIFIED_KERNEL", "0") != "1"
 
-if _in_ci and _kernel_will_load:
+# NOTE: Do NOT call sys.exit() at module import time!
+# That breaks pytest which imports this module for testing.
+# The skip logic is now in _check_ci_skip() called from main().
+
+def _print_skip_message() -> None:
+    """Print skip message for CI environments."""
     print("=" * 80)
     print("SKIPPING: validate_real_traces.py")
     print("=" * 80)
@@ -52,13 +57,24 @@ if _in_ci and _kernel_will_load:
     print("Core math is validated by test_drift_metric_standalone.py instead.")
     print("To run this validation in CI, set ESM_SKIP_VERIFIED_KERNEL=1 to avoid loading kernel.")
     print("=" * 80)
-    sys.exit(0)
-elif _in_ci and not _kernel_will_load:
+
+def _print_run_message() -> None:
+    """Print run message for CI environments with kernel skipped."""
     print("=" * 80)
     print("Running validate_real_traces.py in CI with ESM_SKIP_VERIFIED_KERNEL=1")
     print("=" * 80)
     print("Kernel loading is disabled, so sentence-transformers can run safely.")
     print("=" * 80)
+
+def _check_ci_skip() -> bool:
+    """Check if we should skip execution in CI. Returns True if should exit."""
+    if _in_ci and _kernel_will_load:
+        _print_skip_message()
+        return True
+    elif _in_ci and not _kernel_will_load:
+        _print_run_message()
+    return False
+
 
 import numpy as np
 from scipy import stats
@@ -801,4 +817,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # Check CI skip logic only when running as script (not when imported)
+    if _check_ci_skip():
+        sys.exit(0)
     sys.exit(main())
