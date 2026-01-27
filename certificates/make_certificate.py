@@ -534,72 +534,59 @@ def _compute_certificate_core(
     # If OOS residual is very small (< 1e-6), use a floor to prevent collapse.
     residual = max(oos_residual, 1e-6) if oos_residual > 0 else max(insample_residual, 1e-6)
 
-    # Call the verified kernel to compute residual and bound
+    # === VERIFIED KERNEL OR PYTHON FALLBACK ===
+    # Try verified kernel first where appropriate, otherwise fall back cleanly to Python.
+    # If strict==True we still raise on kernel absence to preserve strict semantics.
+    #
     # The kernel is formally verified in Coq to satisfy all axioms.
     # It receives witness matrices (X0, X1, A) from Python (unverified witness)
     # and computes residual and theoretical_bound with formal guarantees.
     #
-    # If strict=False, allow Python fallback when kernel is unavailable
+    # If strict=False or ESM_SKIP_VERIFIED_KERNEL=1, allow Python fallback.
     use_strict = strict and not _SKIP_VERIFIED_KERNEL
-    kernel_mode = "verified"
-    
-    # Check if kernel is available before attempting computation
-    from . import verified_kernel
-    kernel_available = verified_kernel.load_kernel(strict=False) is not None
-    
-    if not kernel_available and not use_strict:
-        # Kernel not available and non-strict mode: use Python fallback directly
-        logger.warning("Verified kernel unavailable, using Python fallback")
+    kernel_mode = "none"  # Will be set to "verified" or "python_fallback" based on path taken
+
+    try:
+        # Attempt to use the verified kernel
+        residual_computed, theoretical_bound = kernel_compute_certificate(
+            X0, X1, A,
+            tail_energy,
+            semantic_divergence,
+            lipschitz_margin,
+            strict=use_strict
+        )
+        kernel_mode = "verified"
+
+        # Kernel computes in-sample residual; prefer OOS residual when available
+        # to avoid in-sample overfitting artifacts.
+        if np.isfinite(oos_residual) and oos_residual > 0:
+            residual = max(oos_residual, 1e-6)
+            # Recompute bound with OOS residual for consistency
+            theoretical_bound = float(
+                c_res * residual + c_tail * tail_energy +
+                c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
+            )
+        else:
+            residual = residual_computed
+
+    except KernelError as exc:
+        # If strict kernel mode was requested, preserve the old behavior: raise a clear error.
+        if use_strict:
+            raise RuntimeError(
+                "Spectral certificate computation failed: verified kernel unavailable. "
+                "Build with: ./build_kernel.sh or set VERIFIED_KERNEL_PATH environment variable."
+            ) from exc
+
+        # Non-strict: fall back to Python implementation, but log and continue.
+        logger.warning(
+            "Verified kernel unavailable, falling back to Python implementation: %s", exc
+        )
+        # Compute theoretical bound in Python (unverified but mathematically equivalent)
         theoretical_bound = float(
             c_res * residual + c_tail * tail_energy +
             c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
         )
         kernel_mode = "python_fallback"
-    elif not kernel_available and use_strict:
-        # Kernel not available and strict mode: fail hard
-        raise RuntimeError(
-            "Spectral certificate computation failed: verified kernel unavailable. "
-            "Build with: ./build_kernel.sh or set VERIFIED_KERNEL_PATH environment variable."
-        )
-    else:
-        # Kernel available: use it
-        try:
-            # Pass OOS residual to kernel for verification
-            residual_computed, theoretical_bound = kernel_compute_certificate(
-                X0, X1, A,
-                tail_energy,
-                semantic_divergence,
-                lipschitz_margin,
-                strict=use_strict
-            )
-            # Kernel computes in-sample residual; prefer OOS residual when available
-            # to avoid in-sample overfitting artifacts.
-            if np.isfinite(oos_residual) and oos_residual > 0:
-                residual = max(oos_residual, 1e-6)
-                theoretical_bound = float(
-                    c_res * residual + c_tail * tail_energy +
-                    c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
-                )
-            else:
-                residual = residual_computed
-        except KernelError as exc:
-            if use_strict:
-                # Kernel computation failed in strict mode
-                # This is a hard failure: we cannot proceed without the verified kernel
-                logger.error(f"Verified kernel failed: {exc}")
-                raise RuntimeError(
-                    f"Spectral certificate computation failed: verified kernel unavailable. {exc}"
-                ) from exc
-            else:
-                # Non-strict mode: fall back to Python computation
-                logger.warning(f"Verified kernel unavailable, using Python fallback: {exc}")
-                # Use OOS residual (already computed above)
-                # Compute theoretical bound in Python (unverified)
-                theoretical_bound = float(
-                    c_res * residual + c_tail * tail_energy +
-                    c_sem * semantic_divergence + c_robust * max(0.0, lipschitz_margin)
-                )
-                kernel_mode = "python_fallback"
 
     return {
         "pca_explained": pca_explained,
