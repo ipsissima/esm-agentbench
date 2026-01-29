@@ -46,16 +46,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Install pytest with timeout plugin for per-test timeouts
-          python -m pip install pytest pytest-timeout numpy scipy pyyaml
-          # Install critical runtime packages with their binary dependencies
-          # pydantic pulls pydantic-core binary; flask pulls itsdangerous; matplotlib pulls pyparsing
-          python -m pip install --index-url https://pypi.org/simple \
-            pydantic flask matplotlib pyparsing itsdangerous
-          # Install transformers for shim tests (but no model loading) - CPU-only torch
-          python -m pip install --index-url https://pypi.org/simple \
-            --extra-index-url https://download.pytorch.org/whl/cpu \
-            transformers torch
+          # Single source of truth: requirements.txt with CPU-only torch
+          python -m pip install -r requirements.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e . || true
 
       - name: Run unit tests
@@ -172,30 +165,15 @@ jobs:
           . .venv/bin/activate
           python -m pip install --upgrade pip setuptools wheel
 
-      - name: Install HF stack + project
+      - name: Install dependencies
         run: |
           . .venv/bin/activate
-          python -m pip uninstall -y huggingface-hub sentence-transformers transformers || true
-          # Install CPU-only torch first with proper index URLs
-          python -m pip install --no-cache-dir \
-            --index-url https://pypi.org/simple \
-            --extra-index-url https://download.pytorch.org/whl/cpu \
-            torch
-          # canonical HF stack - install transformers>=4.36.0 for Phi-3 model compatibility (cache_utils module)
-          python -m pip install --no-cache-dir \
-            --index-url https://pypi.org/simple \
-            "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.36.0"
-          # Install critical runtime packages with their binary dependencies
-          # pydantic pulls pydantic-core binary; flask pulls itsdangerous; matplotlib pulls pyparsing
-          python -m pip install --no-cache-dir \
-            --index-url https://pypi.org/simple \
-            pydantic flask matplotlib pyparsing itsdangerous
-          # Install the rest of the pinned requirements without re-resolving the HF stack
-          python -m pip install --no-cache-dir -r requirements.txt --no-deps
-          # Use --no-deps to prevent pip from re-resolving and potentially downgrading transformers
-          python -m pip install --no-deps -e .
-          # Verify transformers version is 4.36.0+ (required for Phi-3's cache_utils imports)
-          python -c "import transformers; v=transformers.__version__; parts=v.split('.')[:2]; assert int(parts[0])>=4 and int(parts[1])>=36, f'transformers {v} < 4.36.0'; print(f'transformers {v} OK')"
+          # Single source of truth: requirements.txt with CPU-only torch
+          python -m pip install --no-cache-dir -r requirements.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e .
+          # Verify transformers version is 4.40.0+ (required for Phi-3 DynamicCache support)
+          python -c "import transformers; v=transformers.__version__; parts=v.split('.')[:2]; assert int(parts[0])>=4 and int(parts[1])>=40, f'transformers {v} < 4.40.0'; print(f'transformers {v} OK')"
 
       - name: Download kernel artifact
         uses: actions/download-artifact@v4
@@ -315,17 +293,9 @@ jobs:
               python3 -m venv .venv-docker
               . .venv-docker/bin/activate
               python -m pip install --upgrade pip setuptools wheel
-              # Install CPU-only torch first to avoid huge CUDA downloads
-              python -m pip install --no-cache-dir \
-                --index-url https://pypi.org/simple \
-                --extra-index-url https://download.pytorch.org/whl/cpu \
-                torch
-              # Install critical runtime packages with their binary dependencies
-              python -m pip install --no-cache-dir \
-                --index-url https://pypi.org/simple \
-                pydantic flask matplotlib pyparsing itsdangerous
-              # Install Python deps (skip torch since we installed CPU version)
-              python -m pip install --no-cache-dir -r requirements.txt --no-deps
+              # Single source of truth: requirements.txt with CPU-only torch
+              python -m pip install --no-cache-dir -r requirements.txt \
+                --extra-index-url https://download.pytorch.org/whl/cpu
               python -m pip install -e . || true
               # Run pytest with integration tier settings
               export ESM_ALLOW_KERNEL_LOAD=1

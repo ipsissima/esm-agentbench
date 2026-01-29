@@ -62,14 +62,10 @@ jobs:
           python -m venv .venv
           . .venv/bin/activate
           python -m pip install --upgrade pip
-          python -m pip uninstall -y huggingface-hub sentence-transformers transformers accelerate || true
-          # canonical HF stack - install transformers>=4.36.0 for Phi-3 model compatibility (cache_utils module)
-          # accelerate is required for device_map="auto" in transformers
-          # Phi-3 model requires transformers>=4.40.0 for DynamicCache.seen_tokens support
-          python -m pip install --no-cache-dir "huggingface-hub>=0.19.3" "sentence-transformers==2.3.1" "transformers>=4.40.0" "accelerate>=0.25.0"
-          python -m pip install --no-cache-dir -r requirements.txt --no-deps
-          # Use --no-deps to prevent pip from re-resolving and potentially downgrading transformers
-          python -m pip install --no-deps -e .
+          # Single source of truth: requirements.txt with CPU-only torch
+          python -m pip install --no-cache-dir -r requirements.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e .
           # Verify transformers version is 4.40.0+ (required for Phi-3's DynamicCache.seen_tokens)
           python -c "import transformers; v=transformers.__version__; parts=v.split('.')[:2]; assert int(parts[0])>=4 and int(parts[1])>=40, f'transformers {v} < 4.40.0'; print(f'transformers {v} OK')"
 
