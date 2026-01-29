@@ -415,7 +415,12 @@ class ArtifactVerifier:
         """
         if self._use_nacl:
             from nacl.signing import VerifyKey
-            from nacl.exceptions import BadSignature
+            # BadSignature location varies by PyNaCl version
+            try:
+                from nacl.exceptions import BadSignature
+            except ImportError:
+                # Fallback for PyNaCl versions where BadSignature is elsewhere
+                from nacl.signing import BadSignature  # type: ignore
 
             try:
                 verify_key = VerifyKey(public_key)
