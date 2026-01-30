@@ -49,7 +49,7 @@ jobs:
           # Single source of truth: requirements.txt with CPU-only torch
           python -m pip install -r requirements.txt \
             --extra-index-url https://download.pytorch.org/whl/cpu
-          python -m pip install -e . || true
+          python -m pip install --no-deps -e . || true
 
       - name: Run unit tests
         run: |
@@ -171,7 +171,7 @@ jobs:
           # Single source of truth: requirements.txt with CPU-only torch
           python -m pip install --no-cache-dir -r requirements.txt \
             --extra-index-url https://download.pytorch.org/whl/cpu
-          python -m pip install -e .
+          python -m pip install --no-deps -e .
           # Verify transformers version is 4.40.0+ (required for Phi-3 DynamicCache support)
           python -c "import transformers; v=transformers.__version__; parts=v.split('.')[:2]; assert int(parts[0])>=4 and int(parts[1])>=40, f'transformers {v} < 4.40.0'; print(f'transformers {v} OK')"
 
@@ -296,7 +296,7 @@ jobs:
               # Single source of truth: requirements.txt with CPU-only torch
               python -m pip install --no-cache-dir -r requirements.txt \
                 --extra-index-url https://download.pytorch.org/whl/cpu
-              python -m pip install -e . || true
+              python -m pip install --no-deps -e . || true
               # Run pytest with integration tier settings
               export ESM_ALLOW_KERNEL_LOAD=1
               export ESM_ALLOW_MODEL_LOAD=1
