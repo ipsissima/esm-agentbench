@@ -399,6 +399,9 @@ class ArtifactVerifier:
     ) -> bool:
         """Verify Ed25519 signature.
 
+        Returns True if the signature is valid. Prefer PyNaCl (fast),
+        but raise VerificationError when PyNaCl is not available.
+
         Parameters
         ----------
         message : bytes
@@ -414,19 +417,53 @@ class ArtifactVerifier:
             True if signature is valid.
         """
         if self._use_nacl:
-            from nacl.signing import VerifyKey
-            # BadSignature location varies by PyNaCl version
+            # Try to use PyNaCl's VerifyKey. Be tolerant of PyNaCl API
+            # differences between versions.
             try:
-                from nacl.exceptions import BadSignature
+                from nacl.signing import VerifyKey
+            except Exception as e:
+                logger.debug("PyNaCl VerifyKey import failed: %s", e)
+                raise VerificationError(
+                    "PyNaCl import failed during signature verification. "
+                    f"Install with: pip install pynacl. Error: {e}"
+                )
+
+            # Prefer canonical BadSignatureError if available; otherwise fall back
+            # to other known names or a generic Exception catch.
+            _BadSigExc: type = Exception  # type: ignore
+            try:
+                from nacl.exceptions import BadSignatureError
+                _BadSigExc = BadSignatureError
             except ImportError:
-                # Fallback for PyNaCl versions where BadSignature is elsewhere
-                from nacl.signing import BadSignature  # type: ignore
+                try:
+                    from nacl.exceptions import BadSignature  # type: ignore
+                    _BadSigExc = BadSignature
+                except ImportError:
+                    try:
+                        from nacl.signing import BadSignature  # type: ignore
+                        _BadSigExc = BadSignature
+                    except ImportError:
+                        # Fall back to catching generic Exception
+                        logger.debug(
+                            "Could not import BadSignature/BadSignatureError; "
+                            "will catch generic Exception for verification failures"
+                        )
 
             try:
                 verify_key = VerifyKey(public_key)
+                # PyNaCl will raise a BadSignatureError (or variant) if verification fails.
                 verify_key.verify(message, signature)
                 return True
-            except BadSignature:
+            except _BadSigExc:
+                # Expected: signature invalid
+                return False
+            except Exception as exc:
+                # Unexpected error (corrupt key, API mismatch, etc.)
+                # Log at DEBUG so CI logs aren't noisy but we can diagnose.
+                logger.debug(
+                    "Unexpected exception during PyNaCl verification; treating as failure: %s",
+                    exc,
+                )
                 return False
         else:
             # Pure Python Ed25519 verification is complex and error-prone
