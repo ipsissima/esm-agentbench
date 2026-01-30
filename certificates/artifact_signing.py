@@ -414,19 +414,41 @@ class ArtifactVerifier:
             True if signature is valid.
         """
         if self._use_nacl:
-            from nacl.signing import VerifyKey
-            # BadSignature location varies by PyNaCl version
+            # Use PyNaCl's VerifyKey; call verify() and treat any verify-time
+            # exception as verification failure. Prefer BadSignatureError when
+            # available for cleaner logs but do not depend on it.
             try:
-                from nacl.exceptions import BadSignature
-            except ImportError:
-                # Fallback for PyNaCl versions where BadSignature is elsewhere
-                from nacl.signing import BadSignature  # type: ignore
+                from nacl.signing import VerifyKey
+            except Exception as e:
+                logger.debug("PyNaCl VerifyKey import failed: %s", e)
+                # Fall back to raising VerificationError since pure Python not available
+                raise VerificationError(
+                    "PyNaCl required for signature verification. "
+                    "Install with: pip install pynacl"
+                )
+
+            # Attempt to import the canonical exception class for nicer logging.
+            try:
+                # PyNaCl 1.x uses BadSignatureError in nacl.exceptions
+                from nacl.exceptions import BadSignatureError as _BadSigExc  # type: ignore
+            except Exception:
+                # If the name differs in some releases, we do not rely on it;
+                # we will catch generic Exception below and treat it as a failure.
+                _BadSigExc = Exception  # type: ignore
 
             try:
                 verify_key = VerifyKey(public_key)
+                # Verify the signature. PyNaCl raises BadSignatureError (or similar)
+                # when verification fails; any exception means failure.
                 verify_key.verify(message, signature)
                 return True
-            except BadSignature:
+            except _BadSigExc:
+                # Expected verification failure
+                return False
+            except Exception as exc:
+                # Unexpected error during verify (e.g., corrupt key, API mismatch).
+                # Log and treat as verification failure rather than crashing CI.
+                logger.debug("Unexpected error while verifying signature with PyNaCl: %s", exc)
                 return False
         else:
             # Pure Python Ed25519 verification is complex and error-prone
