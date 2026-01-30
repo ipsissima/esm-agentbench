@@ -36,7 +36,7 @@ jobs:
           . .venv/bin/activate
           python -m pip install --upgrade pip setuptools wheel
           if [ -f requirements.txt ]; then python -m pip install -r requirements.txt || true; fi
-          python -m pip install -e . || true
+          python -m pip install --no-deps -e . || true
 
       - name: Run canonical verify (capture logs)
         id: verify
