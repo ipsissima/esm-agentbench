@@ -205,16 +205,15 @@ for mod in spectral_bounds CertificateCore CertificateProofs Extraction; do
 done
 
 # Extraction step: Extraction.v should produce kernel_verified.ml (via Coq extraction).
+# IMPORTANT: Always regenerate to ensure extraction fixes are applied.
 if [ -f "Extraction.v" ]; then
-  echo "[kernel] Running extraction (Extraction.v) if kernel_verified.ml missing..."
-  if [ ! -f "kernel_verified.ml" ]; then
+  echo "[kernel] Running extraction (Extraction.v) ..."
+  # Always delete old extraction artifacts to ensure fresh generation
+  rm -f kernel_verified.ml kernel_verified.mli
   if ! ${COQC} -Q . "" Extraction.v 2>&1 | tee "${BUILD_DIR}/coq_Extraction.v.log"; then
-      echo "[kernel] ERROR: Extraction failed. See ${BUILD_DIR}/coq_Extraction.v.log"
-      popd > /dev/null
-      exit 1
-    fi
-  else
-    echo "[kernel] kernel_verified.ml already exists; skipping extraction."
+    echo "[kernel] ERROR: Extraction failed. See ${BUILD_DIR}/coq_Extraction.v.log"
+    popd > /dev/null
+    exit 1
   fi
 else
   echo "[kernel] No Extraction.v found; skipping extraction step."

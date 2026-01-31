@@ -24,6 +24,15 @@ Require Import ExtrOcamlString.
 Require Import ExtrOcamlNatInt.
 Require Import ExtrOcamlZInt.       (* standard: map Coq Z/positive to OCaml int *)
 Require Import ExtrOcamlIntConv.    (* standard: map Coq int/nat conversions to OCaml int *)
+
+(** ** Critical: Prevent extraction from accessing opaque constants
+
+    This stops extraction from wandering into ClassicalDedekindReals and
+    other non-computational proof content that produces garbage OCaml code
+    like "(fun n -> n n)".
+*)
+Unset Extraction AccessOpaque.
+
 Require Import spectral_bounds.
 Require Import CertificateCore.
 Require Import CertificateProofs.
