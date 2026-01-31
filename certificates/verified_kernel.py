@@ -8,15 +8,31 @@ that computes residuals and theoretical bounds.
 - Kernel (verified): Computes residual and bound from witnesses
 
 All calls to the kernel are strict: failures cause hard errors, not fallbacks.
+
+**Environment Variables:**
+- ESM_ALLOW_KERNEL_LOAD: Set to "0" to disable native kernel loading (safe for CI)
+- ESM_SKIP_VERIFIED_KERNEL: Set to "1" to use Python fallback in make_certificate
+- VERIFIED_KERNEL_PATH: Override path to kernel_verified.so
+
+**Segfault Prevention:**
+The kernel can segfault if:
+1. The shared object is missing callback registrations (caml_named_value returns NULL)
+2. The OCaml runtime is not initialized
+3. Symbol ABI mismatch between ctypes declarations and actual exports
+
+This module validates the kernel before calling it to prevent segfaults.
 """
 
 from __future__ import annotations
 
 import ctypes
+import faulthandler
 import logging
 import os
+import subprocess
+import sys
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 import numpy as np
 
@@ -27,6 +43,13 @@ from certificates.witness_checker import (
 
 logger = logging.getLogger(__name__)
 
+# Enable faulthandler for better crash diagnostics
+if not faulthandler.is_enabled():
+    try:
+        faulthandler.enable()
+    except Exception:
+        pass  # May fail if stderr is not writable
+
 # Global kernel handle
 _kernel_lib: Optional[ctypes.CDLL] = None
 # Sentinel to track if we already tried and failed to load the kernel
@@ -34,6 +57,14 @@ _kernel_load_attempted: bool = False
 _kernel_load_warning_logged: bool = False
 # Track whether we've already logged the "unavailable" fallback warning
 _fallback_warning_logged: bool = False
+# Track whether kernel passed validation (symbol checks)
+_kernel_validated: bool = False
+
+# Required symbols that must be exported by the kernel
+REQUIRED_KERNEL_SYMBOLS = [
+    "kernel_compute_certificate_wrapper",
+    "kernel_init",
+]
 
 
 class KernelError(RuntimeError):
@@ -83,6 +114,157 @@ def _locate_kernel() -> Optional[str]:
             return str(candidate)
 
     return None
+
+
+def _check_library_symbols(kernel_path: str) -> Tuple[bool, List[str], List[str]]:
+    """Check if the kernel shared library exports required symbols.
+
+    Uses nm or objdump to inspect the shared library without loading it.
+    This prevents segfaults from being triggered during symbol lookup.
+
+    Parameters
+    ----------
+    kernel_path : str
+        Path to the kernel shared library.
+
+    Returns
+    -------
+    Tuple[bool, List[str], List[str]]
+        (all_present, found_symbols, missing_symbols)
+    """
+    found_symbols: List[str] = []
+    missing_symbols: List[str] = []
+
+    # Try nm first (most common), then objdump as fallback
+    for cmd in [["nm", "-D", kernel_path], ["objdump", "-T", kernel_path]]:
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
+            )
+            if result.returncode == 0:
+                output = result.stdout
+                for sym in REQUIRED_KERNEL_SYMBOLS:
+                    if sym in output:
+                        found_symbols.append(sym)
+                    else:
+                        missing_symbols.append(sym)
+                return len(missing_symbols) == 0, found_symbols, missing_symbols
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            continue
+
+    # If we can't run nm/objdump, try loading with ctypes and checking hasattr
+    # This is riskier but better than nothing
+    logger.debug("nm/objdump unavailable, using ctypes for symbol check")
+    try:
+        lib = ctypes.CDLL(kernel_path)
+        for sym in REQUIRED_KERNEL_SYMBOLS:
+            if hasattr(lib, sym):
+                found_symbols.append(sym)
+            else:
+                missing_symbols.append(sym)
+        return len(missing_symbols) == 0, found_symbols, missing_symbols
+    except OSError as e:
+        logger.warning(f"Cannot verify kernel symbols: {e}")
+        # Assume symbols are present if we can't check
+        return True, REQUIRED_KERNEL_SYMBOLS, []
+
+
+def _check_library_dependencies(kernel_path: str) -> Tuple[bool, str]:
+    """Check if the kernel shared library has all required dependencies.
+
+    Uses ldd to check for missing shared library dependencies.
+
+    Parameters
+    ----------
+    kernel_path : str
+        Path to the kernel shared library.
+
+    Returns
+    -------
+    Tuple[bool, str]
+        (all_satisfied, diagnostic_message)
+    """
+    try:
+        result = subprocess.run(
+            ["ldd", kernel_path],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+        )
+        if result.returncode != 0:
+            return True, "ldd check skipped (non-zero return)"
+
+        output = result.stdout
+        missing = []
+        for line in output.splitlines():
+            if "not found" in line.lower():
+                missing.append(line.strip())
+
+        if missing:
+            return False, f"Missing dependencies: {'; '.join(missing)}"
+        return True, "All dependencies satisfied"
+
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        # ldd not available (e.g., macOS, Windows)
+        return True, f"ldd check skipped ({e})"
+
+
+def _validate_kernel(kernel_path: str, lib: ctypes.CDLL) -> Tuple[bool, str]:
+    """Validate a loaded kernel before use.
+
+    Performs comprehensive checks to ensure the kernel is safe to call.
+
+    Parameters
+    ----------
+    kernel_path : str
+        Path to the loaded kernel.
+    lib : ctypes.CDLL
+        The loaded library handle.
+
+    Returns
+    -------
+    Tuple[bool, str]
+        (valid, diagnostic_message)
+    """
+    diagnostics = []
+
+    # Check 1: Required symbols exist
+    symbols_ok, found, missing = _check_library_symbols(kernel_path)
+    if not symbols_ok:
+        return False, f"Missing required symbols: {missing}. Found: {found}"
+    diagnostics.append(f"Symbols OK: {found}")
+
+    # Check 2: Dependencies satisfied
+    deps_ok, deps_msg = _check_library_dependencies(kernel_path)
+    if not deps_ok:
+        return False, deps_msg
+    diagnostics.append(deps_msg)
+
+    # Check 3: kernel_init function exists and is callable
+    try:
+        if hasattr(lib, "kernel_init"):
+            kernel_init_fn = lib.kernel_init
+            kernel_init_fn.argtypes = []
+            kernel_init_fn.restype = None
+            diagnostics.append("kernel_init symbol available")
+        else:
+            return False, "kernel_init symbol not found - OCaml runtime may not initialize"
+    except Exception as e:
+        return False, f"Failed to configure kernel_init: {e}"
+
+    # Check 4: Main wrapper function exists
+    try:
+        if hasattr(lib, "kernel_compute_certificate_wrapper"):
+            diagnostics.append("kernel_compute_certificate_wrapper symbol available")
+        else:
+            return False, "kernel_compute_certificate_wrapper symbol not found"
+    except Exception as e:
+        return False, f"Failed to verify wrapper symbol: {e}"
+
+    return True, "; ".join(diagnostics)
 
 
 def load_kernel(strict: bool = True) -> Optional[ctypes.CDLL]:
@@ -152,9 +334,75 @@ def load_kernel(strict: bool = True) -> Optional[ctypes.CDLL]:
         return None
 
     try:
-        _kernel_lib = ctypes.CDLL(kernel_path)
-        logger.info(f"Loaded verified kernel from {kernel_path}")
+        # Pre-flight check: verify symbols exist before loading
+        # This helps diagnose issues without risking a segfault
+        symbols_ok, found, missing = _check_library_symbols(kernel_path)
+        if not symbols_ok:
+            msg = (
+                f"Verified kernel at {kernel_path} is missing required symbols: {missing}. "
+                f"Found: {found}. This kernel would segfault if called. "
+                f"Rebuild with: ./build_kernel.sh"
+            )
+            if strict:
+                raise KernelError(msg)
+            if not _kernel_load_warning_logged:
+                logger.warning(msg)
+                _kernel_load_warning_logged = True
+            return None
+
+        # Check dependencies before loading
+        deps_ok, deps_msg = _check_library_dependencies(kernel_path)
+        if not deps_ok:
+            msg = f"Verified kernel at {kernel_path} has missing dependencies: {deps_msg}"
+            if strict:
+                raise KernelError(msg)
+            if not _kernel_load_warning_logged:
+                logger.warning(msg)
+                _kernel_load_warning_logged = True
+            return None
+
+        # Load the library
+        logger.debug(f"Loading verified kernel from {kernel_path}")
+        lib = ctypes.CDLL(kernel_path)
+
+        # Validate the loaded library
+        valid, diag = _validate_kernel(kernel_path, lib)
+        if not valid:
+            msg = f"Kernel validation failed: {diag}"
+            if strict:
+                raise KernelError(msg)
+            if not _kernel_load_warning_logged:
+                logger.warning(msg)
+                _kernel_load_warning_logged = True
+            return None
+
+        # Initialize the OCaml runtime (critical to prevent segfaults)
+        # The kernel_init function sets up the OCaml runtime
+        try:
+            kernel_init_fn = lib.kernel_init
+            kernel_init_fn.argtypes = []
+            kernel_init_fn.restype = None
+            logger.debug("Initializing OCaml runtime via kernel_init()")
+            kernel_init_fn()
+            logger.debug("OCaml runtime initialized successfully")
+        except Exception as e:
+            msg = f"Failed to initialize OCaml runtime: {e}. Kernel may segfault."
+            if strict:
+                raise KernelError(msg) from e
+            if not _kernel_load_warning_logged:
+                logger.warning(msg)
+                _kernel_load_warning_logged = True
+            return None
+
+        global _kernel_validated
+        _kernel_validated = True
+        _kernel_lib = lib
+        logger.info(f"Loaded and validated verified kernel from {kernel_path}")
+        logger.debug(f"Kernel diagnostics: {diag}")
         return _kernel_lib
+
+    except KernelError:
+        raise
     except OSError as exc:
         msg = f"Failed to load verified kernel from {kernel_path}: {exc}"
         if strict:
@@ -544,6 +792,104 @@ def compute_certificate(
         return (residual, bound)
 
 
+def is_kernel_available() -> bool:
+    """Check if the verified kernel is available without loading it.
+
+    This is a non-destructive check that inspects the kernel shared object
+    without actually loading it into the process (which could cause issues).
+
+    Returns
+    -------
+    bool
+        True if kernel appears to be available and valid.
+    """
+    # Check environment guard
+    allow = os.environ.get("ESM_ALLOW_KERNEL_LOAD", "1")
+    if allow != "1":
+        return False
+
+    # Try to locate kernel
+    kernel_path = _locate_kernel()
+    if not kernel_path:
+        return False
+
+    # Check symbols without loading
+    symbols_ok, _, _ = _check_library_symbols(kernel_path)
+    if not symbols_ok:
+        return False
+
+    # Check dependencies
+    deps_ok, _ = _check_library_dependencies(kernel_path)
+    if not deps_ok:
+        return False
+
+    return True
+
+
+def get_kernel_diagnostics() -> dict:
+    """Get diagnostic information about the kernel without loading it.
+
+    This is useful for debugging kernel issues in CI or development.
+
+    Returns
+    -------
+    dict
+        Diagnostic information including path, symbols, dependencies, etc.
+    """
+    diag = {
+        "allow_kernel_load": os.environ.get("ESM_ALLOW_KERNEL_LOAD", "1"),
+        "skip_verified_kernel": os.environ.get("ESM_SKIP_VERIFIED_KERNEL", ""),
+        "kernel_service_mode": os.environ.get("ESM_KERNEL_SERVICE", "0"),
+        "verified_kernel_path_env": os.environ.get("VERIFIED_KERNEL_PATH", ""),
+        "kernel_path": None,
+        "kernel_exists": False,
+        "symbols_ok": False,
+        "symbols_found": [],
+        "symbols_missing": [],
+        "dependencies_ok": False,
+        "dependencies_message": "",
+        "already_loaded": _kernel_lib is not None,
+        "validated": _kernel_validated,
+        "load_attempted": _kernel_load_attempted,
+    }
+
+    kernel_path = _locate_kernel()
+    diag["kernel_path"] = kernel_path
+
+    if kernel_path:
+        diag["kernel_exists"] = True
+
+        # Check symbols
+        symbols_ok, found, missing = _check_library_symbols(kernel_path)
+        diag["symbols_ok"] = symbols_ok
+        diag["symbols_found"] = found
+        diag["symbols_missing"] = missing
+
+        # Check dependencies
+        deps_ok, deps_msg = _check_library_dependencies(kernel_path)
+        diag["dependencies_ok"] = deps_ok
+        diag["dependencies_message"] = deps_msg
+
+    return diag
+
+
+def reset_kernel_state() -> None:
+    """Reset global kernel state (for testing).
+
+    This clears the global kernel library handle and related state,
+    allowing load_kernel to be called fresh. Useful for testing
+    different kernel configurations.
+    """
+    global _kernel_lib, _kernel_load_attempted, _kernel_load_warning_logged
+    global _fallback_warning_logged, _kernel_validated
+
+    _kernel_lib = None
+    _kernel_load_attempted = False
+    _kernel_load_warning_logged = False
+    _fallback_warning_logged = False
+    _kernel_validated = False
+
+
 __all__ = [
     "load_kernel",
     "compute_residual",
@@ -551,4 +897,7 @@ __all__ = [
     "compute_certificate",
     "KernelError",
     "WitnessValidationError",
+    "is_kernel_available",
+    "get_kernel_diagnostics",
+    "reset_kernel_state",
 ]

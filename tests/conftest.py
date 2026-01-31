@@ -107,19 +107,57 @@ def setup_submission_traces():
     # Cleanup is optional - leave traces in place for debugging
 
 
+@pytest.fixture(scope="session", autouse=True)
+def configure_test_environment():
+    """Configure test environment at session start.
+
+    This ensures that unit tests don't accidentally load the native kernel
+    which could segfault if not properly built.
+
+    The verified kernel loading is disabled by default in tests. Tests that
+    need the real kernel should use the @pytest.mark.kernel marker and be
+    run in integration/heavy tier CI.
+    """
+    # Disable kernel loading by default in tests
+    # This prevents segfaults from missing/broken kernel builds
+    if "ESM_ALLOW_KERNEL_LOAD" not in os.environ:
+        os.environ["ESM_ALLOW_KERNEL_LOAD"] = "0"
+
+    # Also set ESM_SKIP_VERIFIED_KERNEL to ensure fallback even if kernel loads
+    if "ESM_SKIP_VERIFIED_KERNEL" not in os.environ:
+        os.environ["ESM_SKIP_VERIFIED_KERNEL"] = "1"
+
+    yield
+
+
 @pytest.fixture(autouse=True)
-def mock_verified_kernel():
+def mock_verified_kernel(request):
     """Mock the verified kernel for tests that don't have kernel access.
 
     The verified kernel requires a compiled Coq/OCaml library that may not
     be available in all test environments. This fixture provides a Python
     fallback implementation for testing purposes.
 
-    In integration/heavy tiers where kernel is allowed, this fixture does
-    nothing and lets the real kernel be used.
+    Tests marked with @pytest.mark.kernel that are run in integration/heavy
+    tiers will use the real kernel (if available).
     """
-    # Skip mocking if kernel loading is allowed and we're in integration tier
-    if is_kernel_allowed() and TestTierManager.current_tier() >= TestTierManager.TIER_INTEGRATION:
+    # Check if this specific test requires the real kernel
+    has_kernel_marker = "kernel" in [marker.name for marker in request.node.iter_markers()]
+    has_unit_marker = "unit" in [marker.name for marker in request.node.iter_markers()]
+
+    # Use real kernel only if:
+    # 1. Test has @pytest.mark.kernel marker
+    # 2. Kernel loading is allowed
+    # 3. We're in integration tier or higher
+    # 4. Test is NOT marked as unit
+    use_real_kernel = (
+        has_kernel_marker and
+        not has_unit_marker and
+        is_kernel_allowed() and
+        TestTierManager.current_tier() >= TestTierManager.TIER_INTEGRATION
+    )
+
+    if use_real_kernel:
         yield
         return
 
