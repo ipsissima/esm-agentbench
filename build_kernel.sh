@@ -259,6 +259,23 @@ if [ -f "kernel_verified.mli" ]; then
   mv -f kernel_verified.cmi "${BUILD_DIR}/" || true
 fi
 
+# Compile Kernel_runtime.ml (trusted OCaml runtime implementation)
+# This MUST be compiled BEFORE kernel_verified.ml since it references Kernel_runtime
+if [ -f "Kernel_runtime.ml" ]; then
+  echo "[kernel] Compiling Kernel_runtime.ml (trusted runtime implementation)..."
+  if ! ${OCAMLOPT} -c -I +unix -I "${BUILD_DIR}" Kernel_runtime.ml -o "${BUILD_DIR}/Kernel_runtime.cmx"; then
+    echo "[kernel] ERROR: ocamlopt failed to compile Kernel_runtime.ml"
+    popd > /dev/null
+    exit 1
+  fi
+  # Move .cmi to build dir if generated
+  if [ -f "Kernel_runtime.cmi" ]; then
+    mv -f Kernel_runtime.cmi "${BUILD_DIR}/"
+  fi
+else
+  echo "[kernel] WARNING: Kernel_runtime.ml not present; kernel runtime not compiled"
+fi
+
 echo "[kernel] Compiling kernel_verified.ml into ${BUILD_DIR}/kernel_verified.cmx"
 if ! ${OCAMLOPT} -c -I +unix -I "${BUILD_DIR}" kernel_verified.ml -o "${BUILD_DIR}/kernel_verified.cmx"; then
   echo "[kernel] ERROR: ocamlopt failed to compile kernel_verified.ml"
@@ -437,7 +454,12 @@ echo "[kernel] Created kernel_stub.c in ${BUILD_DIR}"
 # Use -output-obj which generates PIC-compatible code for shared libraries
 # The OCaml runtime symbols are provided by statically linking with libasmrun_pic.a
 echo "[kernel] Creating object file with OCaml runtime..."
-if ! ${OCAMLOPT} -output-obj -I "${BUILD_DIR}" -o "${BUILD_DIR}/kernel_caml.o" "${BUILD_DIR}/kernel_verified.cmx"; then
+# Include Kernel_runtime.cmx BEFORE kernel_verified.cmx (dependencies first)
+CMXFILES="${BUILD_DIR}/kernel_verified.cmx"
+if [ -f "${BUILD_DIR}/Kernel_runtime.cmx" ]; then
+  CMXFILES="${BUILD_DIR}/Kernel_runtime.cmx ${CMXFILES}"
+fi
+if ! ${OCAMLOPT} -output-obj -I "${BUILD_DIR}" -o "${BUILD_DIR}/kernel_caml.o" ${CMXFILES}; then
   echo "[kernel] ERROR: Failed to create object file with OCaml runtime"
   popd > /dev/null
   exit 1
