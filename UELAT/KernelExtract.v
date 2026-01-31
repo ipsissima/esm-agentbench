@@ -35,6 +35,22 @@ Require Import CertificateProofs.
 *)
 Unset Extraction AccessOpaque.
 
+(** ** Blacklist non-computational classical real modules
+    This prevents extraction from exporting ClassicalDedekindReals internals.
+    These modules contain non-computational constructs that produce garbage
+    OCaml code (e.g., DRealQlimExp2, fun n -> n n patterns).
+    Blacklisting ensures extraction treats references to these modules as
+    opaque/axiomatic rather than trying to materialize computational junk.
+*)
+Extraction Blacklist ClassicalDedekindReals.
+Extraction Blacklist Raxioms.
+Extraction Blacklist Reals.
+Extraction Blacklist RIneq.
+Extraction Blacklist Rdefinitions.
+Extraction Blacklist R_sqrt.
+Extraction Blacklist Rsqrt_def.
+Extraction Blacklist Rbasic_fun.
+
 (** ** OCaml Code Generation Settings *)
 
 (** Use native OCaml floats (double precision) for R *)
@@ -126,18 +142,6 @@ Extract Constant archimed => "fun r -> ((), ())".
 
 (* completeness axiom - supremum existence, should be erased but add just in case *)
 Extract Constant completeness => "fun _ _ -> 0.0".
-
-(** ** ClassicalDedekindReals fallback
-    With 'Unset Extraction AccessOpaque' set above, extraction should NOT
-    peek into ClassicalDedekindReals bodies. However, if any code path still
-    tries to call sig_forall_dec (unlikely with our direct extraction mappings
-    for Rlt_dec, Rgt_dec, etc.), we provide a safe fallback.
-
-    The (fun n -> n n) junk pattern in extracted code typically comes from
-    extraction looking into opaque classical real proofs - the AccessOpaque
-    setting above prevents this.
-*)
-Extract Constant ClassicalDedekindReals.sig_forall_dec => "fun _ -> false".
 
 (** ** Additional numeric conversions and power functions
 
