@@ -206,16 +206,20 @@ done
 
 # Extraction step: Extraction.v should produce kernel_verified.ml (via Coq extraction).
 # CRITICAL: Always re-extract to ensure Extraction.v fixes take effect.
-# Extraction.v is already compiled above; re-running coqc here just regenerates the .ml file.
+# We must remove Extraction.vo to force Coq to actually re-run the extraction commands,
+# not just skip compilation because the .vo is up-to-date.
 if [ -f "Extraction.v" ]; then
-  echo "[kernel] Running extraction (Extraction.v) - always regenerating kernel_verified.ml..."
-  # Remove any existing extracted files to ensure clean regeneration
-  rm -f kernel_verified.ml kernel_verified.mli
+  echo "[kernel] Forcing re-extraction (removing stale kernel_verified.ml/mli and Extraction.vo)..."
+  # Remove extracted files AND the compiled .vo to force actual re-extraction
+  rm -f kernel_verified.ml kernel_verified.mli Extraction.vo Extraction.glob
+
+  echo "[kernel] Running extraction (Extraction.v)..."
   if ! ${COQC} -Q . "" Extraction.v 2>&1 | tee "${BUILD_DIR}/coq_Extraction.v.log"; then
       echo "[kernel] ERROR: Extraction failed. See ${BUILD_DIR}/coq_Extraction.v.log"
       popd > /dev/null
       exit 1
   fi
+
 else
   echo "[kernel] No Extraction.v found; skipping extraction step."
 fi
