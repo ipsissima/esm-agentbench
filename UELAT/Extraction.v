@@ -26,6 +26,54 @@ Require Import CertificateProofs.
 (* Map the PrimFloat primitive float type to OCaml's native float. *)
 Extract Constant PrimFloat.float => "float".
 
+(** ** Extract Coq Real Numbers (R) to OCaml float
+
+    Coq's R type is axiomatically defined and cannot be executed directly.
+    We extract it to OCaml's native float (IEEE 754 double precision).
+    This sacrifices the axiomatic guarantees for computability.
+*)
+
+(* The R type itself *)
+Extract Inlined Constant R => "float".
+
+(* Real number constants *)
+Extract Inlined Constant R0 => "0.0".
+Extract Inlined Constant R1 => "1.0".
+
+(* Basic arithmetic operations *)
+Extract Inlined Constant Rplus => "( +. )".
+Extract Inlined Constant Rminus => "( -. )".
+Extract Inlined Constant Rmult => "( *. )".
+Extract Inlined Constant Rdiv => "( /. )".
+Extract Inlined Constant Ropp => "( ~-. )".
+Extract Inlined Constant Rinv => "(fun x -> 1.0 /. x)".
+
+(* Comparison operations - return bool for extracted code *)
+Extract Inlined Constant Rlt_dec => "(fun x y -> x < y)".
+Extract Inlined Constant Rgt_dec => "(fun x y -> x > y)".
+Extract Inlined Constant Rle_dec => "(fun x y -> x <= y)".
+Extract Inlined Constant Rge_dec => "(fun x y -> x >= y)".
+Extract Inlined Constant Req_dec => "(fun x y -> x = y)".
+
+(* Mathematical functions from Reals *)
+Extract Inlined Constant sqrt => "Float.sqrt".
+Extract Inlined Constant Rabs => "Float.abs".
+Extract Inlined Constant exp => "Float.exp".
+Extract Inlined Constant ln => "Float.log".
+Extract Inlined Constant sin => "Float.sin".
+Extract Inlined Constant cos => "Float.cos".
+
+(* Power function *)
+Extract Inlined Constant pow => "(fun x n -> x ** (Float.of_int n))".
+Extract Inlined Constant Rpower => "Float.pow".
+
+(* IZR: integer to real conversion *)
+Extract Inlined Constant IZR => "Float.of_int".
+Extract Inlined Constant INR => "Float.of_int".
+
+(* Epsilon for numerical stability - use OCaml float literal *)
+Extract Inlined Constant Rdefinitions.IZR => "Float.of_int".
+
 (** Extract the kernel API functions *)
 Extraction Language OCaml.
 
