@@ -31,31 +31,62 @@ Extract Constant PrimFloat.float => "float".
     Coq's R type is axiomatically defined and cannot be executed directly.
     We extract it to OCaml's native float (IEEE 754 double precision).
     This sacrifices the axiomatic guarantees for computability.
+
+    IMPORTANT: We must extract ALL axioms that the code depends on,
+    including indirect dependencies through the standard library.
 *)
 
-(* The R type itself *)
-Extract Inlined Constant R => "float".
+(* The R type itself - use fully qualified path *)
+Extract Inlined Constant Rdefinitions.R => "float".
 
-(* Real number constants *)
-Extract Inlined Constant R0 => "0.0".
-Extract Inlined Constant R1 => "1.0".
+(* Real number constants - fully qualified *)
+Extract Inlined Constant Rdefinitions.R0 => "0.0".
+Extract Inlined Constant Rdefinitions.R1 => "1.0".
 
-(* Basic arithmetic operations *)
-Extract Inlined Constant Rplus => "( +. )".
+(* Basic arithmetic operations from Rdefinitions *)
+Extract Inlined Constant Rdefinitions.Rplus => "( +. )".
+Extract Inlined Constant Rdefinitions.Rmult => "( *. )".
+Extract Inlined Constant Rdefinitions.Ropp => "( ~-. )".
+Extract Inlined Constant Rdefinitions.Rinv => "(fun x -> 1.0 /. x)".
+
+(* Derived operations from Raxioms/RIneq *)
 Extract Inlined Constant Rminus => "( -. )".
-Extract Inlined Constant Rmult => "( *. )".
 Extract Inlined Constant Rdiv => "( /. )".
-Extract Inlined Constant Ropp => "( ~-. )".
-Extract Inlined Constant Rinv => "(fun x -> 1.0 /. x)".
 
-(* Comparison operations - return bool for extracted code *)
-Extract Inlined Constant Rlt_dec => "(fun x y -> x < y)".
-Extract Inlined Constant Rgt_dec => "(fun x y -> x > y)".
-Extract Inlined Constant Rle_dec => "(fun x y -> x <= y)".
-Extract Inlined Constant Rge_dec => "(fun x y -> x >= y)".
-Extract Inlined Constant Req_dec => "(fun x y -> x = y)".
+(** ** Critical Axiom: total_order_T
 
-(* Mathematical functions from Reals *)
+    This is the fundamental axiom that Rgt_dec, Rlt_dec, etc. depend on.
+    It provides decidable trichotomy for real numbers.
+
+    Type: forall r1 r2 : R, {r1 < r2} + {r1 = r2} + {r1 > r2}
+    This is: sumor (sumbool) (Prop)
+
+    With ExtrOcamlBasic:
+    - sumbool extracts to bool (left=true, right=false)
+    - sumor extracts to option (inleft=Some, inright=None)
+
+    So total_order_T returns option bool:
+    - r1 < r2  -> Some true   (inleft (left _))
+    - r1 = r2  -> Some false  (inleft (right _))
+    - r1 > r2  -> None        (inright _)
+*)
+Extract Constant Raxioms.total_order_T => "fun x y ->
+  if x < y then Some true
+  else if x = y then Some false
+  else None".
+
+(* Comparison decision procedures - these use total_order_T internally
+   but we can override them directly for efficiency *)
+Extract Inlined Constant Rlt_dec => "(fun x y -> if x < y then true else false)".
+Extract Inlined Constant Rgt_dec => "(fun x y -> if x > y then true else false)".
+Extract Inlined Constant Rle_dec => "(fun x y -> if x <= y then true else false)".
+Extract Inlined Constant Rge_dec => "(fun x y -> if x >= y then true else false)".
+Extract Inlined Constant Req_dec => "(fun x y -> if x = y then true else false)".
+(* Req_EM_T: {r1 = r2} + {r1 <> r2} - extracts to bool via sumbool *)
+Extract Inlined Constant Req_EM_T => "(fun x y -> x = y)".
+
+(* Mathematical functions from R_sqrt and other modules *)
+Extract Inlined Constant R_sqrt.sqrt => "Float.sqrt".
 Extract Inlined Constant sqrt => "Float.sqrt".
 Extract Inlined Constant Rabs => "Float.abs".
 Extract Inlined Constant exp => "Float.exp".
@@ -67,12 +98,17 @@ Extract Inlined Constant cos => "Float.cos".
 Extract Inlined Constant pow => "(fun x n -> x ** (Float.of_int n))".
 Extract Inlined Constant Rpower => "Float.pow".
 
-(* IZR: integer to real conversion *)
+(* Integer to real conversion - multiple possible paths *)
+Extract Inlined Constant Rdefinitions.IZR => "Float.of_int".
+Extract Inlined Constant RIneq.IZR => "Float.of_int".
 Extract Inlined Constant IZR => "Float.of_int".
 Extract Inlined Constant INR => "Float.of_int".
 
-(* Epsilon for numerical stability - use OCaml float literal *)
-Extract Inlined Constant Rdefinitions.IZR => "Float.of_int".
+(* Coq's up function (ceiling) used in some proofs *)
+Extract Inlined Constant Raxioms.up => "fun x -> int_of_float (Float.ceil x)".
+
+(* archimed axiom - provides Archimedean property, used in some real computations *)
+Extract Constant Raxioms.archimed => "fun r -> ((), ())".
 
 (** Extract the kernel API functions *)
 Extraction Language OCaml.
