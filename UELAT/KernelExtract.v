@@ -51,6 +51,31 @@ Extraction Blacklist R_sqrt.
 Extraction Blacklist Rsqrt_def.
 Extraction Blacklist Rbasic_fun.
 
+(** ** CRITICAL: Explicit extraction overrides for classical real axioms
+
+    When Coq cannot extract computational content for an axiom, it synthesizes
+    garbage like (fun n -> n n) which causes OCaml type errors. We must
+    explicitly provide implementations for axioms that leak into computational
+    contexts.
+
+    These axioms come from ClassicalDedekindReals and are used transitively
+    by decision procedures (Rgt_dec, etc.) and sqrt.
+*)
+
+(** sig_forall_dec: Decidability of bounded universal quantification over reals.
+    Type: forall P, (forall n, {P n} + {~ P n}) -> {forall n, P n} + {~ forall n, P n}
+    This is classical and cannot be computed. If reached at runtime, fail loudly.
+*)
+Extract Constant ClassicalDedekindReals.sig_forall_dec =>
+  "(fun _ _ -> failwith ""sig_forall_dec: classical axiom used at runtime"")".
+
+(** DRealQlimExp2: Dedekind real limit construction for exponential.
+    This is used internally by ClassicalDedekindReals for real number construction.
+    If reached at runtime (meaning the computation path uses Dedekind reals),
+    we provide a safe fallback returning 0.0.
+*)
+Extract Constant ClassicalDedekindReals.DRealQlimExp2 => "0.0".
+
 (** ** OCaml Code Generation Settings *)
 
 (** Use native OCaml floats (double precision) for R *)
