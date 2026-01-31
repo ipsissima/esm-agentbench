@@ -12,7 +12,9 @@
 *)
 
 From Coq Require Import Floats.PrimFloat.
+From Coq Require Import Reals.           (* Make R and Rminus visible *)
 Require Import Extraction.
+Open Scope R_scope.                      (* Make R-syntax available *)
 Require Import ExtrOcamlBasic.
 Require Import ExtrOcamlString.
 Require Import ExtrOcamlNatInt.
