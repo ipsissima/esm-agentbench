@@ -28,6 +28,13 @@ Require Import spectral_bounds.
 Require Import CertificateCore.
 Require Import CertificateProofs.
 
+(** ** CRITICAL: Prevent extraction from bypassing opacity
+    This stops extraction from peeking into opaque constants like
+    ClassicalDedekindReals, which produce non-computational junk like
+    (fun n -> n n) when extracted.
+*)
+Unset Extraction AccessOpaque.
+
 (** ** OCaml Code Generation Settings *)
 
 (** Use native OCaml floats (double precision) for R *)
@@ -120,10 +127,16 @@ Extract Constant archimed => "fun r -> ((), ())".
 (* completeness axiom - supremum existence, should be erased but add just in case *)
 Extract Constant completeness => "fun _ _ -> 0.0".
 
-(* ClassicalDedekindReals axiom - used by real number comparisons internally *)
-(* sig_forall_dec : (nat -> Prop decision) -> (forall n, P n) decision *)
-(* We extract to always return false (not all satisfy) - the actual comparison
-   functions are overridden above so this shouldn't affect results *)
+(** ** ClassicalDedekindReals fallback
+    With 'Unset Extraction AccessOpaque' set above, extraction should NOT
+    peek into ClassicalDedekindReals bodies. However, if any code path still
+    tries to call sig_forall_dec (unlikely with our direct extraction mappings
+    for Rlt_dec, Rgt_dec, etc.), we provide a safe fallback.
+
+    The (fun n -> n n) junk pattern in extracted code typically comes from
+    extraction looking into opaque classical real proofs - the AccessOpaque
+    setting above prevents this.
+*)
 Extract Constant ClassicalDedekindReals.sig_forall_dec => "fun _ -> false".
 
 (** ** Additional numeric conversions and power functions
