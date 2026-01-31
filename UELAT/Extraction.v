@@ -165,6 +165,21 @@ Extract Constant Rcompare => "fun x y ->
 (* Bool to sumbool conversion if needed *)
 Extract Inlined Constant Sumbool.sumbool_of_bool => "fun b -> b".
 
+(* Positive number operations - used in numeric literal expansions *)
+Extract Inlined Constant Pos.of_nat => "fun n -> max 1 n".
+Extract Inlined Constant Pos.to_nat => "fun p -> p".
+Extract Inlined Constant Pos.of_succ_nat => "fun n -> n + 1".
+
+(* mult_IZR and plus_IZR for numeric operations *)
+Extract Inlined Constant mult_IZR => "(fun z1 z2 -> Float.of_int z1 *. Float.of_int z2)".
+Extract Inlined Constant plus_IZR => "(fun z1 z2 -> Float.of_int z1 +. Float.of_int z2)".
+Extract Inlined Constant opp_IZR => "(fun z -> -. Float.of_int z)".
+
+(* Rlt_bool and other boolean comparisons *)
+Extract Inlined Constant Rlt_bool => "(fun x y -> x < y)".
+Extract Inlined Constant Rle_bool => "(fun x y -> x <= y)".
+Extract Inlined Constant Req_bool => "(fun x y -> x = y)".
+
 (** Extract the kernel API functions *)
 Extraction Language OCaml.
 
