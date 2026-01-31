@@ -14,12 +14,16 @@
 From Coq Require Import Floats.PrimFloat.
 From Coq Require Import Reals Raxioms Rdefinitions RIneq R_sqrt Rsqrt_def Rbasic_fun Rtrigo_def Rpower.
 From Coq Require Import ZArith.
+From Coq Require Import BinNums BinInt BinIntDef BinPos BinPosDef.
+From Coq Require Import QArith QArith_base.
 Open Scope R_scope.
 
 Require Import Extraction.
 Require Import ExtrOcamlBasic.
 Require Import ExtrOcamlString.
 Require Import ExtrOcamlNatInt.
+Require Import ExtrOcamlZInt.       (* standard: map Coq Z/positive to OCaml int *)
+Require Import ExtrOcamlIntConv.    (* standard: map Coq int/nat conversions to OCaml int *)
 Require Import spectral_bounds.
 Require Import CertificateCore.
 Require Import CertificateProofs.
@@ -140,6 +144,49 @@ Extract Inlined Constant powerRZ => "(fun x z -> x ** (Float.of_int z))".
 Extract Inlined Constant Rle_lt_dec => "(fun x y -> if x <= y then true else false)".
 Extract Inlined Constant Rlt_le_dec => "(fun x y -> if x < y then true else false)".
 
+(** ** Z (integer) arithmetic operations
+
+    Ensure Z operations extract to plain OCaml int operations.
+    ExtrOcamlZInt handles the core Z type, but we add these for completeness.
+*)
+Extract Inlined Constant Z.add => "( + )".
+Extract Inlined Constant Z.mul => "( * )".
+Extract Inlined Constant Z.sub => "( - )".
+Extract Inlined Constant Z.opp => "( ~- )".
+Extract Inlined Constant Z.div => "( / )".
+Extract Inlined Constant Z.modulo => "( mod )".
+Extract Inlined Constant Z.eqb => "( = )".
+Extract Inlined Constant Z.ltb => "( < )".
+Extract Inlined Constant Z.leb => "( <= )".
+
+(** ** Positive number extraction
+
+    Ensure positive numbers extract correctly to OCaml ints.
+*)
+Extract Inlined Constant Pos.add => "( + )".
+Extract Inlined Constant Pos.mul => "( * )".
+Extract Inlined Constant Pos.sub => "(fun x y -> max 1 (x - y))".
+Extract Inlined Constant Pos.eqb => "( = )".
+
+(** ** Q (rational) extraction for Dedekind reals fallback
+
+    If extraction reaches Q rationals (via ClassicalDedekindReals internals),
+    map them to floats so we get reasonable numeric behavior.
+*)
+Extract Constant Q => "float".
+Extract Inlined Constant Qnum => "(fun q -> int_of_float q)".
+Extract Inlined Constant Qden => "(fun _ -> 1)".
+Extract Inlined Constant Qmake => "(fun n d -> (Float.of_int n) /. (Float.of_int d))".
+Extract Inlined Constant Qplus => "( +. )".
+Extract Inlined Constant Qmult => "( *. )".
+Extract Inlined Constant Qminus => "( -. )".
+Extract Inlined Constant Qinv => "(fun x -> 1.0 /. x)".
+Extract Inlined Constant Qdiv => "( /. )".
+Extract Inlined Constant Qopp => "( ~-. )".
+Extract Inlined Constant Qeq_dec => "(fun x y -> x = y)".
+Extract Inlined Constant Qlt_le_dec => "(fun x y -> x < y)".
+Extract Inlined Constant Q2R => "(fun q -> q)".
+Extract Inlined Constant Qred => "(fun q -> q)".
 
 (** Extract the kernel API functions *)
 Extraction Language OCaml.
