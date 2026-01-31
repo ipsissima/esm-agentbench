@@ -116,6 +116,12 @@ Extract Constant archimed => "fun r -> ((), ())".
 (* completeness axiom - supremum existence, should be erased but add just in case *)
 Extract Constant completeness => "fun _ _ -> 0.0".
 
+(* ClassicalDedekindReals axiom - used by real number comparisons internally *)
+(* sig_forall_dec : (nat -> Prop decision) -> (forall n, P n) decision *)
+(* We extract to always return false (not all satisfy) - the actual comparison
+   functions are overridden above so this shouldn't affect results *)
+Extract Constant ClassicalDedekindReals.sig_forall_dec => "fun _ -> false".
+
 (** ** Additional numeric conversions and power functions
 
     These handle the expansion of numeric literals like 1e-12 which may use
