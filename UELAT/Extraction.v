@@ -36,8 +36,8 @@ Extract Constant PrimFloat.float => "float".
     including indirect dependencies through the standard library.
 *)
 
-(* The R type itself - use fully qualified path *)
-Extract Inlined Constant Rdefinitions.R => "float".
+(* The R type itself - use Extract Constant for type axioms (not Inlined) *)
+Extract Constant Rdefinitions.R => "float".
 
 (* Real number constants - fully qualified *)
 Extract Inlined Constant Rdefinitions.R0 => "0.0".
@@ -75,6 +75,12 @@ Extract Constant Raxioms.total_order_T => "fun x y ->
   else if x = y then Some false
   else None".
 
+(* Fallback without module prefix in case module structure differs *)
+Extract Constant total_order_T => "fun x y ->
+  if x < y then Some true
+  else if x = y then Some false
+  else None".
+
 (* Comparison decision procedures - these use total_order_T internally
    but we can override them directly for efficiency *)
 Extract Inlined Constant Rlt_dec => "(fun x y -> if x < y then true else false)".
@@ -86,13 +92,22 @@ Extract Inlined Constant Req_dec => "(fun x y -> if x = y then true else false)"
 Extract Inlined Constant Req_EM_T => "(fun x y -> x = y)".
 
 (* Mathematical functions from R_sqrt and other modules *)
+(* sqrt is defined in R_sqrt module - try multiple paths *)
 Extract Inlined Constant R_sqrt.sqrt => "Float.sqrt".
+Extract Inlined Constant Rsqrt_def.sqrt => "Float.sqrt".
 Extract Inlined Constant sqrt => "Float.sqrt".
+
+(* Other transcendental functions *)
+Extract Inlined Constant Rbasic_fun.Rabs => "Float.abs".
 Extract Inlined Constant Rabs => "Float.abs".
 Extract Inlined Constant exp => "Float.exp".
+Extract Inlined Constant Rtrigo_def.exp => "Float.exp".
 Extract Inlined Constant ln => "Float.log".
+Extract Inlined Constant Rpower.ln => "Float.log".
 Extract Inlined Constant sin => "Float.sin".
+Extract Inlined Constant Rtrigo_def.sin => "Float.sin".
 Extract Inlined Constant cos => "Float.cos".
+Extract Inlined Constant Rtrigo_def.cos => "Float.cos".
 
 (* Power function *)
 Extract Inlined Constant pow => "(fun x n -> x ** (Float.of_int n))".
@@ -106,9 +121,49 @@ Extract Inlined Constant INR => "Float.of_int".
 
 (* Coq's up function (ceiling) used in some proofs *)
 Extract Inlined Constant Raxioms.up => "fun x -> int_of_float (Float.ceil x)".
+Extract Inlined Constant up => "fun x -> int_of_float (Float.ceil x)".
 
 (* archimed axiom - provides Archimedean property, used in some real computations *)
 Extract Constant Raxioms.archimed => "fun r -> ((), ())".
+Extract Constant archimed => "fun r -> ((), ())".
+
+(* completeness axiom - supremum existence, should be erased but add just in case *)
+Extract Constant Raxioms.completeness => "fun _ _ -> 0.0".
+Extract Constant completeness => "fun _ _ -> 0.0".
+
+(** ** Additional numeric conversions and power functions
+
+    These handle the expansion of numeric literals like 1e-12 which may use
+    various Coq constructs for rational/integer to real conversion.
+*)
+
+(* Z operations for integer literals in R scope *)
+Extract Inlined Constant Z.of_nat => "fun n -> n".
+Extract Inlined Constant Z.to_nat => "fun z -> max 0 z".
+Extract Inlined Constant Z.abs_nat => "fun z -> abs z".
+
+(* Power functions - both nat and Z based *)
+Extract Inlined Constant Rpow_def.pow => "(fun x n -> x ** (Float.of_int n))".
+Extract Inlined Constant powerRZ => "(fun x z -> x ** (Float.of_int z))".
+
+(* Decimal/scientific notation support - these may be used by 1e-12 expansion *)
+Extract Inlined Constant Rabsolu.Rabs => "Float.abs".
+Extract Inlined Constant IPR => "Float.of_int".
+Extract Inlined Constant IPR_2 => "(fun p -> Float.of_int (2 * p))".
+Extract Inlined Constant IZR_POS => "(fun p -> Float.of_int p)".
+
+(* Additional comparison functions that might be used *)
+Extract Inlined Constant Rle_lt_dec => "(fun x y -> if x <= y then true else false)".
+Extract Inlined Constant Rlt_le_dec => "(fun x y -> if x < y then true else false)".
+
+(* Rcompare for trichotomy - used internally *)
+Extract Constant Rcompare => "fun x y ->
+  if x < y then Lt
+  else if x = y then Eq
+  else Gt".
+
+(* Bool to sumbool conversion if needed *)
+Extract Inlined Constant Sumbool.sumbool_of_bool => "fun b -> b".
 
 (** Extract the kernel API functions *)
 Extraction Language OCaml.
