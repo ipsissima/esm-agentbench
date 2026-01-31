@@ -175,7 +175,7 @@ echo "[kernel] Step 1: Verifying Coq proofs..."
 
 # Recommended: compile in a deterministic order. Ensure spectral_bounds is compiled first.
 # If your project has other dependencies, expand this list or use coq_makefile / _CoqProject.
-VFILES=(spectral_bounds.v CertificateCore.v CertificateProofs.v Extraction.v)
+VFILES=(spectral_bounds.v CertificateCore.v CertificateProofs.v KernelExtract.v)
 
 # Ensure logs directory
 mkdir -p "$BUILD_DIR"
@@ -196,7 +196,7 @@ for vf in "${VFILES[@]}"; do
 done
 
 # After compilation, verify .vo files exist for the modules we need
-for mod in spectral_bounds CertificateCore CertificateProofs Extraction; do
+for mod in spectral_bounds CertificateCore CertificateProofs KernelExtract; do
   if [ -f "${mod}.vo" ]; then
     echo "[kernel] Found ${mod}.vo"
   else
@@ -204,24 +204,25 @@ for mod in spectral_bounds CertificateCore CertificateProofs Extraction; do
   fi
 done
 
-# Extraction step: Extraction.v should produce kernel_verified.ml (via Coq extraction).
-# CRITICAL: Always re-extract to ensure Extraction.v fixes take effect.
-# We must remove Extraction.vo to force Coq to actually re-run the extraction commands,
+# Extraction step: KernelExtract.v should produce kernel_verified.ml (via Coq extraction).
+# NOTE: File renamed from Extraction.v to avoid Coq namespace collision with built-in Extraction module.
+# CRITICAL: Always re-extract to ensure KernelExtract.v fixes take effect.
+# We must remove KernelExtract.vo to force Coq to actually re-run the extraction commands,
 # not just skip compilation because the .vo is up-to-date.
-if [ -f "Extraction.v" ]; then
-  echo "[kernel] Forcing re-extraction (removing stale kernel_verified.ml/mli and Extraction.vo)..."
+if [ -f "KernelExtract.v" ]; then
+  echo "[kernel] Forcing re-extraction (removing stale kernel_verified.ml/mli and KernelExtract.vo)..."
   # Remove extracted files AND the compiled .vo to force actual re-extraction
-  rm -f kernel_verified.ml kernel_verified.mli Extraction.vo Extraction.glob
+  rm -f kernel_verified.ml kernel_verified.mli KernelExtract.vo KernelExtract.glob
 
-  echo "[kernel] Running extraction (Extraction.v)..."
-  if ! ${COQC} -Q . "" Extraction.v 2>&1 | tee "${BUILD_DIR}/coq_Extraction.v.log"; then
-      echo "[kernel] ERROR: Extraction failed. See ${BUILD_DIR}/coq_Extraction.v.log"
+  echo "[kernel] Running extraction (KernelExtract.v)..."
+  if ! ${COQC} -Q . "" KernelExtract.v 2>&1 | tee "${BUILD_DIR}/coq_KernelExtract.v.log"; then
+      echo "[kernel] ERROR: Extraction failed. See ${BUILD_DIR}/coq_KernelExtract.v.log"
       popd > /dev/null
       exit 1
   fi
 
 else
-  echo "[kernel] No Extraction.v found; skipping extraction step."
+  echo "[kernel] No KernelExtract.v found; skipping extraction step."
 fi
 
 if [ ! -f "kernel_verified.ml" ]; then
