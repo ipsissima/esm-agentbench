@@ -41,17 +41,17 @@ Extract Constant PrimFloat.float => "float".
 *)
 
 (* The R type itself - use Extract Constant for type axioms (not Inlined) *)
-Extract Constant Rdefinitions.R => "float".
+Extract Constant R => "float".
 
-(* Real number constants - fully qualified *)
-Extract Inlined Constant Rdefinitions.R0 => "0.0".
-Extract Inlined Constant Rdefinitions.R1 => "1.0".
+(* Real number constants *)
+Extract Inlined Constant R0 => "0.0".
+Extract Inlined Constant R1 => "1.0".
 
-(* Basic arithmetic operations from Rdefinitions *)
-Extract Inlined Constant Rdefinitions.Rplus => "( +. )".
-Extract Inlined Constant Rdefinitions.Rmult => "( *. )".
-Extract Inlined Constant Rdefinitions.Ropp => "( ~-. )".
-Extract Inlined Constant Rdefinitions.Rinv => "(fun x -> 1.0 /. x)".
+(* Basic arithmetic operations *)
+Extract Inlined Constant Rplus => "( +. )".
+Extract Inlined Constant Rmult => "( *. )".
+Extract Inlined Constant Ropp => "( ~-. )".
+Extract Inlined Constant Rinv => "(fun x -> 1.0 /. x)".
 
 (* Derived operations from Raxioms/RIneq *)
 Extract Inlined Constant Rminus => "( -. )".
@@ -74,12 +74,6 @@ Extract Inlined Constant Rdiv => "( /. )".
     - r1 = r2  -> Some false  (inleft (right _))
     - r1 > r2  -> None        (inright _)
 *)
-Extract Constant Raxioms.total_order_T => "fun x y ->
-  if x < y then Some true
-  else if x = y then Some false
-  else None".
-
-(* Fallback without module prefix in case module structure differs *)
 Extract Constant total_order_T => "fun x y ->
   if x < y then Some true
   else if x = y then Some false
@@ -95,44 +89,31 @@ Extract Inlined Constant Req_dec => "(fun x y -> if x = y then true else false)"
 (* Req_EM_T: {r1 = r2} + {r1 <> r2} - extracts to bool via sumbool *)
 Extract Inlined Constant Req_EM_T => "(fun x y -> x = y)".
 
-(* Mathematical functions from R_sqrt and other modules *)
-(* sqrt is defined in R_sqrt module - try multiple paths *)
-Extract Inlined Constant R_sqrt.sqrt => "Float.sqrt".
-Extract Inlined Constant Rsqrt_def.sqrt => "Float.sqrt".
+(* Mathematical functions *)
 Extract Inlined Constant sqrt => "Float.sqrt".
 
 (* Other transcendental functions *)
-Extract Inlined Constant Rbasic_fun.Rabs => "Float.abs".
 Extract Inlined Constant Rabs => "Float.abs".
 Extract Inlined Constant exp => "Float.exp".
-Extract Inlined Constant Rtrigo_def.exp => "Float.exp".
 Extract Inlined Constant ln => "Float.log".
-Extract Inlined Constant Rpower.ln => "Float.log".
 Extract Inlined Constant sin => "Float.sin".
-Extract Inlined Constant Rtrigo_def.sin => "Float.sin".
 Extract Inlined Constant cos => "Float.cos".
-Extract Inlined Constant Rtrigo_def.cos => "Float.cos".
 
 (* Power function *)
 Extract Inlined Constant pow => "(fun x n -> x ** (Float.of_int n))".
 Extract Inlined Constant Rpower => "Float.pow".
 
-(* Integer to real conversion - multiple possible paths *)
-Extract Inlined Constant Rdefinitions.IZR => "Float.of_int".
-Extract Inlined Constant RIneq.IZR => "Float.of_int".
+(* Integer to real conversion *)
 Extract Inlined Constant IZR => "Float.of_int".
 Extract Inlined Constant INR => "Float.of_int".
 
 (* Coq's up function (ceiling) used in some proofs *)
-Extract Inlined Constant Raxioms.up => "fun x -> int_of_float (Float.ceil x)".
 Extract Inlined Constant up => "fun x -> int_of_float (Float.ceil x)".
 
 (* archimed axiom - provides Archimedean property, used in some real computations *)
-Extract Constant Raxioms.archimed => "fun r -> ((), ())".
 Extract Constant archimed => "fun r -> ((), ())".
 
 (* completeness axiom - supremum existence, should be erased but add just in case *)
-Extract Constant Raxioms.completeness => "fun _ _ -> 0.0".
 Extract Constant completeness => "fun _ _ -> 0.0".
 
 (** ** Additional numeric conversions and power functions
@@ -147,11 +128,7 @@ Extract Inlined Constant Z.to_nat => "fun z -> max 0 z".
 Extract Inlined Constant Z.abs_nat => "fun z -> abs z".
 
 (* Power functions - both nat and Z based *)
-Extract Inlined Constant Rpow_def.pow => "(fun x n -> x ** (Float.of_int n))".
 Extract Inlined Constant powerRZ => "(fun x z -> x ** (Float.of_int z))".
-
-(* Decimal/scientific notation support - these may be used by 1e-12 expansion *)
-Extract Inlined Constant Rabsolu.Rabs => "Float.abs".
 Extract Inlined Constant IPR => "Float.of_int".
 Extract Inlined Constant IPR_2 => "(fun p -> Float.of_int (2 * p))".
 Extract Inlined Constant IZR_POS => "(fun p -> Float.of_int p)".
