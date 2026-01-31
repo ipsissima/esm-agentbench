@@ -168,25 +168,12 @@ Extract Inlined Constant Pos.mul => "( * )".
 Extract Inlined Constant Pos.sub => "(fun x y -> max 1 (x - y))".
 Extract Inlined Constant Pos.eqb => "( = )".
 
-(** ** Q (rational) extraction for Dedekind reals fallback
+(** ** Q (rational) extraction note
 
-    If extraction reaches Q rationals (via ClassicalDedekindReals internals),
-    map them to floats so we get reasonable numeric behavior.
+    Q is a record type, not a constant, so we cannot use Extract Constant Q.
+    With ExtrOcamlZInt handling Z and positive, Q extracts naturally as a
+    small OCaml record (numerator/denominator). No explicit extraction needed.
 *)
-Extract Constant Q => "float".
-Extract Inlined Constant Qnum => "(fun q -> int_of_float q)".
-Extract Inlined Constant Qden => "(fun _ -> 1)".
-Extract Inlined Constant Qmake => "(fun n d -> (Float.of_int n) /. (Float.of_int d))".
-Extract Inlined Constant Qplus => "( +. )".
-Extract Inlined Constant Qmult => "( *. )".
-Extract Inlined Constant Qminus => "( -. )".
-Extract Inlined Constant Qinv => "(fun x -> 1.0 /. x)".
-Extract Inlined Constant Qdiv => "( /. )".
-Extract Inlined Constant Qopp => "( ~-. )".
-Extract Inlined Constant Qeq_dec => "(fun x y -> x = y)".
-Extract Inlined Constant Qlt_le_dec => "(fun x y -> x < y)".
-Extract Inlined Constant Q2R => "(fun q -> q)".
-Extract Inlined Constant Qred => "(fun q -> q)".
 
 (** Extract the kernel API functions *)
 Extraction Language OCaml.
