@@ -129,37 +129,11 @@ Extract Inlined Constant Z.abs_nat => "fun z -> abs z".
 
 (* Power functions - both nat and Z based *)
 Extract Inlined Constant powerRZ => "(fun x z -> x ** (Float.of_int z))".
-Extract Inlined Constant IPR => "Float.of_int".
-Extract Inlined Constant IPR_2 => "(fun p -> Float.of_int (2 * p))".
-Extract Inlined Constant IZR_POS => "(fun p -> Float.of_int p)".
 
 (* Additional comparison functions that might be used *)
 Extract Inlined Constant Rle_lt_dec => "(fun x y -> if x <= y then true else false)".
 Extract Inlined Constant Rlt_le_dec => "(fun x y -> if x < y then true else false)".
 
-(* Rcompare for trichotomy - used internally *)
-Extract Constant Rcompare => "fun x y ->
-  if x < y then Lt
-  else if x = y then Eq
-  else Gt".
-
-(* Bool to sumbool conversion if needed *)
-Extract Inlined Constant Sumbool.sumbool_of_bool => "fun b -> b".
-
-(* Positive number operations - used in numeric literal expansions *)
-Extract Inlined Constant Pos.of_nat => "fun n -> max 1 n".
-Extract Inlined Constant Pos.to_nat => "fun p -> p".
-Extract Inlined Constant Pos.of_succ_nat => "fun n -> n + 1".
-
-(* mult_IZR and plus_IZR for numeric operations *)
-Extract Inlined Constant mult_IZR => "(fun z1 z2 -> Float.of_int z1 *. Float.of_int z2)".
-Extract Inlined Constant plus_IZR => "(fun z1 z2 -> Float.of_int z1 +. Float.of_int z2)".
-Extract Inlined Constant opp_IZR => "(fun z -> -. Float.of_int z)".
-
-(* Rlt_bool and other boolean comparisons *)
-Extract Inlined Constant Rlt_bool => "(fun x y -> x < y)".
-Extract Inlined Constant Rle_bool => "(fun x y -> x <= y)".
-Extract Inlined Constant Req_bool => "(fun x y -> x = y)".
 
 (** Extract the kernel API functions *)
 Extraction Language OCaml.
