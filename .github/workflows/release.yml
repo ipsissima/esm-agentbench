@@ -1,0 +1,80 @@
+name: Release Signing
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  sign-release-bundle:
+    name: Sign Release Bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Import GPG key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "GPG_PRIVATE_KEY is not configured."
+            exit 1
+          fi
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Create and sign release bundle
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          if [ -z "$GPG_KEY_ID" ]; then
+            echo "GPG_KEY_ID is not configured."
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          import os
+          import tempfile
+          from certificates.cert_bundle import create_bundle
+
+          with tempfile.TemporaryDirectory(prefix="release_bundle_") as tmpdir:
+              trace_path = os.path.join(tmpdir, "trace.json")
+              cert_path = os.path.join(tmpdir, "certificate.json")
+              with open(trace_path, "w", encoding="utf-8") as handle:
+                  json.dump({"release": "trace"}, handle)
+              with open(cert_path, "w", encoding="utf-8") as handle:
+                  json.dump({"release": "certificate"}, handle)
+              bundle_dir = os.path.join(tmpdir, "bundle")
+              create_bundle(
+                  bundle_dir,
+                  trace_path=trace_path,
+                  certificate_path=cert_path,
+                  kernel_mode="release",
+                  gpg_key=os.environ["GPG_KEY_ID"],
+              )
+              print(bundle_dir)
+          PY
+
+      - name: Remove GPG key
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          if [ -n "$GPG_KEY_ID" ]; then
+            gpg --batch --yes --delete-secret-keys "$GPG_KEY_ID" || true
+            gpg --batch --yes --delete-keys "$GPG_KEY_ID" || true
+          fi

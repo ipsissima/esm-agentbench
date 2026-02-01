@@ -9,6 +9,8 @@ import subprocess
 
 import pytest
 
+from tests.test_guards import requires_kernel
+
 
 def _print_versions():
     for cmd in (("coqc", "--version"), ("ocamlopt", "-version"), ("opam", "version")):
@@ -21,6 +23,7 @@ def _print_versions():
 
 @pytest.mark.integration
 @pytest.mark.kernel
+@requires_kernel
 def test_kernel_load_and_smoke():
     from certificates.verified_kernel import load_kernel
 

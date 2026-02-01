@@ -152,15 +152,15 @@ class TransformersBackend(InferenceBackend):
                     hidden = output
 
                 # Convert to numpy and take mean over sequence
-                try:
-                    import torch
-                    if isinstance(hidden, torch.Tensor):
-                        # Shape: [batch, seq_len, hidden_dim]
-                        # Take last token's representation
-                        arr = hidden[:, -1, :].detach().cpu().numpy()
-                        self._residual_stream.append(arr.squeeze())
-                except Exception:
-                    pass
+                if hasattr(hidden, "detach"):
+                    arr = hidden[:, -1, :].detach().cpu().numpy()
+                    self._residual_stream.append(arr.squeeze())
+                elif isinstance(hidden, np.ndarray):
+                    arr = hidden[:, -1, :]
+                    self._residual_stream.append(arr.squeeze())
+                elif hasattr(hidden, "numpy"):
+                    arr = hidden[:, -1, :].numpy()
+                    self._residual_stream.append(arr.squeeze())
             return hook
 
         # Find transformer layers

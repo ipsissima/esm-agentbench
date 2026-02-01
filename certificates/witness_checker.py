@@ -43,20 +43,19 @@ def check_witness(
 
     n_cols = X0.shape[1]
 
-    gram = X0 @ X0.T
-    try:
-        cond = np.linalg.cond(gram)
-    except Exception:
-        cond = float("inf")
-    if cond > cond_thresh:
-        raise WitnessValidationError(
-            f"Condition number too large: {cond:.3e} > {cond_thresh:.3e}"
-        )
-
     try:
         svals = np.linalg.svd(X0, compute_uv=False)
     except Exception:
         svals = np.array([0.0])
+
+    if len(svals) == 0 or svals[-1] == 0:
+        cond = float("inf")
+    else:
+        cond = float(svals[0] / svals[-1])
+    if cond > cond_thresh:
+        raise WitnessValidationError(
+            f"Condition number too large: {cond:.3e} > {cond_thresh:.3e}"
+        )
     spectral_gap = compute_spectral_gap(svals)
     if spectral_gap < gap_thresh:
         raise WitnessValidationError(

@@ -5,6 +5,7 @@ These tests verify:
 2. Prototype kernel runs and produces valid output
 3. Certificate bundle creation works correctly
 """
+import base64
 import json
 import os
 import tempfile
@@ -83,6 +84,35 @@ class TestKernelInputExport:
 
             np.testing.assert_allclose(X_loaded, X_orig, rtol=1e-10)
             assert metadata["trace_id"] == "roundtrip-test"
+
+        finally:
+            if os.path.exists(output_path):
+                os.remove(output_path)
+
+    def test_export_kernel_input_big_endian_encoding(self):
+        """Test that exported kernel data uses big-endian float64 encoding."""
+        from certificates.make_certificate import export_kernel_input
+
+        X_aug = np.array([[1.0, 2.5], [3.25, -4.75]], dtype=np.float64)
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            output_path = f.name
+
+        try:
+            export_kernel_input(
+                X_aug=X_aug,
+                trace_id="endian-test",
+                output_path=output_path,
+            )
+
+            with open(output_path, 'r') as f:
+                data = json.load(f)
+
+            encoded = data["observables"]["X_aug"]["data_matrix"]
+            raw_bytes = base64.b64decode(encoded)
+            decoded = np.frombuffer(raw_bytes, dtype='>f8').reshape(X_aug.shape)
+
+            np.testing.assert_allclose(decoded, X_aug, rtol=1e-12, atol=0.0)
 
         finally:
             if os.path.exists(output_path):

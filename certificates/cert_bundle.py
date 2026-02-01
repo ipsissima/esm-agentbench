@@ -58,6 +58,7 @@ def create_metadata(
     files: Dict[str, str],
     embedder_id: Optional[str] = None,
     kernel_mode: Optional[str] = None,
+    kernel_image_digest: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Create metadata for a certificate bundle.
@@ -70,6 +71,8 @@ def create_metadata(
         Embedding model identifier.
     kernel_mode : Optional[str]
         Kernel mode used (prototype, arb, mpfi).
+    kernel_image_digest : Optional[str]
+        Digest of the kernel image used for verification.
     extra : Optional[Dict[str, Any]]
         Additional metadata to include.
 
@@ -85,6 +88,9 @@ def create_metadata(
         "kernel_mode": kernel_mode or "unknown",
         "files": {},
     }
+
+    if kernel_image_digest:
+        metadata["kernel_image_digest"] = kernel_image_digest
 
     # Add file hashes
     for name, path in files.items():
@@ -109,6 +115,7 @@ def create_bundle(
     certificate_path: Optional[str] = None,
     embedder_id: Optional[str] = None,
     kernel_mode: Optional[str] = None,
+    kernel_image_digest: Optional[str] = None,
     gpg_key: Optional[str] = None,
     extra_metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
@@ -133,6 +140,8 @@ def create_bundle(
         Embedding model identifier.
     kernel_mode : Optional[str]
         Kernel mode used.
+    kernel_image_digest : Optional[str]
+        Digest of the kernel image used for verification.
     gpg_key : Optional[str]
         GPG key ID for signing. If None, no signature is created.
     extra_metadata : Optional[Dict[str, Any]]
@@ -170,6 +179,7 @@ def create_bundle(
         files={k: os.path.join(bundle_dir, k) for k in files},
         embedder_id=embedder_id,
         kernel_mode=kernel_mode,
+        kernel_image_digest=kernel_image_digest,
         extra=extra_metadata,
     )
 
@@ -299,8 +309,12 @@ def verify_bundle(bundle_dir: str) -> Dict[str, Any]:
         results["errors"].append(f"Invalid metadata.json: {e}")
         return results
 
-    # Check required files
-    for filename in ["kernel_output.json", "certificate.json"]:
+    # Check required files (certificate is mandatory; kernel output optional)
+    required_files = {"certificate.json"}
+    if "kernel_output.json" in metadata.get("files", {}):
+        required_files.add("kernel_output.json")
+
+    for filename in required_files:
         file_path = os.path.join(bundle_dir, filename)
         if os.path.exists(file_path):
             results["checks"][f"{filename}_present"] = True
