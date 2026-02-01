@@ -157,9 +157,9 @@ Proof.
   (* Extract the bound non-negativity check *)
   repeat (apply andb_prop in H; destruct H as [H ?]).
   apply interval_nonneg_lo.
-  (* Need to find the right conjunct - it's the 4th check *)
-  repeat (apply andb_prop in H; destruct H as [H ?]).
-  exact H.
+  (* Extract the 4th conjunct for interval_nonneg on rw_bound *)
+  destruct H as [_ [_ [_ Hinterval_nonneg]]].
+  exact Hinterval_nonneg.
 Qed.
 
 (** Theorem: If checker accepts, bound >= formula *)
