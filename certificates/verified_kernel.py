@@ -241,7 +241,10 @@ def _check_library_symbols(kernel_path: str) -> Tuple[bool, List[str], List[str]
 def _check_library_dependencies(kernel_path: str) -> Tuple[bool, str]:
     """Check if the kernel shared library has all required dependencies.
 
-    Uses ldd to check for missing shared library dependencies.
+    Uses platform-specific tools:
+    - Linux: ldd
+    - macOS: otool -L
+    - Windows: Documented fallback (requires manual inspection)
 
     Parameters
     ----------
@@ -253,29 +256,96 @@ def _check_library_dependencies(kernel_path: str) -> Tuple[bool, str]:
     Tuple[bool, str]
         (all_satisfied, diagnostic_message)
     """
+    platform = sys.platform
+    
+    # Determine platform-specific command
+    if platform.startswith('linux'):
+        cmd = ["ldd", kernel_path]
+        check_fn = _parse_ldd_output
+    elif platform == 'darwin':  # macOS
+        cmd = ["otool", "-L", kernel_path]
+        check_fn = _parse_otool_output
+    elif platform.startswith('win'):  # Windows
+        # Document that Windows users need manual verification
+        logger.warning(
+            f"_check_library_dependencies: Windows platform detected. "
+            f"Automatic dependency checking not available. "
+            f"Please manually verify kernel dependencies using: "
+            f"'dumpbin /dependents {kernel_path}' or similar tools."
+        )
+        return True, "Dependency check skipped on Windows (manual verification required)"
+    else:
+        logger.warning(
+            f"_check_library_dependencies: Unknown platform '{platform}'. "
+            f"Dependency checking may not be available."
+        )
+        return True, f"Dependency check skipped on unknown platform: {platform}"
+    
     try:
         result = subprocess.run(
-            ["ldd", kernel_path],
+            cmd,
             capture_output=True,
             text=True,
             timeout=5.0,
         )
         if result.returncode != 0:
-            return True, "ldd check skipped (non-zero return)"
+            logger.info(
+                f"_check_library_dependencies: {cmd[0]} returned non-zero status. "
+                f"stderr={result.stderr}"
+            )
+            return True, f"{cmd[0]} check skipped (non-zero return)"
 
         output = result.stdout
-        missing = []
-        for line in output.splitlines():
-            if "not found" in line.lower():
-                missing.append(line.strip())
-
+        all_ok, missing = check_fn(output)
+        
         if missing:
             return False, f"Missing dependencies: {'; '.join(missing)}"
         return True, "All dependencies satisfied"
 
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-        # ldd not available (e.g., macOS, Windows)
-        return True, f"ldd check skipped ({e})"
+        # Tool not available
+        logger.warning(
+            f"_check_library_dependencies: {cmd[0]} not available on {platform}. "
+            f"Error: {e}"
+        )
+        return True, f"{cmd[0]} check skipped ({e})"
+
+
+def _parse_ldd_output(output: str) -> Tuple[bool, List[str]]:
+    """Parse ldd output to find missing dependencies.
+    
+    Returns
+    -------
+    Tuple[bool, List[str]]
+        (all_ok, missing_dependencies)
+    """
+    missing = []
+    for line in output.splitlines():
+        if "not found" in line.lower():
+            missing.append(line.strip())
+    return len(missing) == 0, missing
+
+
+def _parse_otool_output(output: str) -> Tuple[bool, List[str]]:
+    """Parse otool -L output to find missing dependencies.
+    
+    Returns
+    -------
+    Tuple[bool, List[str]]
+        (all_ok, missing_dependencies)
+    """
+    # otool -L shows library dependencies
+    # Format: \t<path> (compatibility version X.Y.Z, current version X.Y.Z)
+    # Missing libs typically won't show up, but we check for common error patterns
+    missing = []
+    for line in output.splitlines():
+        # Check for error patterns that might indicate missing dependencies
+        if "not found" in line.lower() or "error" in line.lower():
+            missing.append(line.strip())
+    
+    # otool doesn't explicitly mark missing dependencies like ldd does
+    # If the command succeeded and showed output, we assume dependencies are OK
+    return len(missing) == 0, missing
 
 
 def _validate_kernel(kernel_path: str, lib: ctypes.CDLL) -> Tuple[bool, str]:
