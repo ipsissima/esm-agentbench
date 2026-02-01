@@ -181,6 +181,9 @@ def _fit_temporal_operator_ridge(
 
     gram = X0 @ X0.T
     gram_reg = gram + regularization * np.eye(d)
+    
+    # Compute condition number upfront for potential logging
+    cond_num = np.linalg.cond(gram_reg) if gram_reg.size > 0 else float('inf')
 
     try:
         # Use solve instead of inv for better numerical stability and performance
@@ -188,7 +191,6 @@ def _fit_temporal_operator_ridge(
         A = np.linalg.solve(gram_reg, X0 @ X1.T).T
     except np.linalg.LinAlgError as e:
         # Fallback to lstsq (more robust for ill-conditioned systems)
-        cond_num = np.linalg.cond(gram_reg) if gram_reg.size > 0 else float('inf')
         logger.warning(
             f"_fit_temporal_operator_ridge: solve() failed, falling back to lstsq. "
             f"gram_reg shape={gram_reg.shape}, condition_number={cond_num:.2e}, "

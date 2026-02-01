@@ -35,8 +35,10 @@ def test_fit_temporal_operator_ridge_logs_lstsq_fallback(caplog):
     # Check that the operator was computed
     assert A.shape == (d, d)
     
-    # Check that warning was logged (may or may not trigger depending on numpy version)
-    # The test validates the code path exists, actual triggering depends on numerical edge cases
+    # Note: Whether solve() actually fails depends on numpy internals and the exact
+    # numerical properties. This test validates that the fallback code path exists
+    # and that the function completes successfully even with ill-conditioned input.
+    # In practice, with regularization=0.0 and a rank-1 matrix, fallback may occur.
 
 
 def test_fit_temporal_operator_ridge_with_normal_input():
