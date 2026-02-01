@@ -13,10 +13,13 @@ Ideally, this should be 1.0 (all valid certificates should correspond to correct
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from esmassessor.artifact_schema import CertifiedVerdict
+
+logger = logging.getLogger(__name__)
 
 
 def load_trace_result(trace_path: str) -> Optional[Dict[str, Any]]:
@@ -24,7 +27,8 @@ def load_trace_result(trace_path: str) -> Optional[Dict[str, Any]]:
     try:
         with open(trace_path, "r") as f:
             return json.load(f)
-    except Exception:
+    except (FileNotFoundError, json.JSONDecodeError, OSError) as e:
+        logger.debug(f"Could not load trace from {trace_path}: {e}")
         return None
 
 
