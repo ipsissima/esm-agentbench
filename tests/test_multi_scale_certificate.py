@@ -201,11 +201,11 @@ class TestAdaptiveCertificate:
         rng = np.random.default_rng(42)
 
         # Create a trace with a clear context switch
-        phase1 = rng.normal(size=(15, 32)) + np.array([1.0] * 32)  # Planning mode
-        phase2 = rng.normal(size=(15, 32)) + np.array([-1.0] * 32)  # Coding mode
+        stage1 = rng.normal(size=(15, 32)) + np.array([1.0] * 32)  # Planning mode
+        stage2 = rng.normal(size=(15, 32)) + np.array([-1.0] * 32)  # Coding mode
 
         # Add a jump between phases
-        trace = np.vstack([phase1, phase2])
+        trace = np.vstack([stage1, stage2])
 
         cert = compute_adaptive_certificate(
             trace,

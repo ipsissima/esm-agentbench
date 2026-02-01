@@ -191,7 +191,7 @@ def evaluate_traces(traces_by_label: Dict[str, List[Dict[str, Any]]]) -> Dict[st
     # Full attack success if drift or creative shows anomaly
     full_attack_success = drift_detected or creative_detected
 
-    # For Phase-1 validation: success if traces were loaded and processed
+    # For submission validation: success if traces were loaded and processed
     traces_analyzed = any(results[label]["total"] > 0 for label in results)
     plugin_success = traces_analyzed
 

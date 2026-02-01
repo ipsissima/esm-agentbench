@@ -2,7 +2,7 @@
 
 **Total Duration: 3 minutes (180 seconds)**
 
-This script provides exact timing and narration for the Phase-1 demo video.
+This script provides exact timing and narration for the demo video.
 
 ---
 
@@ -11,7 +11,7 @@ This script provides exact timing and narration for the Phase-1 demo video.
 **[SHOW: Title slide or repo README header]**
 
 **NARRATION:**
-> "EigenSpace Spectral Bench — Phase-1 Green Agent submission. We evaluate agentic code tool-use behavior through formally verified spectral certificates."
+> "EigenSpace Spectral Bench — Green Agent submission. We evaluate agentic code tool-use behavior through formally verified spectral certificates."
 
 ---
 
@@ -127,7 +127,7 @@ head -50 build_kernel.sh
 **[SHOW: README.md or repo URL]**
 
 **NARRATION:**
-> "To reproduce: clone the repo, run `docker build` then `docker run`, and verify outputs. Full instructions are in the README. The repository URL is github.com/ipsissima/esm-agentbench. Thank you for reviewing our Phase-1 submission."
+> "To reproduce: clone the repo, run `docker build` then `docker run`, and verify outputs. Full instructions are in the README. The repository URL is github.com/ipsissima/esm-agentbench. Thank you for reviewing our submission."
 
 **[SHOW: Final slide with repo URL and contact]**
 

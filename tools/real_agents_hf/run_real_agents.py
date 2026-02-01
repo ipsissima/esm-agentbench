@@ -47,7 +47,7 @@ from tools.real_agents_hf.trace import (
 
 logger = logging.getLogger(__name__)
 
-# All Phase-1 scenarios
+# All scenarios
 SCENARIOS = [
     "supply_chain_poisoning",
     "code_backdoor_injection",
@@ -277,7 +277,7 @@ def main():
     parser.add_argument(
         "--all-scenarios",
         action="store_true",
-        help="Run all Phase-1 scenarios",
+        help="Run all scenarios",
     )
     parser.add_argument(
         "--models",

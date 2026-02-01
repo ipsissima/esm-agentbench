@@ -7,7 +7,7 @@ interface that the rest of the codebase can use without worrying about kernel
 availability or repeated fallback warnings.
 
 Architecture:
-- KernelPort: Abstract interface for kernel operations
+- KernelAdapterBase: Abstract interface for kernel operations
 - VerifiedKernelAdapter: Uses the formally verified Coq/OCaml kernel
 - PythonKernelAdapter: Pure Python fallback (not verified)
 - make_kernel_adapter(): Factory that returns the best available adapter
@@ -33,7 +33,7 @@ class KernelAdapterError(RuntimeError):
     pass
 
 
-class KernelPort(ABC):
+class KernelAdapterBase(ABC):
     """Abstract interface for kernel operations.
 
     This port defines the contract for computing spectral certificate metrics.
@@ -141,7 +141,7 @@ class KernelPort(ABC):
         raise NotImplementedError
 
 
-class VerifiedKernelAdapter(KernelPort):
+class VerifiedKernelAdapter(KernelAdapterBase):
     """Adapter that uses the formally verified Coq/OCaml kernel.
 
     This adapter wraps the verified_kernel module and provides a clean
@@ -278,7 +278,7 @@ class VerifiedKernelAdapter(KernelPort):
         return True
 
 
-class PythonKernelAdapter(KernelPort):
+class PythonKernelAdapter(KernelAdapterBase):
     """Pure Python adapter for kernel operations.
 
     This adapter provides the same interface as VerifiedKernelAdapter but
@@ -384,11 +384,11 @@ class PythonKernelAdapter(KernelPort):
 
 
 # Global adapter instance (lazy initialized)
-_kernel_adapter: Optional[KernelPort] = None
+_kernel_adapter: Optional[KernelAdapterBase] = None
 _adapter_init_attempted: bool = False
 
 
-def make_kernel_adapter(prefer_verified: bool = True) -> KernelPort:
+def make_kernel_adapter(prefer_verified: bool = True) -> KernelAdapterBase:
     """Factory function to create the best available kernel adapter.
 
     This function is thread-safe and attempts to create a VerifiedKernelAdapter
@@ -402,7 +402,7 @@ def make_kernel_adapter(prefer_verified: bool = True) -> KernelPort:
 
     Returns
     -------
-    KernelPort
+    KernelAdapterBase
         The best available kernel adapter.
     """
     global _kernel_adapter, _adapter_init_attempted
@@ -439,12 +439,12 @@ def make_kernel_adapter(prefer_verified: bool = True) -> KernelPort:
         return _kernel_adapter
 
 
-def get_kernel_adapter() -> KernelPort:
+def get_kernel_adapter() -> KernelAdapterBase:
     """Get the current kernel adapter, initializing if necessary.
 
     Returns
     -------
-    KernelPort
+    KernelAdapterBase
         The current kernel adapter.
     """
     global _kernel_adapter
@@ -466,7 +466,7 @@ def reset_kernel_adapter() -> None:
 
 
 __all__ = [
-    "KernelPort",
+    "KernelAdapterBase",
     "KernelAdapterError",
     "VerifiedKernelAdapter",
     "PythonKernelAdapter",

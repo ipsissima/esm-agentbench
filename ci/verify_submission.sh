@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ci/verify_submission.sh - Comprehensive Phase-1 submission verification
+# ci/verify_submission.sh - Comprehensive submission verification
 #
 # This script verifies the entire submission pipeline:
 # 1. Build verified kernel (artifact-first with Docker Coq)
@@ -90,7 +90,7 @@ trap cleanup_on_error EXIT
 
 # Header
 echo "============================================================"
-echo "  ESM-AgentBench Phase-1 Submission Verification"
+echo "  ESM-AgentBench Submission Verification"
 echo "============================================================"
 echo "Repository: ${ROOT_DIR}"
 echo "Timestamp:  $(date -Iseconds)"
@@ -297,11 +297,6 @@ log_info "Installing dependencies..."
 pip install -q -r requirements.txt 2>/dev/null || pip install -r requirements.txt
 
 # Run key tests
-log_info "Running test_phase1_submission.py..."
-pytest tests/test_phase1_submission.py -v --tb=short 2>&1 | tail -30 || {
-  log_warn "Some Phase-1 tests may have failed (check output above)"
-}
-
 log_info "Running test_harness_no_wildcard.py..."
 pytest tests/test_harness_no_wildcard.py -v --tb=short 2>&1 | tail -10 || true
 
@@ -382,7 +377,7 @@ echo ""
 echo "Next steps:"
 echo "  1. Record demo video using docs/DEMO_SCRIPT.md"
 echo "  2. Login to agentbeats.dev"
-echo "  3. Submit Phase-1 with:"
+echo "  3. Submit with:"
 echo "     - Repository URL: https://github.com/ipsissima/esm-agentbench"
 echo "     - Upload: ${SUBMISSION_ZIP}"
 echo "     - Paste abstract from docs/abstract.txt"

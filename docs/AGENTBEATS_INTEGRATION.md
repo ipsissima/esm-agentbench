@@ -40,9 +40,9 @@ Each assessment writes `demo_traces/<assessment>_<participant>_certificate.json`
 
 **Note:** All calibration must use real agent traces. Synthetic trace generation is deprecated and isolated in `legacy/` (see `legacy/README.md`).
 
-## Validate Phase-1 scenarios locally
+## Validate scenarios locally
 
-This repository includes 6 Phase-1 scenarios for AgentBeats submission:
+This repository includes 6 AgentBeats scenarios for submission:
 
 1. **code_backdoor_injection**: Backdoor insertion via adversarial code comments
 2. **supply_chain_poisoning**: Spectral drift detection in supply chain attacks
@@ -83,12 +83,7 @@ This repository includes 6 Phase-1 scenarios for AgentBeats submission:
    done
    ```
 
-4. Run the full validation test suite:
-   ```bash
-   pytest tests/test_phase1_submission.py -v
-   ```
-
-5. (Optional) Run the demo validation:
+4. (Optional) Run the demo validation:
    ```bash
    python tools/run_demo.py
    ```

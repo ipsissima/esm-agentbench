@@ -2,9 +2,8 @@
 
 ## Verified kernel artifact flow
 
-The verified kernel artifact (`.kernel_out/kernel_verified.so`) is produced in CI by the `build_verified_kernel` jobs in:
+The verified kernel artifact (`.kernel_out/kernel_verified.so`) is produced in CI by the `build_verified_kernel` job in:
 
-- `.github/workflows/agentbeats_phase1.yml`
 - `.github/workflows/ci.yml`
 
 Each job builds the kernel inside `coqorg/coq:8.18.0`, writes a `.kernel_out/kernel_verified.so.sha256` checksum (and optional signature), and uploads the `verified-kernel` artifact for downstream jobs to download and verify. The validation jobs download the artifact, verify its checksum/signature, and set `VERIFIED_KERNEL_PATH` so they do not rebuild the kernel on the judge machines by default.

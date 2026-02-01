@@ -8,7 +8,7 @@ This directory contains scripts for spectral validation and experiment analysis.
 
 Generates synthetic traces for **development and testing purposes only**.
 
-**⚠️ IMPORTANT: Synthetic traces are NOT suitable for Phase-1 evidence validation.**
+**⚠️ IMPORTANT: Synthetic traces are NOT suitable for evidence validation.**
 
 #### Usage
 
@@ -19,7 +19,7 @@ python tools/dev/generate_synthetic_traces.py --n 30 --seed 42 --out-dir dev_art
 
 #### Safety Mechanisms
 
-All synthetic traces are automatically marked with `"data_source": "synthetic"` in the JSON output. This ensures they can be detected and rejected during Phase-1 evidence validation.
+All synthetic traces are automatically marked with `"data_source": "synthetic"` in the JSON output. This ensures they can be detected and rejected during evidence validation.
 
 ### `run_experiment.py`
 
@@ -53,15 +53,15 @@ By default, synthetic trace generation is **disabled** (`ALLOW_SYNTHETIC_TRACES:
 
 To enable for development testing, set `ALLOW_SYNTHETIC_TRACES: "1"` in the workflow environment.
 
-### Phase-1 Evidence Validation
+### Evidence Validation
 
-Phase-1 evidence runs must set `PHASE1_EVIDENCE: "1"` in the workflow. This activates enforcement checks that:
+Evidence runs should enforce that all traces and reports are marked as real-only:
 
 1. ✅ Verify all validation reports have `"data_source": "real_traces_only"`
 2. ✅ Verify all experiment traces have `"data_source": "real_traces_only"`
 3. ❌ **Fail the workflow** if any synthetic or unmarked data is detected
 
-This ensures synthetic traces can never accidentally be used as Phase-1 evidence.
+This ensures synthetic traces can never accidentally be used as evidence.
 
 ## For Real Agent Traces
 
@@ -71,4 +71,4 @@ To generate real agent traces, use:
 python tools/real_agents_hf/run_real_agents.py
 ```
 
-These traces will be marked with `"data_source": "real_traces_only"` and are suitable for Phase-1 validation.
+These traces will be marked with `"data_source": "real_traces_only"` and are suitable for evidence validation.
