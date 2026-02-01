@@ -19,16 +19,16 @@ class TestKernelAdapter:
     """Test suite for kernel adapter functionality."""
 
     def test_make_kernel_adapter_returns_port(self):
-        """Factory should return a KernelPort instance."""
+        """Factory should return a KernelAdapterBase instance."""
         from esmassessor.kernel_adapter import (
-            KernelPort,
+            KernelAdapterBase,
             make_kernel_adapter,
             reset_kernel_adapter,
         )
 
         reset_kernel_adapter()
         adapter = make_kernel_adapter(prefer_verified=False)
-        assert isinstance(adapter, KernelPort)
+        assert isinstance(adapter, KernelAdapterBase)
 
     def test_python_adapter_selftest(self):
         """Python fallback adapter should pass self-test."""
@@ -123,7 +123,7 @@ class TestKernelAdapter:
     def test_thread_safety(self):
         """Concurrent calls to make_kernel_adapter should be safe."""
         from esmassessor.kernel_adapter import (
-            KernelPort,
+            KernelAdapterBase,
             make_kernel_adapter,
             reset_kernel_adapter,
         )

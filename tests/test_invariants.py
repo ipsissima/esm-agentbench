@@ -204,21 +204,21 @@ class TestKernelContractInvariant:
 
     def test_kernel_adapter_interface(self):
         """Test that kernel adapter has required interface."""
-        from esmassessor.kernel_adapter import KernelPort
+        from esmassessor.kernel_adapter import KernelAdapterBase
 
         # Check abstract methods exist
-        assert hasattr(KernelPort, "compute_residual")
-        assert hasattr(KernelPort, "compute_bound")
-        assert hasattr(KernelPort, "compute_certificate")
-        assert hasattr(KernelPort, "is_verified")
+        assert hasattr(KernelAdapterBase, "compute_residual")
+        assert hasattr(KernelAdapterBase, "compute_bound")
+        assert hasattr(KernelAdapterBase, "compute_certificate")
+        assert hasattr(KernelAdapterBase, "is_verified")
 
     def test_python_adapter_implements_interface(self):
         """Test that PythonKernelAdapter implements full interface."""
-        from esmassessor.kernel_adapter import PythonKernelAdapter, KernelPort
+        from esmassessor.kernel_adapter import PythonKernelAdapter, KernelAdapterBase
 
         adapter = PythonKernelAdapter()
 
-        assert isinstance(adapter, KernelPort)
+        assert isinstance(adapter, KernelAdapterBase)
         assert not adapter.is_verified  # Python fallback is not verified
 
     def test_python_adapter_selftest(self):

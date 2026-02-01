@@ -383,8 +383,9 @@ class PythonKernelAdapter(KernelAdapterBase):
         return True
 
 
-# Backwards-compatible alias for adapter interface expectations.
-KernelPort = KernelAdapterBase
+# Note: The canonical KernelPort Protocol is defined in ports/kernel.py.
+# This module's KernelAdapterBase implements that protocol.
+# Do not use "KernelPort" as an alias to avoid name collision.
 
 
 # Global adapter instance (lazy initialized)
@@ -472,7 +473,6 @@ def reset_kernel_adapter() -> None:
 __all__ = [
     "KernelAdapterBase",
     "KernelAdapterError",
-    "KernelPort",
     "VerifiedKernelAdapter",
     "PythonKernelAdapter",
     "make_kernel_adapter",
