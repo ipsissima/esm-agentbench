@@ -10,7 +10,7 @@ from typing import Optional
 
 from ports.embedder import EmbedderPort
 from ports.inference import InferencePort
-from ports.kernel import KernelPort
+from ports.kernel import KernelClientPort
 from ports.signer import SignerPort
 from ports.storage import TraceStoragePort
 
@@ -91,8 +91,8 @@ class AdapterFactory:
     def create_kernel_adapter(
         *,
         adapter_type: str = "kernel-client",
-    ) -> KernelPort:
-        """Create a kernel adapter.
+    ) -> KernelClientPort:
+        """Create a kernel client adapter.
         
         Parameters
         ----------
@@ -101,8 +101,8 @@ class AdapterFactory:
             
         Returns
         -------
-        KernelPort
-            A kernel adapter instance.
+        KernelClientPort
+            A kernel client adapter instance.
             
         Raises
         ------
@@ -195,7 +195,7 @@ def create_inference_adapter(
     return AdapterFactory.create_inference_adapter(model_name, config_path=config_path)
 
 
-def create_kernel_adapter() -> KernelPort:
+def create_kernel_adapter() -> KernelClientPort:
     """Create a kernel adapter with default configuration."""
     return AdapterFactory.create_kernel_adapter()
 

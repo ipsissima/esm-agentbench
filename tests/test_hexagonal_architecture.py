@@ -66,10 +66,10 @@ class TestAdapterFactory:
     def test_create_kernel_adapter(self):
         """Factory should create kernel adapter."""
         from services.adapter_factory import AdapterFactory
-        from ports.kernel import KernelPort
+        from ports.kernel import KernelClientPort
 
         adapter = AdapterFactory.create_kernel_adapter()
-        assert isinstance(adapter, KernelPort)
+        assert isinstance(adapter, KernelClientPort)
 
     def test_create_kernel_adapter_invalid_type(self):
         """Factory should raise ValueError for unsupported adapter type."""

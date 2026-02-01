@@ -1,5 +1,5 @@
 # esmassessor/kernel_adapter.py
-"""Kernel Port Adapter for verified kernel operations.
+"""Kernel Compute Port Adapter for verified kernel operations.
 
 Provides a clean abstraction over the verified Coq/OCaml kernel and Python fallback.
 This centralizes kernel loading, fallback logic, and error handling into a single
@@ -7,15 +7,16 @@ interface that the rest of the codebase can use without worrying about kernel
 availability or repeated fallback warnings.
 
 Architecture:
-- KernelAdapterBase: Abstract interface for kernel operations (compute_residual,
-  compute_bound, compute_certificate). This is a different abstraction from
-  ports.KernelPort, which defines the interface for kernel execution (run_kernel).
+- KernelAdapterBase: Abstract interface implementing ports.kernel_compute.KernelComputePort
+  for kernel computation operations (compute_residual, compute_bound, compute_certificate).
+  This is a different abstraction from ports.kernel.KernelClientPort, which defines the
+  interface for kernel process execution (run_kernel).
 - VerifiedKernelAdapter: Uses the formally verified Coq/OCaml kernel
 - PythonKernelAdapter: Pure Python fallback (not verified)
 - make_kernel_adapter(): Factory that returns the best available adapter
 
-Note: This module defines computation operations, not kernel execution.
-For kernel execution interfaces, see ports.kernel.KernelPort and adapters.kernel_client.
+Note: This module defines computation operations, not kernel process execution.
+For kernel execution interfaces, see ports.kernel.KernelClientPort and adapters.kernel_client.
 """
 from __future__ import annotations
 
@@ -26,6 +27,8 @@ from abc import ABC, abstractmethod
 from typing import Optional, Tuple
 
 import numpy as np
+
+from ports.kernel_compute import KernelComputePort
 
 logger = logging.getLogger(__name__)
 
@@ -38,16 +41,19 @@ class KernelAdapterError(RuntimeError):
     pass
 
 
-class KernelAdapterBase(ABC):
+class KernelAdapterBase(KernelComputePort, ABC):
     """Abstract interface for kernel computation operations.
 
-    This defines the contract for computing spectral certificate metrics
+    This implements the ports.kernel_compute.KernelComputePort protocol,
+    defining the contract for computing spectral certificate metrics
     (residual, bound, certificate). Implementations may use the verified
     Coq/OCaml kernel or pure Python fallback.
 
-    Note: This is distinct from ports.kernel.KernelPort, which defines the
-    interface for kernel execution (run_kernel methods). KernelAdapterBase
-    focuses on computation operations within the certificate generation pipeline.
+    Note: This is the computation-level adapter. The process-level client
+    port is ports.kernel.KernelClientPort (run_kernel/run_kernel_and_verify).
+    KernelAdapterBase focuses on computation operations within the certificate
+    generation pipeline.
+    """
     """
 
     @abstractmethod
