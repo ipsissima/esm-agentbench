@@ -46,11 +46,6 @@ ESM-AgentBench follows **Hexagonal Architecture** (Ports and Adapters) for clean
 
 See [Hexagonal Architecture Guide](docs/HEXAGONAL_ARCHITECTURE.md) for detailed documentation and examples.
 
-Run the test suite:
-```bash
-pytest -q
-```
-
 ### Archived automation
 Demo automation and Cloud Run deployment workflows have been archived under
 `archive/2026-02-01-cleanup/` to keep CI focused on verification and evaluation
