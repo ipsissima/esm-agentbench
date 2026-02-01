@@ -5,26 +5,40 @@ This script runs as a subprocess and hosts the verified kernel behind
 a Unix socket RPC interface. If the kernel crashes, only this process
 dies - the parent process remains alive and can detect the failure.
 
+Security Features:
+    - Socket file permissions (0600 by default)
+    - Optional HMAC-based authentication for requests
+    - Request rate limiting to prevent DoS
+    - Maximum request size enforcement
+
 Usage:
     python kernel_server.py
 
 Environment:
-    ESM_KERNEL_SOCKET     Unix socket path (default: /tmp/esm_kernel.sock)
-    VERIFIED_KERNEL_PATH  Path to kernel shared library
+    ESM_KERNEL_SOCKET         Unix socket path (default: /tmp/esm_kernel.sock)
+    ESM_KERNEL_SOCKET_PERMS   Socket permissions octal (default: 0600)
+    ESM_KERNEL_AUTH_TOKEN     Optional HMAC authentication token
+    ESM_KERNEL_MAX_REQUESTS   Max requests per client per second (default: 100)
+    VERIFIED_KERNEL_PATH      Path to kernel shared library
 """
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import io
 import json
 import logging
 import os
 import signal
 import socket
+import stat
 import struct
 import sys
 import threading
+import time
 import traceback
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -40,6 +54,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DEFAULT_SOCKET_PATH = "/tmp/esm_kernel.sock"
+DEFAULT_SOCKET_PERMS = 0o600  # Owner read/write only
+DEFAULT_MAX_REQUESTS_PER_SEC = 100
 
 
 def _decode_array(data: str) -> np.ndarray:
@@ -56,14 +72,27 @@ def _encode_array(arr: np.ndarray) -> str:
 
 
 class KernelServer:
-    """RPC server for verified kernel operations."""
+    """RPC server for verified kernel operations with authentication and rate limiting."""
 
-    def __init__(self, socket_path: str):
+    def __init__(
+        self,
+        socket_path: str,
+        socket_perms: int = DEFAULT_SOCKET_PERMS,
+        auth_token: Optional[str] = None,
+        max_requests_per_sec: int = DEFAULT_MAX_REQUESTS_PER_SEC,
+    ):
         self.socket_path = socket_path
+        self.socket_perms = socket_perms
+        self.auth_token = auth_token
+        self.max_requests_per_sec = max_requests_per_sec
         self._running = False
         self._kernel = None
         self._vk = None  # verified_kernel module
         self._server_socket = None
+        
+        # Rate limiting: track requests per client
+        self._client_requests: Dict[Any, list] = defaultdict(list)
+        self._rate_limit_lock = threading.Lock()
 
     def _load_kernel(self) -> bool:
         """Load the verified kernel library."""
@@ -81,7 +110,66 @@ class KernelServer:
             logger.error(f"Failed to load kernel: {exc}")
             return False
 
-    def _handle_request(self, data: bytes) -> bytes:
+    def _check_rate_limit(self, client_addr: Any) -> bool:
+        """Check if client has exceeded rate limit.
+        
+        Returns:
+            True if client is within rate limit, False if exceeded.
+        """
+        with self._rate_limit_lock:
+            now = time.time()
+            # Clean old requests (older than 1 second)
+            self._client_requests[client_addr] = [
+                t for t in self._client_requests[client_addr]
+                if now - t < 1.0
+            ]
+            
+            # Check rate
+            if len(self._client_requests[client_addr]) >= self.max_requests_per_sec:
+                return False
+            
+            # Record this request
+            self._client_requests[client_addr].append(now)
+            return True
+
+    def _verify_auth(self, request: dict) -> bool:
+        """Verify HMAC authentication if enabled.
+        
+        Returns:
+            True if auth passes or is disabled, False if auth fails.
+        """
+        if self.auth_token is None:
+            # No authentication required
+            return True
+        
+        # Extract HMAC from request
+        provided_hmac = request.get("hmac")
+        if not provided_hmac:
+            logger.warning("Request missing HMAC authentication")
+            return False
+        
+        # Compute expected HMAC
+        # HMAC is over method + params (excluding the hmac field itself)
+        auth_data = {
+            "method": request.get("method", ""),
+            "params": request.get("params", {}),
+            "id": request.get("id", 0),
+        }
+        message = json.dumps(auth_data, sort_keys=True).encode("utf-8")
+        expected_hmac = hmac.new(
+            self.auth_token.encode("utf-8"),
+            message,
+            hashlib.sha256
+        ).hexdigest()
+        
+        # Constant-time comparison
+        if not hmac.compare_digest(provided_hmac, expected_hmac):
+            logger.warning("HMAC authentication failed")
+            return False
+        
+        return True
+
+    def _handle_request(self, data: bytes, client_addr: Any) -> bytes:
         """Handle a single RPC request and return response."""
         try:
             request = json.loads(data.decode("utf-8"))
@@ -90,6 +178,15 @@ class KernelServer:
             request_id = request.get("id", 0)
 
             logger.debug(f"Handling request: {method}")
+
+            # Verify authentication if enabled
+            if not self._verify_auth(request):
+                response = {
+                    "error": "Authentication failed",
+                    "result": None,
+                    "id": request_id,
+                }
+                return json.dumps(response).encode("utf-8")
 
             # Dispatch to method handler
             if method == "ping":
@@ -200,6 +297,17 @@ class KernelServer:
         """Handle a single client connection."""
         try:
             while self._running:
+                # Check rate limit
+                if not self._check_rate_limit(addr):
+                    logger.warning(f"Rate limit exceeded for client {addr}")
+                    error_response = json.dumps({
+                        "error": "Rate limit exceeded",
+                        "result": None,
+                        "id": 0,
+                    }).encode("utf-8")
+                    conn.sendall(struct.pack(">I", len(error_response)) + error_response)
+                    break
+
                 # Read request length (4-byte big-endian)
                 length_data = conn.recv(4)
                 if len(length_data) < 4:
@@ -222,7 +330,7 @@ class KernelServer:
                     break
 
                 # Handle request
-                response = self._handle_request(data)
+                response = self._handle_request(data, addr)
 
                 # Send response (length-prefixed)
                 conn.sendall(struct.pack(">I", len(response)) + response)
@@ -250,11 +358,24 @@ class KernelServer:
         self._server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._server_socket.bind(self.socket_path)
+        
+        # Set socket permissions for security
+        try:
+            os.chmod(self.socket_path, self.socket_perms)
+            logger.info(f"Socket permissions set to {oct(self.socket_perms)}")
+        except OSError as e:
+            logger.warning(f"Failed to set socket permissions: {e}")
+        
         self._server_socket.listen(5)
         self._server_socket.settimeout(1.0)  # Allow periodic shutdown check
 
         self._running = True
-        logger.info(f"Kernel server listening on {self.socket_path}")
+        
+        auth_status = "enabled" if self.auth_token else "disabled"
+        logger.info(
+            f"Kernel server listening on {self.socket_path} "
+            f"(auth: {auth_status}, rate_limit: {self.max_requests_per_sec}/s)"
+        )
 
         # Signal readiness
         print("KERNEL_SERVER_READY", flush=True)
@@ -287,6 +408,27 @@ class KernelServer:
 def main():
     """Main entry point."""
     socket_path = os.environ.get("ESM_KERNEL_SOCKET", DEFAULT_SOCKET_PATH)
+    
+    # Parse socket permissions from environment (octal string like "0600")
+    socket_perms_str = os.environ.get("ESM_KERNEL_SOCKET_PERMS", "0600")
+    try:
+        socket_perms = int(socket_perms_str, 8)  # Parse as octal
+    except ValueError:
+        logger.warning(f"Invalid socket permissions '{socket_perms_str}', using default 0600")
+        socket_perms = DEFAULT_SOCKET_PERMS
+    
+    # Optional authentication token
+    auth_token = os.environ.get("ESM_KERNEL_AUTH_TOKEN")
+    if auth_token:
+        logger.info("HMAC authentication enabled")
+    
+    # Rate limiting
+    max_requests_str = os.environ.get("ESM_KERNEL_MAX_REQUESTS", str(DEFAULT_MAX_REQUESTS_PER_SEC))
+    try:
+        max_requests_per_sec = int(max_requests_str)
+    except ValueError:
+        logger.warning(f"Invalid max requests '{max_requests_str}', using default {DEFAULT_MAX_REQUESTS_PER_SEC}")
+        max_requests_per_sec = DEFAULT_MAX_REQUESTS_PER_SEC
 
     # Handle signals
     def signal_handler(signum, frame):
@@ -296,7 +438,12 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
-    server = KernelServer(socket_path)
+    server = KernelServer(
+        socket_path=socket_path,
+        socket_perms=socket_perms,
+        auth_token=auth_token,
+        max_requests_per_sec=max_requests_per_sec,
+    )
     server.run()
 
 

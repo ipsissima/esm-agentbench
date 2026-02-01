@@ -51,7 +51,12 @@ from .witness_checker import check_witness, WitnessValidationError
 logger = logging.getLogger(__name__)
 
 
-def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
+def _compute_oos_residual(
+    Z: np.ndarray,
+    regularization: float = 1e-6,
+    oos_k: Optional[int] = None,
+    residual_floor: Optional[float] = None
+) -> Tuple[float, bool]:
     """Compute out-of-sample residual using time-series cross-validation.
 
     This prevents the residual from being zero due to in-sample overfitting.
@@ -63,37 +68,68 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
     The OOS residual is a meaningful measure of dynamical predictability that
     cannot be gamed by increasing model capacity.
 
+    Conservative Floor Policy:
+    - For T < 4: Returns conservative floor (default 0.1) to avoid optimistic
+      zero-residual certificates on degenerate traces.
+    - For denom < eps: Returns conservative floor to avoid division by near-zero.
+    - Rationale: Better to be conservative (higher residual) than optimistic
+      on traces too short for meaningful cross-validation.
+
     Parameters
     ----------
     Z : np.ndarray
         Projected embeddings of shape (T, r_eff).
     regularization : float
         Ridge regularization parameter for numerical stability.
+    oos_k : Optional[int]
+        Number of out-of-sample validation steps. If None, uses configured value
+        (default: 3) or adapts to trace length (min(oos_k, max(1, n // 4))).
+    residual_floor : Optional[float]
+        Conservative residual floor for degenerate cases. If None, uses configured
+        value (default: 0.1).
 
     Returns
     -------
-    float
-        Out-of-sample residual in [0, inf). Values near 0 indicate predictable
-        dynamics; high values indicate chaotic/unpredictable dynamics.
+    Tuple[float, bool]
+        A tuple of (residual, oos_valid) where:
+        - residual: Out-of-sample residual in [0, inf). Values near 0 indicate
+          predictable dynamics; high values indicate chaotic/unpredictable dynamics.
+        - oos_valid: True if OOS estimation was statistically valid (T >= 4 and
+          denom >= eps), False otherwise indicating conservative fallback was used.
     """
+    # Load configuration if not provided
+    if oos_k is None or residual_floor is None:
+        try:
+            from esmassessor.config import get_certificate_config
+            config = get_certificate_config()
+            if oos_k is None:
+                oos_k = config.oos_validation_k
+            if residual_floor is None:
+                residual_floor = config.oos_residual_floor
+        except ImportError:
+            # Fallback to defaults if config module not available
+            if oos_k is None:
+                oos_k = 3
+            if residual_floor is None:
+                residual_floor = 0.1
     Z = np.asarray(Z, dtype=float)
     T, d = Z.shape
     eps = 1e-12
 
     if T < 4:
         # Too short for meaningful OOS estimation
-        logger.info(
-            f"_compute_oos_residual: Trace too short (T={T}), returning fallback residual=0.0. "
-            f"Minimum T=4 required for out-of-sample validation."
+        logger.warning(
+            f"_compute_oos_residual: Trace too short (T={T}), returning conservative floor={residual_floor}. "
+            f"Minimum T=4 required for out-of-sample validation. oos_valid=False."
         )
-        return 0.0
+        return residual_floor, False
 
     X0 = Z[:-1].T  # Shape: (d, T-1)
     X1 = Z[1:].T   # Shape: (d, T-1)
     n = X0.shape[1]
 
     # Hold out last K steps (or up to 1/4 of the data)
-    K = min(3, max(1, n // 4))
+    K = min(oos_k, max(1, n // 4))
 
     squared_errors = 0.0
     denom = 0.0
@@ -131,9 +167,9 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
                 logger.warning(
                     f"_compute_oos_residual: lstsq() also failed, returning fallback residual=1.0. "
                     f"X0_train shape={X0_train.shape}, X1_train shape={X1_train.shape}, "
-                    f"error={e2}"
+                    f"error={e2}. oos_valid=False."
                 )
-                return 1.0
+                return 1.0, False
 
         # Predict the holdout step
         x0_test = X0[:, h]
@@ -145,9 +181,13 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
         denom += np.sum(x1_true ** 2)
 
     if denom < eps:
-        return 0.0
+        logger.warning(
+            f"_compute_oos_residual: denom={denom:.2e} < eps={eps:.2e}, "
+            f"returning conservative floor={residual_floor}. oos_valid=False."
+        )
+        return residual_floor, False
 
-    return float(np.sqrt(squared_errors / (denom + eps)))
+    return float(np.sqrt(squared_errors / (denom + eps))), True
 
 
 def _fit_temporal_operator_ridge(
@@ -458,12 +498,14 @@ def _select_effective_rank(
     T: int,
     r: int,
     d: int,
-    explained_variance_threshold: float = 0.95
-) -> int:
+    explained_variance_threshold: float = 0.95,
+    max_condition_number: Optional[float] = None
+) -> Tuple[int, Dict[str, Any]]:
     """Select effective rank using variance-aware selection with strict upper bound.
 
     Chooses the smallest k such that cumulative explained variance >= threshold,
     then clamps to ensure r_eff <= T-3 to prevent exact reconstruction.
+    Additionally enforces a condition number bound to avoid ill-conditioned subspaces.
 
     Parameters
     ----------
@@ -477,19 +519,49 @@ def _select_effective_rank(
         Data dimension.
     explained_variance_threshold : float
         Minimum fraction of variance to retain (default 0.95).
+    max_condition_number : Optional[float]
+        Maximum allowed condition number (ratio of largest to smallest singular value).
+        If provided, clamps r_eff to ensure κ(subspace) <= max_condition_number.
+        Default: None (no condition number constraint).
 
     Returns
     -------
-    int
-        Effective rank satisfying all constraints.
+    Tuple[int, Dict[str, Any]]
+        Effective rank and diagnostics dictionary containing:
+        - explained_variance: Fraction of variance explained by r_eff
+        - condition_number: Condition number of selected subspace
+        - k_variance: Rank selected by variance threshold
+        - k_condition: Rank selected by condition number (if constrained)
+        - selection_reason: String describing selection logic
     """
+    # Load default max_condition_number from config if not provided
+    if max_condition_number is None:
+        try:
+            from esmassessor.config import get_certificate_config
+            config = get_certificate_config()
+            max_condition_number = config.witness_condition_number_threshold
+        except ImportError:
+            max_condition_number = 1e8  # Default fallback
+
     if len(S) == 0:
-        return 1
+        return 1, {
+            "explained_variance": 0.0,
+            "condition_number": float("inf"),
+            "k_variance": 1,
+            "k_condition": 1,
+            "selection_reason": "Empty singular values",
+        }
 
     # Compute cumulative explained variance
     total_energy = np.sum(S ** 2)
     if total_energy < 1e-12:
-        return 1
+        return 1, {
+            "explained_variance": 0.0,
+            "condition_number": float("inf"),
+            "k_variance": 1,
+            "k_condition": 1,
+            "selection_reason": "Near-zero total energy",
+        }
 
     cumulative_energy = np.cumsum(S ** 2)
     cumulative_ratio = cumulative_energy / total_energy
@@ -503,15 +575,54 @@ def _select_effective_rank(
     else:
         k_variance = len(S)
 
+    # Find largest k satisfying condition number constraint
+    k_condition = len(S)
+    if max_condition_number is not None and max_condition_number > 0:
+        for k in range(1, len(S) + 1):
+            if S[k - 1] < 1e-12:  # Avoid division by near-zero
+                k_condition = k - 1
+                break
+            cond = S[0] / S[k - 1]
+            if cond > max_condition_number:
+                k_condition = k - 1
+                break
+        k_condition = max(1, k_condition)
+
     # Apply strict upper bound: r_eff <= T-3 to ensure meaningful OOS residual
     # Also clamp to requested rank and data dimension
     upper_bound = max(1, T - 3) if T > 3 else max(1, T - 1)
-    r_eff = min(k_variance, r, d, upper_bound)
+    
+    # Take the minimum to satisfy all constraints
+    r_eff = min(k_variance, k_condition, r, d, upper_bound)
 
     # Ensure at least 1
     r_eff = max(1, r_eff)
 
-    return r_eff
+    # Compute diagnostics
+    explained_var = cumulative_ratio[r_eff - 1] if r_eff <= len(cumulative_ratio) else 1.0
+    cond_number = S[0] / S[r_eff - 1] if r_eff > 0 and S[r_eff - 1] > 1e-12 else float("inf")
+    
+    # Determine selection reason
+    if r_eff == k_variance and r_eff == k_condition:
+        reason = f"variance_threshold={explained_variance_threshold:.2f}"
+    elif r_eff == k_condition and k_condition < k_variance:
+        reason = f"condition_number_limit={max_condition_number:.2e} (clamped from k_variance={k_variance})"
+    elif r_eff == upper_bound and upper_bound < min(k_variance, k_condition):
+        reason = f"upper_bound=T-3={upper_bound} (clamped from k_variance={k_variance}, k_condition={k_condition})"
+    elif r_eff == r and r < min(k_variance, k_condition, upper_bound):
+        reason = f"requested_rank={r} (clamped from k_variance={k_variance})"
+    else:
+        reason = f"multiple_constraints (k_var={k_variance}, k_cond={k_condition}, bound={upper_bound})"
+
+    diagnostics = {
+        "explained_variance": float(explained_var),
+        "condition_number": float(cond_number),
+        "k_variance": int(k_variance),
+        "k_condition": int(k_condition),
+        "selection_reason": reason,
+    }
+
+    return r_eff, diagnostics
 
 
 def _canonicalize_svd_signs(U: np.ndarray, S: np.ndarray, Vt: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -1005,7 +1116,15 @@ def _compute_certificate_core(
 
     # Use variance-aware rank selection with strict upper bound r_eff <= T-3
     # This prevents exact reconstruction (residual = 0) pathology
-    r_eff = _select_effective_rank(S, T, r, X_aug.shape[1])
+    r_eff, r_eff_diagnostics = _select_effective_rank(S, T, r, X_aug.shape[1])
+    
+    # Log rank selection decision
+    logger.info(
+        f"Rank selection: r_eff={r_eff}/{len(S)}, "
+        f"explained_var={r_eff_diagnostics['explained_variance']:.3f}, "
+        f"condition_number={r_eff_diagnostics['condition_number']:.2e}, "
+        f"reason={r_eff_diagnostics['selection_reason']}"
+    )
     S_trunc = S[:r_eff]
     U_trunc = U[:, :r_eff]
     Vt_trunc = Vt[:r_eff, :]
@@ -1089,7 +1208,7 @@ def _compute_certificate_core(
 
     # Compute OUT-OF-SAMPLE residual to prevent zero-residual pathology
     # This is the key fix: in-sample fit can be exact, but OOS residual cannot
-    oos_residual = _compute_oos_residual(Z, regularization=1e-6)
+    oos_residual, oos_valid = _compute_oos_residual(Z, regularization=1e-6)
 
     # === TEMPORAL OPERATOR ANALYSIS ===
     # Singular values of A characterize the operator's conditioning for prediction
@@ -1185,11 +1304,13 @@ def _compute_certificate_core(
         "residual": residual,
         "insample_residual": insample_residual,  # Diagnostic: in-sample residual
         "oos_residual": oos_residual,  # Diagnostic: out-of-sample residual
+        "oos_valid": oos_valid,  # Diagnostic: whether OOS estimation was statistically valid
         "tail_energy": tail_energy,
         "semantic_divergence": semantic_divergence,
         "lipschitz_margin": lipschitz_margin,
         "theoretical_bound": theoretical_bound,
         "r_eff": r_eff,  # Diagnostic: effective rank used
+        "r_eff_diagnostics": r_eff_diagnostics,  # Detailed rank selection info
         "Z": Z,
         # Include constants for transparency
         "C_res": c_res,
@@ -1448,7 +1569,15 @@ def _compute_local_coherence(
     )
 
     # Use variance-aware rank selection with strict upper bound r_eff <= T_w-3
-    r_eff = _select_effective_rank(S, T_w, r, X_aug.shape[1])
+    r_eff, r_eff_diagnostics = _select_effective_rank(S, T_w, r, X_aug.shape[1])
+    
+    # Log rank selection decision for local window
+    logger.debug(
+        f"Local rank selection (window {window_start}-{window_end}): "
+        f"r_eff={r_eff}/{len(S)}, "
+        f"explained_var={r_eff_diagnostics['explained_variance']:.3f}, "
+        f"reason={r_eff_diagnostics['selection_reason']}"
+    )
     S_trunc = S[:r_eff]
     Vt_trunc = Vt[:r_eff, :]
 
@@ -1478,7 +1607,7 @@ def _compute_local_coherence(
     A = _fit_temporal_operator_ridge(X0, X1, regularization=1e-6)
 
     # Compute OOS residual to prevent zero-residual pathology
-    oos_residual = _compute_oos_residual(Z, regularization=1e-6)
+    oos_residual, oos_valid = _compute_oos_residual(Z, regularization=1e-6)
     insample_residual = float(norm(X1 - A @ X0, "fro") / (norm(X1, "fro") + eps))
 
     # Use OOS residual as primary residual (with floor to prevent collapse)
