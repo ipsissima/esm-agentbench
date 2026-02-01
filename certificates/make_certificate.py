@@ -104,11 +104,13 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
         X1_train = X1[:, :h]
 
         # Ridge regression: A = X1_train @ X0_train.T @ inv(X0_train @ X0_train.T + lambda*I)
+        # Equivalently: A.T = solve(gram_reg, X0_train @ X1_train.T)
         gram = X0_train @ X0_train.T
         gram_reg = gram + regularization * np.eye(gram.shape[0])
 
         try:
-            A = (X1_train @ X0_train.T) @ np.linalg.inv(gram_reg)
+            # Use solve instead of inv for better numerical stability and performance
+            A = np.linalg.solve(gram_reg, X0_train @ X1_train.T).T
         except np.linalg.LinAlgError:
             # Fallback to lstsq
             try:
@@ -166,7 +168,9 @@ def _fit_temporal_operator_ridge(
     gram_reg = gram + regularization * np.eye(d)
 
     try:
-        A = (X1 @ X0.T) @ np.linalg.inv(gram_reg)
+        # Use solve instead of inv for better numerical stability and performance
+        # A = (X1 @ X0.T) @ inv(gram_reg) is equivalent to A.T = solve(gram_reg, X0 @ X1.T)
+        A = np.linalg.solve(gram_reg, X0 @ X1.T).T
     except np.linalg.LinAlgError:
         # Fallback to lstsq (more robust for ill-conditioned systems)
         try:
@@ -482,6 +486,46 @@ def _select_effective_rank(
     return r_eff
 
 
+def _canonicalize_svd_signs(U: np.ndarray, S: np.ndarray, Vt: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Canonicalize SVD signs for reproducibility.
+
+    SVD decomposition is sign-ambiguous: if (U, S, Vt) is a valid decomposition,
+    so is (-U, S, -Vt). This function enforces a deterministic sign convention:
+    the largest absolute entry in each column of U (equivalently, each row of Vt)
+    is forced to be positive.
+
+    This ensures that exported witness matrices have stable SHA256 hashes across
+    multiple runs, avoiding non-semantic diffs in signed witness files.
+
+    Parameters
+    ----------
+    U : np.ndarray
+        Left singular vectors, shape (m, k).
+    S : np.ndarray
+        Singular values, shape (k,).
+    Vt : np.ndarray
+        Right singular vectors (transposed), shape (k, n).
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray, np.ndarray]
+        Canonicalized (U, S, Vt) with deterministic signs.
+    """
+    U = U.copy()
+    Vt = Vt.copy()
+    
+    # For each singular vector pair
+    for i in range(U.shape[1]):
+        # Find the index of the largest absolute entry in the i-th column of U
+        max_idx = np.argmax(np.abs(U[:, i]))
+        # If the largest entry is negative, flip signs of both U[:, i] and Vt[i, :]
+        if U[max_idx, i] < 0:
+            U[:, i] *= -1
+            Vt[i, :] *= -1
+    
+    return U, S, Vt
+
+
 def _compute_svd(
     X: np.ndarray,
     r: int,
@@ -490,24 +534,53 @@ def _compute_svd(
     randomized_svd_n_iter: int = 4,
     randomized_svd_oversamples: int = 10,
     randomized_svd_random_state: Optional[int] = 0,
+    canonicalize_signs: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Compute SVD with optional randomized solver."""
+    """Compute SVD with optional randomized solver and sign canonicalization.
+    
+    Parameters
+    ----------
+    X : np.ndarray
+        Input matrix.
+    r : int
+        Target rank (used for randomized SVD).
+    use_randomized_svd : bool
+        If True, use randomized SVD for efficiency.
+    randomized_svd_n_iter : int
+        Number of power iterations for randomized SVD.
+    randomized_svd_oversamples : int
+        Number of additional samples for randomized SVD.
+    randomized_svd_random_state : Optional[int]
+        Random seed for reproducible randomized SVD.
+    canonicalize_signs : bool
+        If True, enforce deterministic sign convention for singular vectors
+        (largest absolute entry in each U column is positive).
+    
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray, np.ndarray]
+        (U, S, Vt) with canonicalized signs if requested.
+    """
     if not use_randomized_svd:
-        return np.linalg.svd(X, full_matrices=False)
+        U, S, Vt = np.linalg.svd(X, full_matrices=False)
+    else:
+        try:
+            from sklearn.utils.extmath import randomized_svd
+        except ImportError as exc:  # pragma: no cover - dependency is in requirements
+            raise ImportError("scikit-learn is required for randomized_svd") from exc
 
-    try:
-        from sklearn.utils.extmath import randomized_svd
-    except ImportError as exc:  # pragma: no cover - dependency is in requirements
-        raise ImportError("scikit-learn is required for randomized_svd") from exc
-
-    max_rank = min(X.shape)
-    n_components = min(max(r + randomized_svd_oversamples, 1), max_rank)
-    U, S, Vt = randomized_svd(
-        X,
-        n_components=n_components,
-        n_iter=randomized_svd_n_iter,
-        random_state=randomized_svd_random_state,
-    )
+        max_rank = min(X.shape)
+        n_components = min(max(r + randomized_svd_oversamples, 1), max_rank)
+        U, S, Vt = randomized_svd(
+            X,
+            n_components=n_components,
+            n_iter=randomized_svd_n_iter,
+            random_state=randomized_svd_random_state,
+        )
+    
+    if canonicalize_signs:
+        U, S, Vt = _canonicalize_svd_signs(U, S, Vt)
+    
     return U, S, Vt
 
 # Environment variable to allow non-strict kernel mode (for CI without Coq/OCaml)

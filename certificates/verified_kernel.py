@@ -14,13 +14,79 @@ All calls to the kernel are strict: failures cause hard errors, not fallbacks.
 - ESM_SKIP_VERIFIED_KERNEL: Set to "1" to use Python fallback in make_certificate
 - VERIFIED_KERNEL_PATH: Override path to kernel_verified.so
 
+**Threading and Process Constraints:**
+
+The verified kernel initializes the OCaml runtime, which has important constraints:
+
+1. **Main Thread Requirement**: The OCaml runtime MUST be initialized in the 
+   main thread of the process. Attempting to initialize in a worker thread may
+   cause segfaults or undefined behavior.
+
+2. **Single Initialization**: The OCaml runtime can only be initialized once per
+   process lifetime. Calling `load_kernel()` multiple times is safe (it caches
+   the handle), but the underlying `kernel_init()` is only called once.
+
+3. **No Fork After Load**: After loading the kernel, do NOT fork the process.
+   The OCaml runtime is not fork-safe. If you need multiprocessing:
+   - Fork BEFORE loading the kernel
+   - Load the kernel independently in each child process
+   - Or use a kernel service architecture (see kernel_server.py)
+
+4. **Subprocess Safety**: To load the kernel in a subprocess, use the standard
+   multiprocessing module and load the kernel in the child process's main function.
+   Example:
+   
+   ```python
+   import multiprocessing
+   from certificates.verified_kernel import load_kernel
+   
+   def worker():
+       kernel = load_kernel(strict=False)
+       # Use kernel...
+   
+   if __name__ == "__main__":
+       p = multiprocessing.Process(target=worker)
+       p.start()
+       p.join()
+   ```
+
+5. **Long-Running Processes**: For long-running processes that need to reload
+   the kernel (e.g., servers), use one of these approaches:
+   - **Recommended**: Use the kernel service (kernel_server.py) which manages
+     the kernel lifecycle in a dedicated subprocess
+   - **Alternative**: Restart the entire process to reload the kernel
+   - **Not Supported**: Unloading and reloading the kernel in the same process
+     is not supported due to OCaml runtime limitations
+
+6. **Thread Safety**: Once loaded, the kernel functions are thread-safe for
+   concurrent calls from multiple threads (the OCaml runtime handles locking).
+   However, the initial loading must occur in the main thread.
+
 **Segfault Prevention:**
+
 The kernel can segfault if:
 1. The shared object is missing callback registrations (caml_named_value returns NULL)
 2. The OCaml runtime is not initialized
 3. Symbol ABI mismatch between ctypes declarations and actual exports
+4. The kernel is loaded from a non-main thread
+5. The process is forked after loading the kernel
 
 This module validates the kernel before calling it to prevent segfaults.
+
+**Safe Reload API:**
+
+For applications that need to reload the kernel:
+
+```python
+from certificates.verified_kernel import reset_kernel_state, load_kernel
+
+# In a new process (after fork or in a fresh subprocess):
+reset_kernel_state()  # Clear cached state
+kernel = load_kernel(strict=False)  # Load fresh
+```
+
+Note: `reset_kernel_state()` only clears Python-side state. It does NOT unload
+the OCaml runtime. Use this only when starting fresh in a new process.
 """
 
 from __future__ import annotations
@@ -874,11 +940,49 @@ def get_kernel_diagnostics() -> dict:
 
 
 def reset_kernel_state() -> None:
-    """Reset global kernel state (for testing).
+    """Reset global kernel state for fresh loading in a new process.
 
-    This clears the global kernel library handle and related state,
-    allowing load_kernel to be called fresh. Useful for testing
-    different kernel configurations.
+    **Important**: This function only clears Python-side cached state. It does
+    NOT unload the OCaml runtime, which cannot be unloaded once initialized.
+
+    **Safe Usage Patterns:**
+
+    1. **New subprocess**: After spawning a subprocess, call this before loading:
+       ```python
+       # In child process
+       reset_kernel_state()
+       kernel = load_kernel(strict=False)
+       ```
+
+    2. **Testing different configurations**: Reset between test cases that need
+       different kernel paths or environment variables:
+       ```python
+       @pytest.fixture(autouse=True)
+       def reset_kernel():
+           reset_kernel_state()
+           yield
+           reset_kernel_state()
+       ```
+
+    **Unsafe Usage:**
+
+    - Do NOT call this in the same process after successfully loading the kernel
+      and expect to reload it. The OCaml runtime remains initialized.
+    - Do NOT call this after forking if the parent loaded the kernel.
+
+    **What This Does:**
+    - Clears `_kernel_lib` handle (allows fresh dlopen)
+    - Resets `_kernel_load_attempted` flag (allows retry)
+    - Clears warning suppression flags (logs will show again)
+    - Resets validation state
+
+    **What This Does NOT Do:**
+    - Unload the shared library from memory
+    - Deinitialize the OCaml runtime
+    - Close file descriptors or release resources
+
+    For long-running processes that need to reload the kernel, use the kernel
+    service architecture (kernel_server.py) instead.
     """
     global _kernel_lib, _kernel_load_attempted, _kernel_load_warning_logged
     global _fallback_warning_logged, _kernel_validated
