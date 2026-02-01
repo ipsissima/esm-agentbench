@@ -498,12 +498,14 @@ def _select_effective_rank(
     T: int,
     r: int,
     d: int,
-    explained_variance_threshold: float = 0.95
-) -> int:
+    explained_variance_threshold: float = 0.95,
+    max_condition_number: Optional[float] = None
+) -> Tuple[int, Dict[str, Any]]:
     """Select effective rank using variance-aware selection with strict upper bound.
 
     Chooses the smallest k such that cumulative explained variance >= threshold,
     then clamps to ensure r_eff <= T-3 to prevent exact reconstruction.
+    Additionally enforces a condition number bound to avoid ill-conditioned subspaces.
 
     Parameters
     ----------
@@ -517,19 +519,49 @@ def _select_effective_rank(
         Data dimension.
     explained_variance_threshold : float
         Minimum fraction of variance to retain (default 0.95).
+    max_condition_number : Optional[float]
+        Maximum allowed condition number (ratio of largest to smallest singular value).
+        If provided, clamps r_eff to ensure κ(subspace) <= max_condition_number.
+        Default: None (no condition number constraint).
 
     Returns
     -------
-    int
-        Effective rank satisfying all constraints.
+    Tuple[int, Dict[str, Any]]
+        Effective rank and diagnostics dictionary containing:
+        - explained_variance: Fraction of variance explained by r_eff
+        - condition_number: Condition number of selected subspace
+        - k_variance: Rank selected by variance threshold
+        - k_condition: Rank selected by condition number (if constrained)
+        - selection_reason: String describing selection logic
     """
+    # Load default max_condition_number from config if not provided
+    if max_condition_number is None:
+        try:
+            from esmassessor.config import get_certificate_config
+            config = get_certificate_config()
+            max_condition_number = config.witness_condition_number_threshold
+        except ImportError:
+            max_condition_number = 1e8  # Default fallback
+
     if len(S) == 0:
-        return 1
+        return 1, {
+            "explained_variance": 0.0,
+            "condition_number": float("inf"),
+            "k_variance": 1,
+            "k_condition": 1,
+            "selection_reason": "Empty singular values",
+        }
 
     # Compute cumulative explained variance
     total_energy = np.sum(S ** 2)
     if total_energy < 1e-12:
-        return 1
+        return 1, {
+            "explained_variance": 0.0,
+            "condition_number": float("inf"),
+            "k_variance": 1,
+            "k_condition": 1,
+            "selection_reason": "Near-zero total energy",
+        }
 
     cumulative_energy = np.cumsum(S ** 2)
     cumulative_ratio = cumulative_energy / total_energy
@@ -543,15 +575,54 @@ def _select_effective_rank(
     else:
         k_variance = len(S)
 
+    # Find largest k satisfying condition number constraint
+    k_condition = len(S)
+    if max_condition_number is not None and max_condition_number > 0:
+        for k in range(1, len(S) + 1):
+            if S[k - 1] < 1e-12:  # Avoid division by near-zero
+                k_condition = k - 1
+                break
+            cond = S[0] / S[k - 1]
+            if cond > max_condition_number:
+                k_condition = k - 1
+                break
+        k_condition = max(1, k_condition)
+
     # Apply strict upper bound: r_eff <= T-3 to ensure meaningful OOS residual
     # Also clamp to requested rank and data dimension
     upper_bound = max(1, T - 3) if T > 3 else max(1, T - 1)
-    r_eff = min(k_variance, r, d, upper_bound)
+    
+    # Take the minimum to satisfy all constraints
+    r_eff = min(k_variance, k_condition, r, d, upper_bound)
 
     # Ensure at least 1
     r_eff = max(1, r_eff)
 
-    return r_eff
+    # Compute diagnostics
+    explained_var = cumulative_ratio[r_eff - 1] if r_eff <= len(cumulative_ratio) else 1.0
+    cond_number = S[0] / S[r_eff - 1] if r_eff > 0 and S[r_eff - 1] > 1e-12 else float("inf")
+    
+    # Determine selection reason
+    if r_eff == k_variance and r_eff == k_condition:
+        reason = f"variance_threshold={explained_variance_threshold:.2f}"
+    elif r_eff == k_condition and k_condition < k_variance:
+        reason = f"condition_number_limit={max_condition_number:.2e} (clamped from k_variance={k_variance})"
+    elif r_eff == upper_bound and upper_bound < min(k_variance, k_condition):
+        reason = f"upper_bound=T-3={upper_bound} (clamped from k_variance={k_variance}, k_condition={k_condition})"
+    elif r_eff == r and r < min(k_variance, k_condition, upper_bound):
+        reason = f"requested_rank={r} (clamped from k_variance={k_variance})"
+    else:
+        reason = f"multiple_constraints (k_var={k_variance}, k_cond={k_condition}, bound={upper_bound})"
+
+    diagnostics = {
+        "explained_variance": float(explained_var),
+        "condition_number": float(cond_number),
+        "k_variance": int(k_variance),
+        "k_condition": int(k_condition),
+        "selection_reason": reason,
+    }
+
+    return r_eff, diagnostics
 
 
 def _canonicalize_svd_signs(U: np.ndarray, S: np.ndarray, Vt: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -1045,7 +1116,15 @@ def _compute_certificate_core(
 
     # Use variance-aware rank selection with strict upper bound r_eff <= T-3
     # This prevents exact reconstruction (residual = 0) pathology
-    r_eff = _select_effective_rank(S, T, r, X_aug.shape[1])
+    r_eff, r_eff_diagnostics = _select_effective_rank(S, T, r, X_aug.shape[1])
+    
+    # Log rank selection decision
+    logger.info(
+        f"Rank selection: r_eff={r_eff}/{len(S)}, "
+        f"explained_var={r_eff_diagnostics['explained_variance']:.3f}, "
+        f"condition_number={r_eff_diagnostics['condition_number']:.2e}, "
+        f"reason={r_eff_diagnostics['selection_reason']}"
+    )
     S_trunc = S[:r_eff]
     U_trunc = U[:, :r_eff]
     Vt_trunc = Vt[:r_eff, :]
@@ -1231,6 +1310,7 @@ def _compute_certificate_core(
         "lipschitz_margin": lipschitz_margin,
         "theoretical_bound": theoretical_bound,
         "r_eff": r_eff,  # Diagnostic: effective rank used
+        "r_eff_diagnostics": r_eff_diagnostics,  # Detailed rank selection info
         "Z": Z,
         # Include constants for transparency
         "C_res": c_res,
@@ -1489,7 +1569,15 @@ def _compute_local_coherence(
     )
 
     # Use variance-aware rank selection with strict upper bound r_eff <= T_w-3
-    r_eff = _select_effective_rank(S, T_w, r, X_aug.shape[1])
+    r_eff, r_eff_diagnostics = _select_effective_rank(S, T_w, r, X_aug.shape[1])
+    
+    # Log rank selection decision for local window
+    logger.debug(
+        f"Local rank selection (window {window_start}-{window_end}): "
+        f"r_eff={r_eff}/{len(S)}, "
+        f"explained_var={r_eff_diagnostics['explained_variance']:.3f}, "
+        f"reason={r_eff_diagnostics['selection_reason']}"
+    )
     S_trunc = S[:r_eff]
     Vt_trunc = Vt[:r_eff, :]
 
