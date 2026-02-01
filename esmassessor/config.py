@@ -125,6 +125,60 @@ class CertificateConfig(BaseModel):
         description="Minimum TPR at FPR=0.05"
     )
 
+    # Numerical stability thresholds
+    witness_condition_number_threshold: float = Field(
+        default=1e8,
+        ge=1.0,
+        description=(
+            "Maximum allowed condition number for witness matrices. "
+            "Rationale: Condition numbers > 1e8 indicate near-singularity and "
+            "can lead to unreliable numerical results. This threshold provides "
+            "a conservative guard against ill-conditioned systems."
+        )
+    )
+    witness_gap_threshold: float = Field(
+        default=1e-6,
+        ge=0.0,
+        description=(
+            "Minimum singular value gap for witness validation. "
+            "Rationale: Gaps < 1e-6 indicate near-degenerate subspaces that "
+            "may not be well-separated under perturbation (Wedin's Theorem). "
+            "This ensures robust subspace identification."
+        )
+    )
+    explained_variance_threshold: float = Field(
+        default=0.90,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum explained variance for PCA rank selection. "
+            "Rationale: 90% explained variance ensures we capture dominant "
+            "dynamics while avoiding overfitting. Validated empirically on "
+            "typical agent trajectories with 128-384 dimensional embeddings."
+        )
+    )
+    oos_validation_k: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Number of out-of-sample steps for cross-validation. "
+            "Rationale: K=3 provides sufficient holdout data for OOS residual "
+            "estimation while preserving enough training data. For traces with "
+            "T < 12 steps, K is adaptively reduced to max(1, T // 4)."
+        )
+    )
+    oos_residual_floor: float = Field(
+        default=0.1,
+        ge=0.0,
+        description=(
+            "Conservative residual floor for degenerate/short traces. "
+            "Rationale: Returning 0.0 residual on traces with T < 4 steps "
+            "produces overly optimistic certificates. A floor of 0.1 indicates "
+            "'minimal but uncertain' predictability, preventing zero-residual "
+            "pathology on traces too short for meaningful cross-validation."
+        )
+    )
+
     # Kernel settings
     verified_kernel_path: Optional[str] = Field(
         default=None,
@@ -175,6 +229,11 @@ class CertificateConfig(BaseModel):
             RESIDUAL_THRESHOLD: Residual threshold for drift detection (default: 0.3)
             AUC_THRESHOLD: Minimum AUC for classifier validation (default: 0.90)
             TPR_THRESHOLD: Minimum TPR at FPR=0.05 (default: 0.80)
+            WITNESS_COND_THRESHOLD: Witness condition number threshold (default: 1e8)
+            WITNESS_GAP_THRESHOLD: Witness singular value gap threshold (default: 1e-6)
+            EXPLAINED_VARIANCE_THRESHOLD: PCA explained variance threshold (default: 0.90)
+            OOS_VALIDATION_K: Out-of-sample validation steps (default: 3)
+            OOS_RESIDUAL_FLOOR: Conservative residual floor (default: 0.1)
             VERIFIED_KERNEL_PATH: Path to verified kernel
             ESM_ALLOW_KERNEL_LOAD: Allow kernel loading (default: 1)
             ESM_SKIP_VERIFIED_KERNEL: Skip verified kernel (default: 0)
@@ -191,6 +250,11 @@ class CertificateConfig(BaseModel):
             residual_threshold=float(os.environ.get("RESIDUAL_THRESHOLD", "0.3")),
             auc_threshold=float(os.environ.get("AUC_THRESHOLD", "0.90")),
             tpr_at_fpr05_threshold=float(os.environ.get("TPR_THRESHOLD", "0.80")),
+            witness_condition_number_threshold=float(os.environ.get("WITNESS_COND_THRESHOLD", "1e8")),
+            witness_gap_threshold=float(os.environ.get("WITNESS_GAP_THRESHOLD", "1e-6")),
+            explained_variance_threshold=float(os.environ.get("EXPLAINED_VARIANCE_THRESHOLD", "0.90")),
+            oos_validation_k=int(os.environ.get("OOS_VALIDATION_K", "3")),
+            oos_residual_floor=float(os.environ.get("OOS_RESIDUAL_FLOOR", "0.1")),
             verified_kernel_path=os.environ.get("VERIFIED_KERNEL_PATH"),
             allow_kernel_load=os.environ.get("ESM_ALLOW_KERNEL_LOAD", "1") in ("1", "true", "yes"),
             skip_verified_kernel=os.environ.get("ESM_SKIP_VERIFIED_KERNEL", "").lower() in ("1", "true", "yes"),

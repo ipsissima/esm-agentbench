@@ -51,7 +51,12 @@ from .witness_checker import check_witness, WitnessValidationError
 logger = logging.getLogger(__name__)
 
 
-def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> Tuple[float, bool]:
+def _compute_oos_residual(
+    Z: np.ndarray,
+    regularization: float = 1e-6,
+    oos_k: Optional[int] = None,
+    residual_floor: Optional[float] = None
+) -> Tuple[float, bool]:
     """Compute out-of-sample residual using time-series cross-validation.
 
     This prevents the residual from being zero due to in-sample overfitting.
@@ -64,9 +69,9 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> Tuple[
     cannot be gamed by increasing model capacity.
 
     Conservative Floor Policy:
-    - For T < 4: Returns conservative floor of 0.1 (arbitrary small nonzero value)
-      to avoid optimistic zero-residual certificates on degenerate traces.
-    - For denom < eps: Returns 0.1 to avoid division by near-zero.
+    - For T < 4: Returns conservative floor (default 0.1) to avoid optimistic
+      zero-residual certificates on degenerate traces.
+    - For denom < eps: Returns conservative floor to avoid division by near-zero.
     - Rationale: Better to be conservative (higher residual) than optimistic
       on traces too short for meaningful cross-validation.
 
@@ -76,6 +81,12 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> Tuple[
         Projected embeddings of shape (T, r_eff).
     regularization : float
         Ridge regularization parameter for numerical stability.
+    oos_k : Optional[int]
+        Number of out-of-sample validation steps. If None, uses configured value
+        (default: 3) or adapts to trace length (min(oos_k, max(1, n // 4))).
+    residual_floor : Optional[float]
+        Conservative residual floor for degenerate cases. If None, uses configured
+        value (default: 0.1).
 
     Returns
     -------
@@ -86,30 +97,39 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> Tuple[
         - oos_valid: True if OOS estimation was statistically valid (T >= 4 and
           denom >= eps), False otherwise indicating conservative fallback was used.
     """
+    # Load configuration if not provided
+    if oos_k is None or residual_floor is None:
+        try:
+            from esmassessor.config import get_certificate_config
+            config = get_certificate_config()
+            if oos_k is None:
+                oos_k = config.oos_validation_k
+            if residual_floor is None:
+                residual_floor = config.oos_residual_floor
+        except ImportError:
+            # Fallback to defaults if config module not available
+            if oos_k is None:
+                oos_k = 3
+            if residual_floor is None:
+                residual_floor = 0.1
     Z = np.asarray(Z, dtype=float)
     T, d = Z.shape
     eps = 1e-12
-    
-    # Conservative floor for degenerate cases
-    # Rationale: 0.1 is a small but nonzero value that indicates "minimal but uncertain"
-    # predictability. This prevents optimistic zero-residual certificates on tiny traces
-    # where cross-validation statistics are unreliable.
-    CONSERVATIVE_FLOOR = 0.1
 
     if T < 4:
         # Too short for meaningful OOS estimation
         logger.warning(
-            f"_compute_oos_residual: Trace too short (T={T}), returning conservative floor={CONSERVATIVE_FLOOR}. "
+            f"_compute_oos_residual: Trace too short (T={T}), returning conservative floor={residual_floor}. "
             f"Minimum T=4 required for out-of-sample validation. oos_valid=False."
         )
-        return CONSERVATIVE_FLOOR, False
+        return residual_floor, False
 
     X0 = Z[:-1].T  # Shape: (d, T-1)
     X1 = Z[1:].T   # Shape: (d, T-1)
     n = X0.shape[1]
 
     # Hold out last K steps (or up to 1/4 of the data)
-    K = min(3, max(1, n // 4))
+    K = min(oos_k, max(1, n // 4))
 
     squared_errors = 0.0
     denom = 0.0
@@ -163,9 +183,9 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> Tuple[
     if denom < eps:
         logger.warning(
             f"_compute_oos_residual: denom={denom:.2e} < eps={eps:.2e}, "
-            f"returning conservative floor={CONSERVATIVE_FLOOR}. oos_valid=False."
+            f"returning conservative floor={residual_floor}. oos_valid=False."
         )
-        return CONSERVATIVE_FLOOR, False
+        return residual_floor, False
 
     return float(np.sqrt(squared_errors / (denom + eps))), True
 
