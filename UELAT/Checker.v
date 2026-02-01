@@ -155,7 +155,9 @@ Proof.
   intros w H.
   unfold check_witness in H.
   (* Use andb_prop to incrementally extract conjuncts.
-     After 8 destructs, we have T1..T4 left, and H6 contains T4. *)
+     We apply andb_prop 8 times, extracting elements from right to left:
+     - H12 (rightmost), H11, H10, H9, H8, H7, H6 (which is the 4th element we want), H5
+     - After 7 destructs, H6 contains interval_nonneg (rw_bound w) = true *)
   apply andb_prop in H. destruct H as [H H12].   
   apply andb_prop in H. destruct H as [H H11].   
   apply andb_prop in H. destruct H as [H H10].   
@@ -182,10 +184,11 @@ Proof.
   intros w H.
   unfold check_witness in H.
   simpl.
-  (* The formula check is T10. After one destruct, we get
-     H = T1..T11 and the rightmost element is T10 && T11 && T12.
-     We need to extract T10 from this grouped element. *)
-  apply andb_prop in H. destruct H as [H Hrest].   (* Hrest = T10 && T11 && T12 *)
+  (* The formula check is the 10th conjunct. The last 3 elements (T10, T11, T12) 
+     are grouped together after unfolding. 
+     - First destruct: H contains T1..T9, Hrest contains (T10 && T11 && T12)
+     - Extract T10 from Hrest by destructing twice more *)
+  apply andb_prop in H. destruct H as [H Hrest].   (* H = T1..T9, Hrest = T10 && T11 && T12 *)
   apply andb_prop in Hrest. destruct Hrest as [Hrest _].   (* Hrest = T10 && T11 *)
   apply andb_prop in Hrest. destruct Hrest as [H10 _].   (* H10 = T10 *)
   apply Qle_bool_reflect.

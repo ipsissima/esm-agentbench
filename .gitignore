@@ -71,7 +71,11 @@ UELAT/*.vo
 UELAT/*.vok
 UELAT/*.vos
 UELAT/*.glob
+UELAT/.*.aux
 UELAT/kernel_verified.ml
+UELAT/kernel_verified.mli
+UELAT/checker_verified.ml
+UELAT/checker_verified.mli
 UELAT/*.cmi
 UELAT/*.cmx
 UELAT/*.o
