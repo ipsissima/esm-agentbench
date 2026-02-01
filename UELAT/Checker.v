@@ -64,6 +64,10 @@ Definition interval_nonneg (i : QInterval) : bool :=
 (** Check value is non-negative *)
 Definition q_nonneg (q : Q) : bool := Qle_bool 0 q.
 
+(** Check if q1 < q2 (less than) *)
+Definition Qlt_bool (q1 q2 : Q) : bool :=
+  negb (Qle_bool q2 q1).
+
 (** ** Certificate Constants (must match spectral_bounds.v)
 
     C_res = C_tail = C_sem = C_robust = 1.0
