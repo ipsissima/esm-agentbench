@@ -10,7 +10,7 @@ from typing import Optional
 
 from ports.embedder import EmbedderPort
 from ports.inference import InferencePort
-from ports.kernel import KernelPort
+from ports.kernel import KernelClientPort
 from ports.signer import SignerPort
 from ports.storage import TraceStoragePort
 
@@ -91,8 +91,8 @@ class AdapterFactory:
     def create_kernel_adapter(
         *,
         adapter_type: str = "kernel-client",
-    ) -> KernelPort:
-        """Create a kernel adapter.
+    ) -> KernelClientPort:
+        """Create a kernel client adapter.
         
         Parameters
         ----------
@@ -101,8 +101,8 @@ class AdapterFactory:
             
         Returns
         -------
-        KernelPort
-            A kernel adapter instance.
+        KernelClientPort
+            A kernel client adapter instance.
             
         Raises
         ------
@@ -181,40 +181,6 @@ class AdapterFactory:
             raise ValueError(f"Unsupported storage adapter type: {adapter_type}")
 
 
-# Convenience functions for common use cases
-def create_embedder(model_name: str = "all-MiniLM-L6-v2") -> EmbedderPort:
-    """Create an embedder adapter with default configuration."""
-    return AdapterFactory.create_embedder(model_name)
-
-
-def create_inference_adapter(
-    model_name: str,
-    config_path: Optional[Path] = None,
-) -> InferencePort:
-    """Create an inference adapter with default configuration."""
-    return AdapterFactory.create_inference_adapter(model_name, config_path=config_path)
-
-
-def create_kernel_adapter() -> KernelPort:
-    """Create a kernel adapter with default configuration."""
-    return AdapterFactory.create_kernel_adapter()
-
-
-def create_signer(signer_id: str, gpg_key: str) -> SignerPort:
-    """Create a signer adapter with default configuration."""
-    return AdapterFactory.create_signer(signer_id, gpg_key)
-
-
-def create_storage(root_dir: Path) -> TraceStoragePort:
-    """Create a storage adapter with default configuration."""
-    return AdapterFactory.create_storage(root_dir)
-
-
 __all__ = [
     "AdapterFactory",
-    "create_embedder",
-    "create_inference_adapter",
-    "create_kernel_adapter",
-    "create_signer",
-    "create_storage",
 ]

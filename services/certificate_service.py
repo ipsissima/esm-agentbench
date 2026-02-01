@@ -11,7 +11,7 @@ import numpy as np
 
 from core.certificate import compute_certificate_from_trace
 from ports.embedder import EmbedderPort
-from ports.kernel import KernelPort
+from ports.kernel import KernelClientPort
 from ports.signer import SignerPort
 from ports.storage import TraceStoragePort
 
@@ -27,7 +27,7 @@ class CertificateService:
         self,
         *,
         embedder: Optional[EmbedderPort] = None,
-        kernel: Optional[KernelPort] = None,
+        kernel: Optional[KernelClientPort] = None,
         signer: Optional[SignerPort] = None,
         storage: Optional[TraceStoragePort] = None,
     ) -> None:
@@ -37,7 +37,7 @@ class CertificateService:
         ----------
         embedder : EmbedderPort, optional
             Embedder adapter for computing embeddings.
-        kernel : KernelPort, optional
+        kernel : KernelClientPort, optional
             Kernel adapter for verified computation.
         signer : SignerPort, optional
             Signer adapter for signing certificates.

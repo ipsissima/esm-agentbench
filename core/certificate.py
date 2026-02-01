@@ -4,7 +4,7 @@ This module provides the main entry point for computing spectral certificates
 from trace data. It handles:
 - Embedding extraction from various trace formats
 - Certificate computation via certificates.make_certificate
-- Optional kernel verification via ports.kernel.KernelPort
+- Optional kernel verification via ports.kernel.KernelClientPort
 
 Shape conventions:
 - Embedding matrices: (T, D) where T = time steps, D = embedding dimension
@@ -25,7 +25,7 @@ from typing import Any, Dict, Mapping, Optional
 import numpy as np
 
 from certificates.make_certificate import compute_certificate, export_kernel_input
-from ports.kernel import KernelPort
+from ports.kernel import KernelClientPort
 
 
 class TraceEmbeddingError(ValueError):
@@ -97,7 +97,7 @@ def compute_certificate_from_trace(
     rank: int = 10,
     task_embedding: Optional[np.ndarray] = None,
     embedder_id: Optional[str] = None,
-    kernel: Optional[KernelPort] = None,
+    kernel: Optional[KernelClientPort] = None,
     kernel_mode: str = "prototype",
     precision_bits: int = 128,
 ) -> Dict[str, Any]:
@@ -120,7 +120,7 @@ def compute_certificate_from_trace(
         matching the embedding dimension.
     embedder_id : Optional[str], optional
         Embedder identifier for audit trails.
-    kernel : Optional[KernelPort], optional
+    kernel : Optional[KernelClientPort], optional
         Kernel adapter for verification. If provided, runs kernel verification
         and includes kernel output in the certificate.
     kernel_mode : str, optional

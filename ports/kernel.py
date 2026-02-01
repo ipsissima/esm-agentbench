@@ -1,10 +1,13 @@
-"""Kernel port definitions.
+"""Kernel client port definitions.
 
-Defines the KernelPort protocol for kernel execution operations.
+Defines the KernelClientPort protocol for kernel execution operations.
 
-Note: This is distinct from esmassessor.kernel_adapter.KernelAdapterBase,
+This is the process-level kernel interface for executing the verified
+Coq/OCaml kernel as a subprocess and parsing its output.
+
+Note: This is distinct from ports.kernel_compute.KernelComputePort,
 which provides computation operations (compute_residual, compute_bound, compute_certificate).
-KernelPort focuses on kernel execution interfaces (run_kernel methods).
+KernelClientPort focuses on kernel process execution interfaces (run_kernel methods).
 
 See adapters.kernel_client.KernelClientAdapter for a concrete implementation.
 """
@@ -14,17 +17,17 @@ from typing import Any, Dict, Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
-class KernelPort(Protocol):
-    """Port for verified kernel execution.
+class KernelClientPort(Protocol):
+    """Port for verified kernel client execution.
 
     This protocol defines the interface for kernel execution operations,
-    which run the verified Coq/OCaml kernel and parse its output.
+    which run the verified Coq/OCaml kernel as a subprocess and parse its output.
 
-    This is the canonical kernel execution interface; concrete adapters should
-    implement this protocol. See adapters.kernel_client.KernelClientAdapter
+    This is the canonical kernel process-level execution interface; concrete
+    adapters should implement this protocol. See adapters.kernel_client.KernelClientAdapter
     for the standard implementation.
 
-    Note: This is distinct from esmassessor.kernel_adapter.KernelAdapterBase,
+    Note: This is distinct from ports.kernel_compute.KernelComputePort,
     which provides computation abstractions (compute_residual, compute_bound).
     """
 

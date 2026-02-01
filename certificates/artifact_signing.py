@@ -387,7 +387,8 @@ class ArtifactVerifier:
                 ):
                     logger.info(f"Verified {filepath} with trusted key")
                     return True
-            except Exception:
+            except (ValueError, TypeError, KeyError) as e:
+                logger.debug(f"Verification failed with key: {e}")
                 continue
 
         raise VerificationError(
