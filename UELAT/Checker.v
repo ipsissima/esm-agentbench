@@ -154,11 +154,10 @@ Theorem checker_implies_bound_nonneg :
 Proof.
   intros w H.
   unfold check_witness in H.
-  (* Decompose conjuncts sequentially to reach interval_nonneg (rw_bound w) *)
-  apply andb_prop in H. destruct H as [H1 Hrest].      (* interval_valid (rw_residual w) *)
-  apply andb_prop in Hrest. destruct Hrest as [H2 Hrest].  (* interval_nonneg (rw_residual w) *)
-  apply andb_prop in Hrest. destruct Hrest as [H3 Hrest].  (* interval_valid (rw_bound w) *)
-  apply andb_prop in Hrest. destruct Hrest as [Hinterval_nonneg Hrest]. (* interval_nonneg (rw_bound w) *)
+  (* Use Bool.andb_true_iff to convert && to /\ for easier destructuring *)
+  repeat rewrite Bool.andb_true_iff in H.
+  (* Destruct to reach interval_nonneg (rw_bound w) - it's the 4th conjunct from left *)
+  destruct H as [[[[[[[[[[[_ _] _] Hinterval_nonneg] _] _] _] _] _] _] _] _].
   apply interval_nonneg_lo. exact Hinterval_nonneg.
 Qed.
 
