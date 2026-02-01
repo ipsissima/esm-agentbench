@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import yaml
 
 # Apply transformers compatibility shims early (before any model loading)
@@ -121,6 +122,85 @@ class InferenceBackend:
 
 class TransformersBackend(InferenceBackend):
     """Inference backend using Hugging Face transformers."""
+
+    def __init__(self, config: ModelConfig):
+        super().__init__(config)
+        # Residual stream instrumentation
+        self._residual_hooks: List[Any] = []
+        self._residual_stream: List[np.ndarray] = []
+        self._capture_residuals = os.getenv("ESM_CAPTURE_INTERNAL", "0") == "1"
+
+    def _register_residual_hooks(self, layers: Optional[List[str]] = None) -> None:
+        """Register forward hooks to capture residual stream.
+
+        Parameters
+        ----------
+        layers : Optional[List[str]]
+            List of layer names to capture. If None, captures all transformer layers.
+        """
+        if self.model is None:
+            return
+
+        self._residual_stream = []
+
+        def make_hook(layer_name: str):
+            def hook(module, input, output):
+                # Handle different output formats
+                if isinstance(output, tuple):
+                    hidden = output[0]
+                else:
+                    hidden = output
+
+                # Convert to numpy and take mean over sequence
+                try:
+                    import torch
+                    if isinstance(hidden, torch.Tensor):
+                        # Shape: [batch, seq_len, hidden_dim]
+                        # Take last token's representation
+                        arr = hidden[:, -1, :].detach().cpu().numpy()
+                        self._residual_stream.append(arr.squeeze())
+                except Exception:
+                    pass
+            return hook
+
+        # Find transformer layers
+        layer_keywords = ("transformer", "decoder", "encoder", "layer", "block", "h.")
+        if layers is None:
+            layers = []
+            for name, module in self.model.named_modules():
+                name_lower = name.lower()
+                # Match common transformer layer patterns
+                if any(kw in name_lower for kw in layer_keywords):
+                    # Avoid matching sub-components
+                    if not any(x in name_lower for x in ("attn", "mlp", "norm", "ln")):
+                        layers.append(name)
+
+        # Register hooks
+        for name, module in self.model.named_modules():
+            if name in layers or (layers and any(l in name for l in layers)):
+                handle = module.register_forward_hook(make_hook(name))
+                self._residual_hooks.append(handle)
+                logger.debug(f"Registered residual hook on: {name}")
+
+    def _remove_residual_hooks(self) -> None:
+        """Remove all registered residual hooks."""
+        for handle in self._residual_hooks:
+            handle.remove()
+        self._residual_hooks = []
+
+    def get_residual_stream(self) -> List[np.ndarray]:
+        """Get captured residual stream from last generation.
+
+        Returns
+        -------
+        List[np.ndarray]
+            List of hidden state arrays, one per layer.
+        """
+        return self._residual_stream.copy()
+
+    def clear_residual_stream(self) -> None:
+        """Clear captured residual stream."""
+        self._residual_stream = []
 
     def load(self):
         """Load model using transformers.
@@ -290,8 +370,24 @@ class TransformersBackend(InferenceBackend):
         return mismatches
 
     def generate(self, prompt: str, max_tokens: Optional[int] = None,
-                 temperature: Optional[float] = None, stop: Optional[List[str]] = None) -> str:
-        """Generate text from prompt using transformers."""
+                 temperature: Optional[float] = None, stop: Optional[List[str]] = None,
+                 capture_residuals: Optional[bool] = None) -> str:
+        """Generate text from prompt using transformers.
+
+        Parameters
+        ----------
+        prompt : str
+            Input prompt.
+        max_tokens : Optional[int]
+            Maximum tokens to generate.
+        temperature : Optional[float]
+            Sampling temperature.
+        stop : Optional[List[str]]
+            Stop sequences.
+        capture_residuals : Optional[bool]
+            If True, capture residual stream during generation.
+            If None, uses ESM_CAPTURE_INTERNAL env var.
+        """
         if self.model is None:
             raise RuntimeError("Model not loaded. Call load() first.")
 
@@ -299,6 +395,12 @@ class TransformersBackend(InferenceBackend):
 
         max_tokens = max_tokens or self.config.max_tokens
         temperature = temperature or self.config.temperature
+
+        # Determine if we should capture residuals
+        should_capture = capture_residuals if capture_residuals is not None else self._capture_residuals
+        if should_capture:
+            self.clear_residual_stream()
+            self._register_residual_hooks()
 
         # Apply CPU-specific token limit (without KV cache, generation is O(n²))
         policy = get_runtime_policy()
@@ -385,6 +487,10 @@ class TransformersBackend(InferenceBackend):
             for stop_seq in stop:
                 if stop_seq in generated:
                     generated = generated[:generated.index(stop_seq)]
+
+        # Clean up residual hooks
+        if should_capture:
+            self._remove_residual_hooks()
 
         return generated.strip()
 

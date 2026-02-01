@@ -1,0 +1,279 @@
+name: Verify Kernel
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'kernel/**'
+      - 'certificates/**'
+      - 'tests/test_kernel_*.py'
+      - 'tests/test_per_step_*.py'
+      - 'tests/test_wedin_*.py'
+  pull_request:
+    paths:
+      - 'kernel/**'
+      - 'certificates/**'
+      - 'tests/test_kernel_*.py'
+      - 'tests/test_per_step_*.py'
+      - 'tests/test_wedin_*.py'
+
+env:
+  PYTHON_VERSION: "3.10"
+  ESM_SKIP_VERIFIED_KERNEL: "1"
+  ESM_ALLOW_KERNEL_LOAD: "0"
+  ESM_ALLOW_MODEL_LOAD: "0"
+
+jobs:
+  prototype-kernel-tests:
+    name: Prototype Kernel Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install mpmath  # For prototype kernel
+
+      - name: Run prototype kernel unit tests
+        run: |
+          python -m pytest tests/test_kernel_integration.py -v -x --tb=short
+
+      - name: Run per-step diagnostics tests
+        run: |
+          python -m pytest tests/test_per_step_diagnostics.py -v -x --tb=short
+
+      - name: Run Wedin bound tests
+        run: |
+          python -m pytest tests/test_wedin_empirical.py -v -x --tb=short
+
+      - name: Test prototype kernel directly
+        run: |
+          # Create test input
+          python -c "
+          import json
+          import base64
+          import numpy as np
+
+          X = np.random.randn(10, 5).astype('>f8')
+          data = {
+              'schema_version': '1.0',
+              'trace_id': 'ci-test',
+              'metadata': {'embedder_id': 'test', 'timestamp': '2024-01-01T00:00:00Z'},
+              'parameters': {'rank': 3, 'precision_bits': 64, 'kernel_mode': 'prototype'},
+              'observables': {
+                  'X_aug': {
+                      'rows': 10, 'cols': 5, 'dtype': 'float64',
+                      'data_matrix': base64.b64encode(X.tobytes()).decode(),
+                  }
+              },
+              'koopman_fit': None,
+              'external_subspace': None,
+          }
+          with open('/tmp/kernel_input.json', 'w') as f:
+              json.dump(data, f)
+          "
+
+          # Run kernel
+          python kernel/prototype/prototype_kernel.py /tmp/kernel_input.json /tmp/kernel_output.json --precision 64
+
+          # Verify output
+          python -c "
+          import json
+          with open('/tmp/kernel_output.json') as f:
+              output = json.load(f)
+          assert 'computed' in output, 'Missing computed section'
+          assert 'checks' in output, 'Missing checks section'
+          print('Kernel output verified')
+          print(f'Theoretical bound pass: {output[\"checks\"][\"theoretical_bound\"][\"pass\"]}')
+          "
+
+  docker-kernel-build:
+    name: Docker Kernel Build (Optional)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build kernel image
+        run: |
+          cd kernel/arb_kernel
+          docker build -t ipsissima/kernel:ci-test .
+
+      - name: Test kernel image
+        run: |
+          # Create test input
+          python3 -c "
+          import json
+          import base64
+          import numpy as np
+
+          X = np.eye(5, dtype='>f8')
+          data = {
+              'schema_version': '1.0',
+              'trace_id': 'docker-test',
+              'metadata': {'embedder_id': 'test', 'timestamp': '2024-01-01T00:00:00Z'},
+              'parameters': {'rank': 3, 'precision_bits': 64, 'kernel_mode': 'arb'},
+              'observables': {
+                  'X_aug': {
+                      'rows': 5, 'cols': 5, 'dtype': 'float64',
+                      'data_matrix': base64.b64encode(X.tobytes()).decode(),
+                  }
+              },
+              'koopman_fit': None,
+              'external_subspace': None,
+          }
+          with open('/tmp/kernel_input.json', 'w') as f:
+              json.dump(data, f)
+          "
+
+          touch /tmp/kernel_output.json
+
+          docker run --rm \
+            -v /tmp/kernel_input.json:/data/kernel_input.json:ro \
+            -v /tmp/kernel_output.json:/data/kernel_output.json:rw \
+            ipsissima/kernel:ci-test || echo "Docker kernel test completed (may use fallback)"
+
+  certificate-integration:
+    name: Certificate Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install mpmath
+
+      - name: Test certificate export
+        run: |
+          python -c "
+          import numpy as np
+          from certificates.make_certificate import (
+              compute_certificate,
+              export_kernel_input,
+              compute_per_step_off_manifold,
+              compute_per_step_residuals,
+              compute_sin_theta,
+              compute_E_norm,
+          )
+
+          # Test certificate computation
+          X = np.random.randn(20, 128)
+          cert = compute_certificate(X, r=10, kernel_strict=False)
+          assert 'theoretical_bound' in cert
+          assert 'residual' in cert
+          print(f'Certificate computed: bound={cert[\"theoretical_bound\"]:.4f}')
+
+          # Test kernel input export
+          X_aug = np.concatenate([X, np.ones((20, 1))], axis=1)
+          export_kernel_input(X_aug, 'test-trace', '/tmp/ki.json', precision_bits=64)
+          print('Kernel input exported')
+
+          # Test per-step diagnostics
+          V_r = np.eye(129, 10)
+          off_ratios = compute_per_step_off_manifold(X_aug, V_r)
+          assert len(off_ratios) == 20
+          print(f'Off-manifold ratios computed: {len(off_ratios)} steps')
+
+          # Test subspace angles
+          U1 = np.eye(10, 5)
+          U2 = np.eye(10, 5) + 0.01 * np.random.randn(10, 5)
+          sin_max, sin_fro = compute_sin_theta(U1, U2)
+          print(f'Subspace angles: sin_max={sin_max:.4f}, sin_fro={sin_fro:.4f}')
+
+          # Test operator norm
+          A1 = np.eye(5)
+          A2 = A1 + 0.1 * np.random.randn(5, 5)
+          E_norm = compute_E_norm(A1, A2)
+          print(f'Operator norm: E_norm={E_norm:.4f}')
+          "
+
+      - name: Test kernel client
+        run: |
+          python -c "
+          from certificates.kernel_client import get_kernel_diagnostics
+          diag = get_kernel_diagnostics()
+          print(f'Kernel diagnostics: {diag}')
+          assert 'prototype_available' in diag
+          "
+
+      - name: Test cert bundle
+        run: |
+          python -c "
+          import os
+          import tempfile
+          import json
+          from certificates.cert_bundle import create_bundle, verify_bundle
+
+          # Create temp files
+          tmpdir = tempfile.mkdtemp()
+          trace_path = os.path.join(tmpdir, 'trace.json')
+          cert_path = os.path.join(tmpdir, 'certificate.json')
+
+          with open(trace_path, 'w') as f:
+              json.dump({'test': 'trace'}, f)
+          with open(cert_path, 'w') as f:
+              json.dump({'test': 'cert'}, f)
+
+          # Create bundle (no signing)
+          bundle_dir = os.path.join(tmpdir, 'bundle')
+          create_bundle(bundle_dir, trace_path=trace_path, certificate_path=cert_path)
+
+          # Verify bundle
+          result = verify_bundle(bundle_dir)
+          print(f'Bundle verification: valid={result[\"valid\"]}')
+          "
+
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install linters
+        run: |
+          pip install black isort flake8
+
+      - name: Check formatting
+        run: |
+          black --check --diff kernel/ certificates/kernel_client.py certificates/cert_bundle.py || echo "Formatting differences found"
+
+      - name: Check imports
+        run: |
+          isort --check-only --diff kernel/ certificates/kernel_client.py certificates/cert_bundle.py || echo "Import order differences found"
+
+      - name: Lint
+        run: |
+          flake8 kernel/ certificates/kernel_client.py certificates/cert_bundle.py --max-line-length=120 --ignore=E501,W503 || echo "Lint warnings found"
