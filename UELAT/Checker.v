@@ -154,11 +154,16 @@ Theorem checker_implies_bound_nonneg :
 Proof.
   intros w H.
   unfold check_witness in H.
-  (* Decompose conjuncts sequentially to reach interval_nonneg (rw_bound w) *)
-  apply andb_prop in H. destruct H as [H1 Hrest].      (* interval_valid (rw_residual w) *)
-  apply andb_prop in Hrest. destruct Hrest as [H2 Hrest].  (* interval_nonneg (rw_residual w) *)
-  apply andb_prop in Hrest. destruct Hrest as [H3 Hrest].  (* interval_valid (rw_bound w) *)
-  apply andb_prop in Hrest. destruct Hrest as [Hinterval_nonneg Hrest]. (* interval_nonneg (rw_bound w) *)
+  (* Use Bool.andb_true_iff to convert && to /\ for easier destructuring *)
+  repeat rewrite Bool.andb_true_iff in H.
+  (* Destruct to reach interval_nonneg (rw_bound w) - it's the 4th conjunct from left.
+     Pattern explanation: With 12 terms T1..T12 in left-associative chain,
+     we extract T4 using: [[[[[[[[[[[_ _] _] T4] _] _] _] _] _] _] _] _]
+     - [_ _] matches (T1 /\ T2)
+     - [[_ _] _] matches ((T1 /\ T2) /\ T3)  
+     - [[[_ _] _] T4] matches (((T1 /\ T2) /\ T3) /\ T4) and extracts T4
+     - Remaining 8 underscores discard T5..T12 *)
+  destruct H as [[[[[[[[[[[_ _] _] Hinterval_nonneg] _] _] _] _] _] _] _] _].
   apply interval_nonneg_lo. exact Hinterval_nonneg.
 Qed.
 

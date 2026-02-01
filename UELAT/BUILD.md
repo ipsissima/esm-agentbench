@@ -39,3 +39,54 @@ Note: If kernel_verified.so is included in the repo or artifact, CI will prefer 
 Note: CI produces the verified-kernel artifact in the build_verified_kernel jobs (see RUNBOOK.md).
 
 Note: pyproject.toml is the canonical package metadata; requirements.txt is kept for convenience installs.
+
+## Modifying Coq Proofs
+
+The UELAT kernel includes formally verified Coq proofs in `Checker.v`, `CertificateCore.v`, `CertificateProofs.v`, and related files.
+
+### Common Patterns
+
+When working with boolean conjunctions in Coq proofs:
+
+**❌ Fragile approach** (avoid):
+```coq
+(* Manual sequential decomposition - brittle if the chain structure changes *)
+apply andb_prop in H. destruct H as [H1 Hrest].
+apply andb_prop in Hrest. destruct Hrest as [H2 Hrest].
+apply andb_prop in Hrest. destruct Hrest as [H3 Hrest].
+```
+
+**✅ Recommended approach**:
+```coq
+(* Convert all && to /\, then destruct in one step *)
+repeat rewrite Bool.andb_true_iff in H.
+destruct H as [[[...extract needed conjunct...] _] _].
+```
+
+This pattern is more maintainable because:
+- It's robust to the exact number of conjuncts in the chain
+- It clearly shows which conjunct is being extracted
+- It's consistent with patterns used in `WitnessSpec.v`
+
+### Example: Extracting the 4th conjunct from a 12-term chain
+
+```coq
+(* Given: (T1 && T2 && T3 && T4 && ... && T12) = true *)
+repeat rewrite Bool.andb_true_iff in H.
+(* Now: H : ((...((T1 /\ T2) /\ T3) /\ T4) ... /\ T12) *)
+destruct H as [[[[[[[[[[[_ _] _] H_T4] _] _] _] _] _] _] _] _].
+(* H_T4 now contains the 4th conjunct *)
+```
+
+### Testing Coq Changes
+
+After modifying Coq files, always test locally:
+```bash
+docker run --rm -v $(pwd):/work -w /work/UELAT coqorg/coq:8.18.0 \
+  bash -c "coqc -Q . '' YourModifiedFile.v"
+```
+
+Or test the full build:
+```bash
+./build_kernel.sh
+```
