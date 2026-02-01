@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import numpy as np
 import pytest
+from unittest.mock import patch
 
 from certificates.make_certificate import (
     _compute_oos_residual,
@@ -22,23 +23,22 @@ pytestmark = pytest.mark.unit
 
 def test_fit_temporal_operator_ridge_logs_lstsq_fallback(caplog):
     """Test that lstsq fallback is logged when solve() fails."""
-    # Create a singular/ill-conditioned system that will fail solve()
-    # by making X0 have linearly dependent columns
     d = 5
     n = 10
-    X0 = np.ones((d, n))  # All columns identical - rank 1 matrix
+    X0 = np.random.randn(d, n)
     X1 = np.random.randn(d, n)
     
-    with caplog.at_level(logging.WARNING):
-        A = _fit_temporal_operator_ridge(X0, X1, regularization=0.0)
+    # Mock solve() to raise LinAlgError to force fallback
+    with patch('numpy.linalg.solve', side_effect=np.linalg.LinAlgError("Mocked solve failure")):
+        with caplog.at_level(logging.WARNING):
+            A = _fit_temporal_operator_ridge(X0, X1, regularization=1e-6)
     
-    # Check that the operator was computed
+    # Check that the operator was computed (via lstsq fallback)
     assert A.shape == (d, d)
     
-    # Note: Whether solve() actually fails depends on numpy internals and the exact
-    # numerical properties. This test validates that the fallback code path exists
-    # and that the function completes successfully even with ill-conditioned input.
-    # In practice, with regularization=0.0 and a rank-1 matrix, fallback may occur.
+    # Check that warning was logged
+    assert any("falling back to lstsq" in record.message for record in caplog.records)
+    assert any("condition_number" in record.message for record in caplog.records)
 
 
 def test_fit_temporal_operator_ridge_with_normal_input():
@@ -160,8 +160,8 @@ def test_no_embedder_id_without_providing():
     
     cert = compute_certificate_from_trace(trace)
     
-    # embedder_id should not be in certificate if not provided
-    assert "embedder_id" not in cert or cert.get("embedder_id") is None
+    # embedder_id should be None if not provided
+    assert cert.get("embedder_id") is None
 
 
 def test_compute_certificate_with_ill_conditioned_system(caplog):
