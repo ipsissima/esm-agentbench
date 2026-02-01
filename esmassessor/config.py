@@ -125,15 +125,66 @@ class CertificateConfig(BaseModel):
         description="Minimum TPR at FPR=0.05"
     )
 
-    # Verified kernel path
+    # Kernel settings
     verified_kernel_path: Optional[str] = Field(
         default=None,
         description="Path to verified kernel for reproducible analysis"
     )
+    allow_kernel_load: bool = Field(
+        default=True,
+        description="Allow loading verified kernel"
+    )
+    skip_verified_kernel: bool = Field(
+        default=False,
+        description="Skip verified kernel and use Python fallback"
+    )
+    kernel_service_mode: bool = Field(
+        default=False,
+        description="Use kernel as a persistent service"
+    )
+    kernel_image: str = Field(
+        default="ipsissima/kernel:latest",
+        description="Docker image for kernel execution"
+    )
+    kernel_local_py: str = Field(
+        default="",
+        description="Local Python script path for kernel (for testing)"
+    )
+    kernel_timeout: int = Field(
+        default=300,
+        ge=1,
+        description="Kernel execution timeout in seconds"
+    )
+    kernel_socket: str = Field(
+        default="/tmp/esm_kernel.sock",
+        description="Socket path for kernel service"
+    )
+    generation_timeout: int = Field(
+        default=300,
+        ge=1,
+        description="Agent generation timeout in seconds"
+    )
 
     @classmethod
     def from_env(cls) -> "CertificateConfig":
-        """Load certificate configuration from environment variables."""
+        """Load certificate configuration from environment variables.
+        
+        Environment variables:
+            SPECTRAL_RANK_K: Default rank for spectral analysis (default: 10)
+            MIN_TRACE_LENGTH: Minimum trace length (default: 5)
+            RESIDUAL_THRESHOLD: Residual threshold for drift detection (default: 0.3)
+            AUC_THRESHOLD: Minimum AUC for classifier validation (default: 0.90)
+            TPR_THRESHOLD: Minimum TPR at FPR=0.05 (default: 0.80)
+            VERIFIED_KERNEL_PATH: Path to verified kernel
+            ESM_ALLOW_KERNEL_LOAD: Allow kernel loading (default: 1)
+            ESM_SKIP_VERIFIED_KERNEL: Skip verified kernel (default: 0)
+            ESM_KERNEL_SERVICE: Use kernel as service (default: 0)
+            ESM_KERNEL_IMAGE: Docker image for kernel (default: ipsissima/kernel:latest)
+            ESM_KERNEL_LOCAL_PY: Local Python kernel script path
+            ESM_KERNEL_TIMEOUT: Kernel timeout in seconds (default: 300)
+            ESM_KERNEL_SOCKET: Kernel service socket path (default: /tmp/esm_kernel.sock)
+            ESM_GEN_TIMEOUT: Generation timeout in seconds (default: 300)
+        """
         return cls(
             default_rank_k=int(os.environ.get("SPECTRAL_RANK_K", "10")),
             min_trace_length=int(os.environ.get("MIN_TRACE_LENGTH", "5")),
@@ -141,6 +192,14 @@ class CertificateConfig(BaseModel):
             auc_threshold=float(os.environ.get("AUC_THRESHOLD", "0.90")),
             tpr_at_fpr05_threshold=float(os.environ.get("TPR_THRESHOLD", "0.80")),
             verified_kernel_path=os.environ.get("VERIFIED_KERNEL_PATH"),
+            allow_kernel_load=os.environ.get("ESM_ALLOW_KERNEL_LOAD", "1") in ("1", "true", "yes"),
+            skip_verified_kernel=os.environ.get("ESM_SKIP_VERIFIED_KERNEL", "").lower() in ("1", "true", "yes"),
+            kernel_service_mode=os.environ.get("ESM_KERNEL_SERVICE", "0") == "1",
+            kernel_image=os.environ.get("ESM_KERNEL_IMAGE", "ipsissima/kernel:latest"),
+            kernel_local_py=os.environ.get("ESM_KERNEL_LOCAL_PY", ""),
+            kernel_timeout=int(os.environ.get("ESM_KERNEL_TIMEOUT", "300")),
+            kernel_socket=os.environ.get("ESM_KERNEL_SOCKET", "/tmp/esm_kernel.sock"),
+            generation_timeout=int(os.environ.get("ESM_GEN_TIMEOUT", "300")),
         )
 
 

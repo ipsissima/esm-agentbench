@@ -15,7 +15,7 @@ from werkzeug.serving import make_server
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from assessor.app import app
+from esmassessor.green_server import app
 def _allocate_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
