@@ -104,11 +104,13 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
         X1_train = X1[:, :h]
 
         # Ridge regression: A = X1_train @ X0_train.T @ inv(X0_train @ X0_train.T + lambda*I)
+        # Equivalently: A.T = solve(gram_reg, X0_train @ X1_train.T)
         gram = X0_train @ X0_train.T
         gram_reg = gram + regularization * np.eye(gram.shape[0])
 
         try:
-            A = (X1_train @ X0_train.T) @ np.linalg.inv(gram_reg)
+            # Use solve instead of inv for better numerical stability and performance
+            A = np.linalg.solve(gram_reg, X0_train @ X1_train.T).T
         except np.linalg.LinAlgError:
             # Fallback to lstsq
             try:
@@ -166,7 +168,9 @@ def _fit_temporal_operator_ridge(
     gram_reg = gram + regularization * np.eye(d)
 
     try:
-        A = (X1 @ X0.T) @ np.linalg.inv(gram_reg)
+        # Use solve instead of inv for better numerical stability and performance
+        # A = (X1 @ X0.T) @ inv(gram_reg) is equivalent to A.T = solve(gram_reg, X0 @ X1.T)
+        A = np.linalg.solve(gram_reg, X0 @ X1.T).T
     except np.linalg.LinAlgError:
         # Fallback to lstsq (more robust for ill-conditioned systems)
         try:
