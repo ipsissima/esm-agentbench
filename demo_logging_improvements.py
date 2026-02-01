@@ -1,8 +1,9 @@
-#!/usr/bin/env python3
 """Demonstration of numerical fallback logging improvements.
 
 This script demonstrates the new logging capabilities for numerical fallbacks
 and embedder provenance checks as implemented in response to the code review.
+
+Run with: python demo_logging_improvements.py
 """
 import logging
 import numpy as np

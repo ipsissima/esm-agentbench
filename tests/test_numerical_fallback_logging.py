@@ -29,7 +29,9 @@ def test_fit_temporal_operator_ridge_logs_lstsq_fallback(caplog):
     X1 = np.random.randn(d, n)
     
     # Mock solve() to raise LinAlgError to force fallback
-    with patch('numpy.linalg.solve', side_effect=np.linalg.LinAlgError("Mocked solve failure")):
+    # Patch at the module level where it's used
+    with patch('certificates.make_certificate.np.linalg.solve', 
+               side_effect=np.linalg.LinAlgError("Mocked solve failure")):
         with caplog.at_level(logging.WARNING):
             A = _fit_temporal_operator_ridge(X0, X1, regularization=1e-6)
     
@@ -171,9 +173,12 @@ def test_compute_certificate_with_ill_conditioned_system(caplog):
     D = 10
     
     # Create embeddings where all vectors are nearly identical
+    # This creates an ill-conditioned system that may trigger fallbacks
     base_vec = np.random.randn(D)
     embeddings = np.tile(base_vec, (T, 1))
-    embeddings += 1e-10 * np.random.randn(T, D)  # Add tiny noise
+    # Add tiny noise (1e-10) to keep it barely full-rank but highly ill-conditioned
+    TINY_NOISE_LEVEL = 1e-10  # Small enough to create numerical instability
+    embeddings += TINY_NOISE_LEVEL * np.random.randn(T, D)
     
     with caplog.at_level(logging.WARNING):
         cert = compute_certificate(embeddings, r=5)

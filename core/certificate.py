@@ -154,7 +154,7 @@ def compute_certificate_from_trace(
     
     # Enforce embedder provenance checks when task_embedding is provided
     if task_embedding is not None:
-        if embedder_id is None or not embedder_id.strip():
+        if not embedder_id or (isinstance(embedder_id, str) and not embedder_id.strip()):
             logger.warning(
                 "compute_certificate_from_trace: task_embedding provided but embedder_id is missing. "
                 "Semantic divergence depends on the embedding model. Consider requiring embedder_id "
@@ -176,7 +176,9 @@ def compute_certificate_from_trace(
     
     # Add embedder_id to certificate metadata for audit trail
     if embedder_id is not None:
-        certificate = dict(certificate)
+        # Convert to dict if not already (preserves dict-like behavior)
+        if not isinstance(certificate, dict):
+            certificate = dict(certificate)
         certificate["embedder_id"] = embedder_id
 
     if kernel is None:
