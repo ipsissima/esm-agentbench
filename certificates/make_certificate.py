@@ -188,6 +188,7 @@ def _compute_per_step_diagnostics(
     Z: np.ndarray,
     V_r: np.ndarray,
     A: Optional[np.ndarray] = None,
+    X_aug: Optional[np.ndarray] = None,
 ) -> Dict[str, List[float]]:
     """Compute per-step diagnostics: off-manifold ratio and residual norms.
 
@@ -199,6 +200,9 @@ def _compute_per_step_diagnostics(
         Right singular vectors (column basis for subspace), shape (D+1, r_eff).
     A : Optional[np.ndarray]
         Temporal operator, shape (r_eff, r_eff). If None, fit from Z.
+    X_aug : Optional[np.ndarray]
+        Augmented trajectory matrix, shape (T, D+1). If provided, compute
+        off-manifold ratios in the original space.
 
     Returns
     -------
@@ -212,27 +216,13 @@ def _compute_per_step_diagnostics(
     T, r_eff = Z.shape
     eps = 1e-12
 
-    # Compute off-manifold ratio for each step
-    # off_ratio_t[i] = ||z_i - proj_V(z_i)|| / ||z_i||
-    # Since Z is already projected (Z = X_aug @ V_r.T), the off-manifold
-    # component is computed by back-projecting to original space and measuring loss
-    # However, if Z = X_aug @ V_r.T, then X_aug_reconstructed = Z @ V_r
-    # The off-manifold ratio measures how much of the original signal is not captured
-
-    # For projection-based off-ratio, we need the original augmented matrix
-    # Since we have Z in reduced space, off_ratio is effectively 0 in the subspace
-    # Instead, compute reconstruction quality metric
-    off_ratio_t = []
-    for i in range(T):
-        z_i = Z[i]
-        z_norm = norm(z_i)
-        if z_norm < eps:
-            off_ratio_t.append(0.0)
-        else:
-            # In the subspace, all points are "on-manifold" by definition
-            # The off-ratio from the original computation captures this
-            # For now, report a diagnostic based on magnitude stability
-            off_ratio_t.append(0.0)
+    # Compute off-manifold ratio for each step.
+    # off_ratio_t[i] = ||x_i - V_r @ V_r.T @ x_i|| / ||x_i||
+    # Use X_aug if available; otherwise, return a diagnostic zero vector.
+    if X_aug is not None:
+        off_ratio_t = compute_per_step_off_manifold(X_aug, V_r)
+    else:
+        off_ratio_t = [0.0] * T
 
     # Compute per-step residuals if temporal operator is available
     r_norm_t = []
@@ -343,9 +333,9 @@ def compute_sin_theta(U1: np.ndarray, U2: np.ndarray) -> Tuple[float, float]:
     Parameters
     ----------
     U1 : np.ndarray
-        First orthonormal basis, shape (n, k1).
+        First basis (columns span subspace), shape (n, k1).
     U2 : np.ndarray
-        Second orthonormal basis, shape (n, k2).
+        Second basis (columns span subspace), shape (n, k2).
 
     Returns
     -------
@@ -366,8 +356,10 @@ def compute_sin_theta(U1: np.ndarray, U2: np.ndarray) -> Tuple[float, float]:
     if U2.ndim == 1:
         U2 = U2.reshape(-1, 1)
 
-    # subspace_angles returns angles in radians, sorted descending
+    # subspace_angles expects column-orthonormal bases; orthonormalize defensively.
     try:
+        U1, _ = np.linalg.qr(U1, mode="reduced")
+        U2, _ = np.linalg.qr(U2, mode="reduced")
         angles = subspace_angles(U1, U2)
         sin_vals = np.sin(angles)
         sin_max = float(np.max(sin_vals)) if len(sin_vals) > 0 else 0.0
@@ -504,6 +496,12 @@ def _encode_matrix_base64(M: np.ndarray) -> str:
     return base64.b64encode(raw_bytes).decode('ascii')
 
 
+def _hash_matrix_bytes(M: np.ndarray) -> str:
+    """Hash matrix bytes using big-endian float64 encoding."""
+    M = np.asarray(M, dtype='>f8')
+    return hashlib.sha256(M.tobytes()).hexdigest()
+
+
 def _decode_matrix_base64(encoded: str, rows: int, cols: int) -> np.ndarray:
     """Decode base64 string to matrix.
 
@@ -590,7 +588,7 @@ def export_kernel_input(
                 "cols": d,
                 "dtype": "float64",
                 "data_matrix": _encode_matrix_base64(X_aug),
-                "sha256": hashlib.sha256(X_aug.tobytes()).hexdigest(),
+                "sha256": _hash_matrix_bytes(X_aug),
                 "description": f"Augmented trajectory matrix: {T} x {d}",
             }
         },
@@ -607,7 +605,7 @@ def export_kernel_input(
                 "cols": A_precompute.shape[1],
                 "dtype": "float64",
                 "data_matrix": _encode_matrix_base64(A_precompute),
-                "sha256": hashlib.sha256(A_precompute.tobytes()).hexdigest(),
+                "sha256": _hash_matrix_bytes(A_precompute),
             }
         }
 
@@ -619,7 +617,7 @@ def export_kernel_input(
             "cols": external_subspace.shape[1],
             "dtype": "float64",
             "data_matrix": _encode_matrix_base64(external_subspace),
-            "sha256": hashlib.sha256(external_subspace.tobytes()).hexdigest(),
+            "sha256": _hash_matrix_bytes(external_subspace),
         }
 
     # Write to file
@@ -654,7 +652,7 @@ def load_kernel_input(input_path: str) -> Tuple[np.ndarray, Dict[str, Any]]:
     )
 
     # Verify integrity
-    computed_hash = hashlib.sha256(X_aug.tobytes()).hexdigest()
+    computed_hash = _hash_matrix_bytes(X_aug)
     if obs.get("sha256") and computed_hash != obs["sha256"]:
         raise ValueError(f"Integrity check failed: expected {obs['sha256']}, got {computed_hash}")
 
