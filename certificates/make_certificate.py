@@ -82,6 +82,10 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
 
     if T < 4:
         # Too short for meaningful OOS estimation
+        logger.info(
+            f"_compute_oos_residual: Trace too short (T={T}), returning fallback residual=0.0. "
+            f"Minimum T=4 required for out-of-sample validation."
+        )
         return 0.0
 
     X0 = Z[:-1].T  # Shape: (d, T-1)
@@ -111,13 +115,24 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
         try:
             # Use solve instead of inv for better numerical stability and performance
             A = np.linalg.solve(gram_reg, X0_train @ X1_train.T).T
-        except np.linalg.LinAlgError:
+        except np.linalg.LinAlgError as e:
             # Fallback to lstsq
+            cond_num = np.linalg.cond(gram_reg) if gram_reg.size > 0 else float('inf')
+            logger.warning(
+                f"_compute_oos_residual: solve() failed, falling back to lstsq. "
+                f"gram_reg shape={gram_reg.shape}, condition_number={cond_num:.2e}, "
+                f"error={e}"
+            )
             try:
                 A_T, _, _, _ = np.linalg.lstsq(X0_train.T, X1_train.T, rcond=None)
                 A = A_T.T
-            except np.linalg.LinAlgError:
+            except np.linalg.LinAlgError as e2:
                 # Both failed - return high residual to indicate numerical issues
+                logger.warning(
+                    f"_compute_oos_residual: lstsq() also failed, returning fallback residual=1.0. "
+                    f"X0_train shape={X0_train.shape}, X1_train shape={X1_train.shape}, "
+                    f"error={e2}"
+                )
                 return 1.0
 
         # Predict the holdout step
@@ -171,13 +186,24 @@ def _fit_temporal_operator_ridge(
         # Use solve instead of inv for better numerical stability and performance
         # A = (X1 @ X0.T) @ inv(gram_reg) is equivalent to A.T = solve(gram_reg, X0 @ X1.T)
         A = np.linalg.solve(gram_reg, X0 @ X1.T).T
-    except np.linalg.LinAlgError:
+    except np.linalg.LinAlgError as e:
         # Fallback to lstsq (more robust for ill-conditioned systems)
+        cond_num = np.linalg.cond(gram_reg) if gram_reg.size > 0 else float('inf')
+        logger.warning(
+            f"_fit_temporal_operator_ridge: solve() failed, falling back to lstsq. "
+            f"gram_reg shape={gram_reg.shape}, condition_number={cond_num:.2e}, "
+            f"X0 shape={X0.shape}, X1 shape={X1.shape}, error={e}"
+        )
         try:
             A_T, _, _, _ = np.linalg.lstsq(X0.T, X1.T, rcond=None)
             A = A_T.T
-        except np.linalg.LinAlgError:
+        except np.linalg.LinAlgError as e2:
             # Ultimate fallback: pseudoinverse
+            logger.warning(
+                f"_fit_temporal_operator_ridge: lstsq() also failed, falling back to pseudoinverse. "
+                f"gram_reg shape={gram_reg.shape}, condition_number={cond_num:.2e}, "
+                f"error={e2}"
+            )
             A = (X1 @ X0.T) @ pinv(gram_reg + eps * np.eye(d))
 
     return A

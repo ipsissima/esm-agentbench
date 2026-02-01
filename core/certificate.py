@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import tempfile
 from typing import Any, Dict, Mapping, Optional
 
@@ -26,6 +27,8 @@ import numpy as np
 
 from certificates.make_certificate import compute_certificate, export_kernel_input
 from ports.kernel import KernelClientPort
+
+logger = logging.getLogger(__name__)
 
 
 class TraceEmbeddingError(ValueError):
@@ -148,6 +151,21 @@ def compute_certificate_from_trace(
     - All arrays converted to float64 for numerical stability
     """
     embeddings = extract_embeddings(trace, psi_mode=psi_mode)
+    
+    # Enforce embedder provenance checks when task_embedding is provided
+    if task_embedding is not None:
+        if embedder_id is None or not embedder_id.strip():
+            logger.warning(
+                "compute_certificate_from_trace: task_embedding provided but embedder_id is missing. "
+                "Semantic divergence depends on the embedding model. Consider requiring embedder_id "
+                "to match a stored canonical id for verifiable certificates."
+            )
+        else:
+            logger.info(
+                f"compute_certificate_from_trace: Computing certificate with embedder_id='{embedder_id}'. "
+                f"Embeddings shape={embeddings.shape}, task_embedding shape={task_embedding.shape}"
+            )
+    
     certificate = compute_certificate(
         embeddings,
         r=rank,
@@ -155,6 +173,11 @@ def compute_certificate_from_trace(
         embedder_id=embedder_id,
         kernel_strict=False,
     )
+    
+    # Add embedder_id to certificate metadata for audit trail
+    if embedder_id is not None:
+        certificate = dict(certificate)
+        certificate["embedder_id"] = embedder_id
 
     if kernel is None:
         return certificate
