@@ -232,14 +232,19 @@ Extraction Language OCaml.
     that Python can call via ctypes.
 *)
 
+(* Define an opaque string type that will map to OCaml's native string.
+   We don't use Coq's Strings.String because it extracts to char list. *)
+Axiom ocaml_string : Type.
+Extract Constant ocaml_string => "string".
+
 (* Main kernel API: declare these as opaque parameters for extraction.
    We implement them in OCaml (Kernel_runtime.ml). Using a simple
    string -> string signature keeps the boundary clean and avoids
    marshalling complexity in this last-minute integration. *)
-Parameter kernel_api_frobenius_norm : string -> string.
-Parameter kernel_api_residual : string -> string.
-Parameter kernel_api_bound : string -> string.
-Parameter kernel_api_certificate : string -> string.
+Parameter kernel_api_frobenius_norm : ocaml_string -> ocaml_string.
+Parameter kernel_api_residual : ocaml_string -> ocaml_string.
+Parameter kernel_api_bound : ocaml_string -> ocaml_string.
+Parameter kernel_api_certificate : ocaml_string -> ocaml_string.
 
 (* Extraction mapping: bind the Coq Parameters to OCaml implementations. *)
 Extract Constant kernel_api_frobenius_norm => "Kernel_runtime.kernel_api_frobenius_norm".

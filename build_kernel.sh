@@ -267,6 +267,17 @@ if [ -f "kernel_verified.mli" ]; then
   mv -f kernel_verified.cmi "${BUILD_DIR}/" || true
 fi
 
+# Compile checker_verified.mli to .cmi (needed before compiling .ml)
+if [ -f "checker_verified.mli" ]; then
+  echo "[kernel] Found checker_verified.mli; compiling to .cmi"
+  if ! ${OCAMLOPT} -c -I +unix -I "${BUILD_DIR}" checker_verified.mli; then
+    echo "[kernel] ERROR: ocamlopt failed to compile checker_verified.mli"
+    popd > /dev/null
+    exit 1
+  fi
+  mv -f checker_verified.cmi "${BUILD_DIR}/" || true
+fi
+
 # Compile Kernel_runtime.ml (trusted OCaml runtime implementation)
 # This MUST be compiled BEFORE kernel_verified.ml since it references Kernel_runtime
 if [ -f "Kernel_runtime.ml" ]; then
