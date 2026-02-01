@@ -78,6 +78,22 @@ sha256sum -c .kernel_out/kernel_verified.so.sha256
 
 ---
 
+## Release signing workflow
+
+The `Release Signing` workflow (`.github/workflows/release.yml`) runs on tag pushes (`v*`) and uses a GPG key stored in `GPG_PRIVATE_KEY` to sign release bundles. Configure the following secrets:
+
+- `GPG_PRIVATE_KEY`: ASCII-armored private key.
+- `GPG_KEY_ID`: Key ID or fingerprint to use for signing.
+
+### Key rotation checklist
+
+1. Generate a new keypair and export the armored private key.
+2. Update `GPG_PRIVATE_KEY` and `GPG_KEY_ID` in repository secrets.
+3. Revoke the old key and archive its public key for verification.
+4. Announce the new key fingerprint in release notes.
+
+---
+
 ## Quick-start for judges
 
 ### One-liner full verification

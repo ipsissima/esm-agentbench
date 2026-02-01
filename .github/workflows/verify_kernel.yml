@@ -98,6 +98,35 @@ jobs:
           print(f'Theoretical bound pass: {output[\"checks\"][\"theoretical_bound\"][\"pass\"]}')
           "
 
+  kernel-parity:
+    name: Kernel Parity (Prototype vs ARB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install mpmath
+
+      - name: Build ARB kernel image
+        run: |
+          cd kernel/arb_kernel
+          docker build -t ipsissima/kernel:parity .
+
+      - name: Run parity checks
+        run: |
+          python tools/check_kernel_parity.py --docker-image ipsissima/kernel:parity
+
   docker-kernel-build:
     name: Docker Kernel Build (Optional)
     runs-on: ubuntu-latest
@@ -148,6 +177,35 @@ jobs:
             -v /tmp/kernel_input.json:/data/kernel_input.json:ro \
             -v /tmp/kernel_output.json:/data/kernel_output.json:rw \
             ipsissima/kernel:ci-test || echo "Docker kernel test completed (may use fallback)"
+
+      - name: Log in to DockerHub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push kernel image and capture digest
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        run: |
+          docker tag ipsissima/kernel:ci-test ipsissima/kernel:${{ github.sha }}
+          docker tag ipsissima/kernel:ci-test ipsissima/kernel:latest
+          docker push ipsissima/kernel:${{ github.sha }}
+          docker push ipsissima/kernel:latest
+          mkdir -p build
+          docker inspect --format='{{index .RepoDigests 0}}' ipsissima/kernel:${{ github.sha }} > build/kernel_image_digest.txt
+
+      - name: Capture local image ID when digest unavailable
+        if: ${{ secrets.DOCKERHUB_USERNAME == '' || secrets.DOCKERHUB_TOKEN == '' }}
+        run: |
+          mkdir -p build
+          docker inspect --format='{{.Id}}' ipsissima/kernel:ci-test > build/kernel_image_digest.txt
+
+      - name: Upload kernel image digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-image-digest
+          path: build/kernel_image_digest.txt
 
   certificate-integration:
     name: Certificate Integration Tests

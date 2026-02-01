@@ -1,150 +1,171 @@
 #!/usr/bin/env python3
-"""Compare prototype and ARB kernels for parity on random inputs."""
+"""Compare prototype kernel output with ARB kernel output for interval parity."""
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import subprocess
 import tempfile
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Iterable, List, Tuple
 
 import numpy as np
 
-from certificates.kernel_client import KernelClientError, run_kernel
 from certificates.make_certificate import export_kernel_input
 
 
-def parse_interval(interval: Iterable[str]) -> Tuple[float, float]:
-    values = [float(x) for x in interval]
-    if len(values) != 2:
-        raise ValueError(f"Expected interval of length 2, got {interval}")
-    low, high = values
-    if low > high:
-        low, high = high, low
-    return low, high
+def _parse_interval(interval: Iterable[str]) -> Tuple[float, float]:
+    low, high = interval
+    return float(low), float(high)
 
 
-def intervals_intersect(a: Iterable[str], b: Iterable[str]) -> bool:
-    a_low, a_high = parse_interval(a)
-    b_low, b_high = parse_interval(b)
-    return max(a_low, b_low) <= min(a_high, b_high)
+def _intervals_intersect(a: Tuple[float, float], b: Tuple[float, float]) -> bool:
+    return a[1] >= b[0] and b[1] >= a[0]
 
 
-def compare_intervals(
-    prototype: Dict[str, Any],
-    arb: Dict[str, Any],
-) -> Tuple[bool, list[str]]:
-    errors: list[str] = []
-
-    def compare_field(path: str, proto_interval: Iterable[str], arb_interval: Iterable[str]) -> None:
-        if not intervals_intersect(proto_interval, arb_interval):
-            errors.append(f"Interval mismatch at {path}: {proto_interval} vs {arb_interval}")
-
-    proto_computed = prototype.get("computed", {})
-    arb_computed = arb.get("computed", {})
-
-    for key in ("gamma", "tail_energy", "pca_explained"):
-        if key in proto_computed and key in arb_computed:
-            compare_field(f"computed.{key}", proto_computed[key], arb_computed[key])
-        else:
-            errors.append(f"Missing computed.{key} in output")
-
-    proto_sigma = proto_computed.get("sigma", [])
-    arb_sigma = arb_computed.get("sigma", [])
-    if len(proto_sigma) != len(arb_sigma):
-        errors.append(f"Sigma length mismatch: {len(proto_sigma)} vs {len(arb_sigma)}")
-    else:
-        for idx, (proto_interval, arb_interval) in enumerate(zip(proto_sigma, arb_sigma)):
-            compare_field(f"computed.sigma[{idx}]", proto_interval, arb_interval)
-
-    proto_residuals = proto_computed.get("residuals", {})
-    arb_residuals = arb_computed.get("residuals", {})
-    for key in ("insample_residual", "oos_residual"):
-        if key in proto_residuals and key in arb_residuals:
-            compare_field(f"computed.residuals.{key}", proto_residuals[key], arb_residuals[key])
-        else:
-            errors.append(f"Missing computed.residuals.{key} in output")
-
-    return not errors, errors
+def _compare_interval_lists(label: str, a_list: List[List[str]], b_list: List[List[str]]) -> None:
+    if len(a_list) != len(b_list):
+        raise AssertionError(f"{label}: length mismatch {len(a_list)} vs {len(b_list)}")
+    for idx, (a_interval, b_interval) in enumerate(zip(a_list, b_list)):
+        a_pair = _parse_interval(a_interval)
+        b_pair = _parse_interval(b_interval)
+        if not _intervals_intersect(a_pair, b_pair):
+            raise AssertionError(f"{label}[{idx}] intervals do not intersect: {a_pair} vs {b_pair}")
 
 
-def run_parity_check(
-    *,
-    n: int,
-    precision_bits: int,
-    rank: int,
-    seed: int,
-    require_arb: bool,
+def _compare_interval(label: str, a_interval: List[str], b_interval: List[str]) -> None:
+    a_pair = _parse_interval(a_interval)
+    b_pair = _parse_interval(b_interval)
+    if not _intervals_intersect(a_pair, b_pair):
+        raise AssertionError(f"{label} intervals do not intersect: {a_pair} vs {b_pair}")
+
+
+def _load_output(path: str) -> Any:
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _run_prototype(kernel_input: str, kernel_output: str, precision: int) -> None:
+    cmd = [
+        "python",
+        os.path.join("kernel", "prototype", "prototype_kernel.py"),
+        kernel_input,
+        kernel_output,
+        "--precision",
+        str(precision),
+    ]
+    subprocess.run(cmd, check=True)
+
+
+def _run_arb(
+    kernel_input: str,
+    kernel_output: str,
+    precision: int,
+    docker_image: str,
+    arb_command: str | None,
 ) -> None:
-    rng = np.random.default_rng(seed)
-    failures = 0
+    if arb_command:
+        cmd = arb_command.format(
+            kernel_input=kernel_input,
+            kernel_output=kernel_output,
+            precision=precision,
+        )
+        subprocess.run(cmd, shell=True, check=True)
+        return
 
-    for idx in range(n):
-        rows = rng.integers(8, 16)
-        cols = rng.integers(4, 10)
-        X = rng.standard_normal((rows, cols))
-        X_aug = np.concatenate([X, np.ones((rows, 1))], axis=1)
+    if not shutil.which("docker"):
+        raise RuntimeError("docker is required to run the ARB kernel container")
 
-        with tempfile.TemporaryDirectory(prefix="esm_kernel_parity_") as tmpdir:
-            kernel_input_path = f"{tmpdir}/kernel_input.json"
-            export_kernel_input(
-                X_aug,
-                trace_id=f"parity-{idx}",
-                output_path=kernel_input_path,
-                rank=rank,
-                precision_bits=precision_bits,
-            )
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{kernel_input}:/data/kernel_input.json:ro",
+        "-v",
+        f"{kernel_output}:/data/kernel_output.json:rw",
+        "-e",
+        f"PRECISION_BITS={precision}",
+        docker_image,
+        "/data/kernel_input.json",
+        "/data/kernel_output.json",
+    ]
+    subprocess.run(cmd, check=True)
 
-            prototype_output = run_kernel(
-                kernel_input_path,
-                precision_bits=precision_bits,
-                mode="prototype",
-            )
 
-            try:
-                arb_output = run_kernel(
-                    kernel_input_path,
-                    precision_bits=precision_bits,
-                    mode="arb",
-                )
-            except KernelClientError as exc:
-                if require_arb:
-                    raise
-                print(f"Skipping ARB run: {exc}")
-                return
+def _compare_outputs(proto: Any, arb: Any) -> None:
+    proto_comp = proto["computed"]
+    arb_comp = arb["computed"]
 
-        ok, errors = compare_intervals(prototype_output, arb_output)
-        if not ok:
-            failures += 1
-            print(f"Parity mismatch for sample {idx}:")
-            for error in errors:
-                print(f"  - {error}")
+    _compare_interval_lists("sigma", proto_comp["sigma"], arb_comp["sigma"])
+    _compare_interval("gamma", proto_comp["gamma"], arb_comp["gamma"])
+    _compare_interval("tail_energy", proto_comp["tail_energy"], arb_comp["tail_energy"])
+    _compare_interval("pca_explained", proto_comp["pca_explained"], arb_comp["pca_explained"])
 
-    if failures:
-        raise SystemExit(f"Parity check failed for {failures} of {n} samples.")
+    proto_koop = proto_comp["koopman"]
+    arb_koop = arb_comp["koopman"]
+    _compare_interval_lists("koopman_sigma", proto_koop["koopman_sigma"], arb_koop["koopman_sigma"])
+    _compare_interval(
+        "koopman_singular_gap",
+        proto_koop["koopman_singular_gap"],
+        arb_koop["koopman_singular_gap"],
+    )
 
-    print(f"Parity check passed for {n} samples.")
+    proto_res = proto_comp["residuals"]
+    arb_res = arb_comp["residuals"]
+    _compare_interval("oos_residual", proto_res["oos_residual"], arb_res["oos_residual"])
+    _compare_interval("insample_residual", proto_res["insample_residual"], arb_res["insample_residual"])
+
+    if proto_res.get("r_t_intervals") and arb_res.get("r_t_intervals"):
+        _compare_interval_lists("r_t_intervals", proto_res["r_t_intervals"], arb_res["r_t_intervals"])
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Check parity between kernel modes.")
-    parser.add_argument("--n", type=int, default=10, help="Number of random samples")
-    parser.add_argument("--precision", type=int, default=256, help="Precision bits")
-    parser.add_argument("--rank", type=int, default=8, help="Rank for SVD")
-    parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    parser = argparse.ArgumentParser(description="Compare prototype and ARB kernel outputs.")
+    parser.add_argument("--samples", type=int, default=3, help="Number of random samples to compare.")
+    parser.add_argument("--rank", type=int, default=5, help="Target rank for kernel input.")
+    parser.add_argument("--precision", type=int, default=128, help="Precision bits for kernels.")
     parser.add_argument(
-        "--allow-missing-arb",
-        action="store_true",
-        help="Skip ARB parity if docker kernel is unavailable",
+        "--docker-image",
+        default="ipsissima/kernel:parity",
+        help="Docker image tag for ARB kernel.",
+    )
+    parser.add_argument(
+        "--arb-command",
+        default=None,
+        help="Optional command template to run the ARB kernel.",
     )
     args = parser.parse_args()
 
-    run_parity_check(
-        n=args.n,
-        precision_bits=args.precision,
-        rank=args.rank,
-        seed=args.seed,
-        require_arb=not args.allow_missing_arb,
-    )
+    for idx in range(args.samples):
+        X = np.random.randn(12, 8)
+        X_aug = np.concatenate([X, np.ones((X.shape[0], 1))], axis=1)
+        trace_id = f"parity-{idx}"
+
+        with tempfile.TemporaryDirectory(prefix="kernel_parity_") as tmpdir:
+            kernel_input = os.path.join(tmpdir, "kernel_input.json")
+            proto_output = os.path.join(tmpdir, "kernel_output_proto.json")
+            arb_output = os.path.join(tmpdir, "kernel_output_arb.json")
+
+            export_kernel_input(
+                X_aug=X_aug,
+                trace_id=trace_id,
+                output_path=kernel_input,
+                rank=args.rank,
+                precision_bits=args.precision,
+                kernel_mode="prototype",
+            )
+
+            _run_prototype(kernel_input, proto_output, args.precision)
+            _run_arb(kernel_input, arb_output, args.precision, args.docker_image, args.arb_command)
+
+            proto = _load_output(proto_output)
+            arb = _load_output(arb_output)
+
+            _compare_outputs(proto, arb)
+
+    print("Kernel parity checks passed.")
 
 
 if __name__ == "__main__":

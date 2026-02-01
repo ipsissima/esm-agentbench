@@ -383,6 +383,10 @@ class PythonKernelAdapter(KernelAdapterBase):
         return True
 
 
+# Backwards-compatible alias for adapter interface expectations.
+KernelPort = KernelAdapterBase
+
+
 # Global adapter instance (lazy initialized)
 _kernel_adapter: Optional[KernelAdapterBase] = None
 _adapter_init_attempted: bool = False
@@ -468,6 +472,7 @@ def reset_kernel_adapter() -> None:
 __all__ = [
     "KernelAdapterBase",
     "KernelAdapterError",
+    "KernelPort",
     "VerifiedKernelAdapter",
     "PythonKernelAdapter",
     "make_kernel_adapter",

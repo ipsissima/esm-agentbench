@@ -480,7 +480,7 @@ def run_kernel(input_path: str, output_path: str, precision: int = 128) -> Dict[
     X_aug = decode_matrix_base64(obs["data_matrix"], obs["rows"], obs["cols"])
 
     # Verify integrity
-    computed_hash = hashlib.sha256(X_aug.tobytes()).hexdigest()
+    computed_hash = hashlib.sha256(X_aug.astype(">f8").tobytes()).hexdigest()
     if obs.get("sha256") and computed_hash != obs["sha256"]:
         raise PrototypeKernelError(
             f"Integrity check failed: expected {obs['sha256']}, got {computed_hash}"

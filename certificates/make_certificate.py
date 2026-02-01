@@ -218,11 +218,16 @@ def _compute_per_step_diagnostics(
 
     # Compute off-manifold ratio for each step.
     # off_ratio_t[i] = ||x_i - V_r @ V_r.T @ x_i|| / ||x_i||
-    # Use X_aug if available; otherwise, return a diagnostic zero vector.
     if X_aug is not None:
         off_ratio_t = compute_per_step_off_manifold(X_aug, V_r)
     else:
-        off_ratio_t = [0.0] * T
+        # Attempt to back-project from reduced coordinates if X_aug is missing.
+        # If shapes are incompatible, fall back to zeros.
+        try:
+            X_projected = Z @ V_r.T
+            off_ratio_t = compute_per_step_off_manifold(X_projected, V_r)
+        except Exception:
+            off_ratio_t = [0.0] * T
 
     # Compute per-step residuals if temporal operator is available
     r_norm_t = []
@@ -466,6 +471,35 @@ def _select_effective_rank(
     r_eff = max(1, r_eff)
 
     return r_eff
+
+
+def _compute_svd(
+    X: np.ndarray,
+    r: int,
+    *,
+    use_randomized_svd: bool = False,
+    randomized_svd_n_iter: int = 4,
+    randomized_svd_oversamples: int = 10,
+    randomized_svd_random_state: Optional[int] = 0,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute SVD with optional randomized solver."""
+    if not use_randomized_svd:
+        return np.linalg.svd(X, full_matrices=False)
+
+    try:
+        from sklearn.utils.extmath import randomized_svd
+    except ImportError as exc:  # pragma: no cover - dependency is in requirements
+        raise ImportError("scikit-learn is required for randomized_svd") from exc
+
+    max_rank = min(X.shape)
+    n_components = min(max(r + randomized_svd_oversamples, 1), max_rank)
+    U, S, Vt = randomized_svd(
+        X,
+        n_components=n_components,
+        n_iter=randomized_svd_n_iter,
+        random_state=randomized_svd_random_state,
+    )
+    return U, S, Vt
 
 # Environment variable to allow non-strict kernel mode (for CI without Coq/OCaml)
 # When set, falls back to Python computation if verified kernel is unavailable
@@ -783,9 +817,15 @@ def _compute_semantic_divergence(
 
 
 def _compute_certificate_core(
-    X: np.ndarray, r: int, task_embedding: Optional[np.ndarray] = None,
+    X: np.ndarray,
+    r: int,
+    task_embedding: Optional[np.ndarray] = None,
     lipschitz_margin: float = 0.0,
     strict: bool = True,
+    use_randomized_svd: bool = False,
+    randomized_svd_n_iter: int = 4,
+    randomized_svd_oversamples: int = 10,
+    randomized_svd_random_state: Optional[int] = 0,
 ) -> Dict[str, float]:
     """Compute spectral certificate using SVD (not eigenvalues).
 
@@ -843,8 +883,15 @@ def _compute_certificate_core(
     X_aug = np.concatenate([X, np.ones((T, 1))], axis=1)
 
     # === SVD-BASED ANALYSIS (Wedin's Theorem) ===
-    # Compute full SVD of the data matrix for spectral analysis
-    U, S, Vt = np.linalg.svd(X_aug, full_matrices=False)
+    # Compute SVD of the data matrix for spectral analysis
+    U, S, Vt = _compute_svd(
+        X_aug,
+        r,
+        use_randomized_svd=use_randomized_svd,
+        randomized_svd_n_iter=randomized_svd_n_iter,
+        randomized_svd_oversamples=randomized_svd_oversamples,
+        randomized_svd_random_state=randomized_svd_random_state,
+    )
 
     # Use variance-aware rank selection with strict upper bound r_eff <= T-3
     # This prevents exact reconstruction (residual = 0) pathology
@@ -854,7 +901,7 @@ def _compute_certificate_core(
     Vt_trunc = Vt[:r_eff, :]
 
     # Explained variance via singular values
-    total_energy = float(np.sum(S ** 2))
+    total_energy = float(norm(X_aug, "fro") ** 2)
     retained_energy = float(np.sum(S_trunc ** 2))
     pca_explained = retained_energy / (total_energy + eps) if total_energy > eps else 0.0
     pca_explained = float(np.clip(pca_explained, 0.0, 1.0))
@@ -1055,6 +1102,10 @@ def compute_certificate(
     lipschitz_margin: float = 0.0,
     embedder_id: Optional[str] = None,
     kernel_strict: bool = True,
+    use_randomized_svd: bool = False,
+    randomized_svd_n_iter: int = 4,
+    randomized_svd_oversamples: int = 10,
+    randomized_svd_random_state: Optional[int] = 0,
 ) -> Dict[str, float]:
     """Compute SVD-based spectral certificate with rigorous bounds.
 
@@ -1084,6 +1135,14 @@ def compute_certificate(
     kernel_strict : bool, optional
         If True, require verified kernel (strict mode). If False, allow
         Python fallback when kernel is unavailable. Default is True.
+    use_randomized_svd : bool, optional
+        If True, use randomized SVD for performance. Default is False.
+    randomized_svd_n_iter : int, optional
+        Power iterations for randomized SVD. Default is 4.
+    randomized_svd_oversamples : int, optional
+        Oversampling for randomized SVD. Default is 10.
+    randomized_svd_random_state : Optional[int], optional
+        Random seed for randomized SVD. Default is 0.
 
     Returns
     -------
@@ -1107,7 +1166,17 @@ def compute_certificate(
         task_emb = np.asarray(list(task_embedding), dtype=float)
     
     # Call _compute_certificate_core with the strict parameter
-    base = _compute_certificate_core(X, r, task_embedding=task_emb, lipschitz_margin=lipschitz_margin, strict=kernel_strict)
+    base = _compute_certificate_core(
+        X,
+        r,
+        task_embedding=task_emb,
+        lipschitz_margin=lipschitz_margin,
+        strict=kernel_strict,
+        use_randomized_svd=use_randomized_svd,
+        randomized_svd_n_iter=randomized_svd_n_iter,
+        randomized_svd_oversamples=randomized_svd_oversamples,
+        randomized_svd_random_state=randomized_svd_random_state,
+    )
     
     certificate = {k: v for k, v in base.items() if k != "Z"}
     
@@ -1137,7 +1206,13 @@ def compute_certificate(
             for start, end in segments:
                 if end - start < 2:
                     continue
-                cert_seg = _compute_certificate_core(Z[start:end], r=min(r, end - start), lipschitz_margin=0.0, strict=False)
+                cert_seg = _compute_certificate_core(
+                    Z[start:end],
+                    r=min(r, end - start),
+                    lipschitz_margin=0.0,
+                    strict=False,
+                    use_randomized_svd=False,
+                )
                 segment_meta.append({
                     "start": start,
                     "end": end,
@@ -1179,6 +1254,10 @@ def _compute_local_coherence(
     X: np.ndarray,
     window_size: int = 20,
     r: int = 10,
+    use_randomized_svd: bool = False,
+    randomized_svd_n_iter: int = 4,
+    randomized_svd_oversamples: int = 10,
+    randomized_svd_random_state: Optional[int] = 0,
 ) -> Dict[str, float]:
     """Compute Local Coherence (Micro-Monitor) via sliding window SVD.
 
@@ -1196,6 +1275,14 @@ def _compute_local_coherence(
         Size of sliding window for local analysis. Default 20.
     r : int
         Maximum rank for SVD truncation. Default 10.
+    use_randomized_svd : bool
+        Whether to use randomized SVD for window analysis.
+    randomized_svd_n_iter : int
+        Power iterations for randomized SVD.
+    randomized_svd_oversamples : int
+        Oversampling for randomized SVD.
+    randomized_svd_random_state : Optional[int]
+        Random seed for randomized SVD.
 
     Returns
     -------
@@ -1241,7 +1328,14 @@ def _compute_local_coherence(
     T_w = X_aug.shape[0]
 
     # SVD of window data
-    U, S, Vt = np.linalg.svd(X_aug, full_matrices=False)
+    U, S, Vt = _compute_svd(
+        X_aug,
+        r,
+        use_randomized_svd=use_randomized_svd,
+        randomized_svd_n_iter=randomized_svd_n_iter,
+        randomized_svd_oversamples=randomized_svd_oversamples,
+        randomized_svd_random_state=randomized_svd_random_state,
+    )
 
     # Use variance-aware rank selection with strict upper bound r_eff <= T_w-3
     r_eff = _select_effective_rank(S, T_w, r, X_aug.shape[1])
@@ -1249,7 +1343,7 @@ def _compute_local_coherence(
     Vt_trunc = Vt[:r_eff, :]
 
     # Explained variance
-    total_energy = float(np.sum(S ** 2))
+    total_energy = float(norm(X_aug, "fro") ** 2)
     retained_energy = float(np.sum(S_trunc ** 2))
     local_pca_explained = retained_energy / (total_energy + eps) if total_energy > eps else 0.0
     local_pca_explained = float(np.clip(local_pca_explained, 0.0, 1.0))

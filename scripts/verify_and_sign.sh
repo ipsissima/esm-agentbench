@@ -25,6 +25,7 @@ GPG_KEY=""
 OUTPUT_DIR="./bundle"
 PRECISION=128
 KERNEL_MODE="prototype"
+KERNEL_IMAGE_DIGEST="${ESM_KERNEL_IMAGE_DIGEST:-}"
 
 # Parse arguments
 TRACE_FILE=""
@@ -77,6 +78,9 @@ echo "Trace: $TRACE_FILE"
 echo "Output: $OUTPUT_DIR"
 echo "Precision: $PRECISION bits"
 echo "Kernel mode: $KERNEL_MODE"
+if [ -n "$KERNEL_IMAGE_DIGEST" ]; then
+    echo "Kernel image digest: $KERNEL_IMAGE_DIGEST"
+fi
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
@@ -214,6 +218,7 @@ files = {
 metadata = create_metadata(
     files=files,
     kernel_mode='$KERNEL_MODE',
+    kernel_image_digest='''$KERNEL_IMAGE_DIGEST''' or None,
     extra={'trace_id': '$TRACE_ID', 'precision_bits': $PRECISION},
 )
 
