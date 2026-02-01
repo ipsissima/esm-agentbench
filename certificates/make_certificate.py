@@ -213,21 +213,30 @@ def _compute_per_step_diagnostics(
     """
     Z = np.asarray(Z, dtype=float)
     V_r = np.asarray(V_r, dtype=float)
+    if Z.ndim != 2:
+        raise ValueError("Z must be a 2D array with shape (T, r_eff).")
+    if V_r.ndim != 2:
+        raise ValueError("V_r must be a 2D array with shape (D+1, r_eff).")
     T, r_eff = Z.shape
-    eps = 1e-12
+    if V_r.shape[1] != r_eff:
+        raise ValueError(
+            "V_r must have the same number of columns as Z has features (r_eff)."
+        )
 
     # Compute off-manifold ratio for each step.
     # off_ratio_t[i] = ||x_i - V_r @ V_r.T @ x_i|| / ||x_i||
-    if X_aug is not None:
-        off_ratio_t = compute_per_step_off_manifold(X_aug, V_r)
+    if X_aug is None:
+        X_aug = Z @ V_r.T
     else:
-        # Attempt to back-project from reduced coordinates if X_aug is missing.
-        # If shapes are incompatible, fall back to zeros.
-        try:
-            X_projected = Z @ V_r.T
-            off_ratio_t = compute_per_step_off_manifold(X_projected, V_r)
-        except Exception:
-            off_ratio_t = [0.0] * T
+        X_aug = np.asarray(X_aug, dtype=float)
+        if X_aug.ndim != 2:
+            raise ValueError("X_aug must be a 2D array with shape (T, D+1).")
+        if X_aug.shape[0] != T:
+            raise ValueError("X_aug must have the same number of rows as Z.")
+        if X_aug.shape[1] != V_r.shape[0]:
+            raise ValueError("X_aug column count must match V_r row count (D+1).")
+
+    off_ratio_t = compute_per_step_off_manifold(X_aug, V_r)
 
     # Compute per-step residuals if temporal operator is available
     r_norm_t = []

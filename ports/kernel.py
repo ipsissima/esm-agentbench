@@ -6,7 +6,11 @@ from typing import Any, Dict, Optional, Protocol, runtime_checkable
 
 @runtime_checkable
 class KernelPort(Protocol):
-    """Port for verified kernel execution."""
+    """Port for verified kernel execution.
+
+    This is the canonical kernel interface; concrete adapters should implement
+    this protocol rather than redefining a separate contract.
+    """
 
     def run_kernel(
         self,
