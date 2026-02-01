@@ -51,7 +51,7 @@ from .witness_checker import check_witness, WitnessValidationError
 logger = logging.getLogger(__name__)
 
 
-def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
+def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> Tuple[float, bool]:
     """Compute out-of-sample residual using time-series cross-validation.
 
     This prevents the residual from being zero due to in-sample overfitting.
@@ -63,6 +63,13 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
     The OOS residual is a meaningful measure of dynamical predictability that
     cannot be gamed by increasing model capacity.
 
+    Conservative Floor Policy:
+    - For T < 4: Returns conservative floor of 0.1 (arbitrary small nonzero value)
+      to avoid optimistic zero-residual certificates on degenerate traces.
+    - For denom < eps: Returns 0.1 to avoid division by near-zero.
+    - Rationale: Better to be conservative (higher residual) than optimistic
+      on traces too short for meaningful cross-validation.
+
     Parameters
     ----------
     Z : np.ndarray
@@ -72,21 +79,30 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
 
     Returns
     -------
-    float
-        Out-of-sample residual in [0, inf). Values near 0 indicate predictable
-        dynamics; high values indicate chaotic/unpredictable dynamics.
+    Tuple[float, bool]
+        A tuple of (residual, oos_valid) where:
+        - residual: Out-of-sample residual in [0, inf). Values near 0 indicate
+          predictable dynamics; high values indicate chaotic/unpredictable dynamics.
+        - oos_valid: True if OOS estimation was statistically valid (T >= 4 and
+          denom >= eps), False otherwise indicating conservative fallback was used.
     """
     Z = np.asarray(Z, dtype=float)
     T, d = Z.shape
     eps = 1e-12
+    
+    # Conservative floor for degenerate cases
+    # Rationale: 0.1 is a small but nonzero value that indicates "minimal but uncertain"
+    # predictability. This prevents optimistic zero-residual certificates on tiny traces
+    # where cross-validation statistics are unreliable.
+    CONSERVATIVE_FLOOR = 0.1
 
     if T < 4:
         # Too short for meaningful OOS estimation
-        logger.info(
-            f"_compute_oos_residual: Trace too short (T={T}), returning fallback residual=0.0. "
-            f"Minimum T=4 required for out-of-sample validation."
+        logger.warning(
+            f"_compute_oos_residual: Trace too short (T={T}), returning conservative floor={CONSERVATIVE_FLOOR}. "
+            f"Minimum T=4 required for out-of-sample validation. oos_valid=False."
         )
-        return 0.0
+        return CONSERVATIVE_FLOOR, False
 
     X0 = Z[:-1].T  # Shape: (d, T-1)
     X1 = Z[1:].T   # Shape: (d, T-1)
@@ -131,9 +147,9 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
                 logger.warning(
                     f"_compute_oos_residual: lstsq() also failed, returning fallback residual=1.0. "
                     f"X0_train shape={X0_train.shape}, X1_train shape={X1_train.shape}, "
-                    f"error={e2}"
+                    f"error={e2}. oos_valid=False."
                 )
-                return 1.0
+                return 1.0, False
 
         # Predict the holdout step
         x0_test = X0[:, h]
@@ -145,9 +161,13 @@ def _compute_oos_residual(Z: np.ndarray, regularization: float = 1e-6) -> float:
         denom += np.sum(x1_true ** 2)
 
     if denom < eps:
-        return 0.0
+        logger.warning(
+            f"_compute_oos_residual: denom={denom:.2e} < eps={eps:.2e}, "
+            f"returning conservative floor={CONSERVATIVE_FLOOR}. oos_valid=False."
+        )
+        return CONSERVATIVE_FLOOR, False
 
-    return float(np.sqrt(squared_errors / (denom + eps)))
+    return float(np.sqrt(squared_errors / (denom + eps))), True
 
 
 def _fit_temporal_operator_ridge(
@@ -1089,7 +1109,7 @@ def _compute_certificate_core(
 
     # Compute OUT-OF-SAMPLE residual to prevent zero-residual pathology
     # This is the key fix: in-sample fit can be exact, but OOS residual cannot
-    oos_residual = _compute_oos_residual(Z, regularization=1e-6)
+    oos_residual, oos_valid = _compute_oos_residual(Z, regularization=1e-6)
 
     # === TEMPORAL OPERATOR ANALYSIS ===
     # Singular values of A characterize the operator's conditioning for prediction
@@ -1185,6 +1205,7 @@ def _compute_certificate_core(
         "residual": residual,
         "insample_residual": insample_residual,  # Diagnostic: in-sample residual
         "oos_residual": oos_residual,  # Diagnostic: out-of-sample residual
+        "oos_valid": oos_valid,  # Diagnostic: whether OOS estimation was statistically valid
         "tail_energy": tail_energy,
         "semantic_divergence": semantic_divergence,
         "lipschitz_margin": lipschitz_margin,
@@ -1478,7 +1499,7 @@ def _compute_local_coherence(
     A = _fit_temporal_operator_ridge(X0, X1, regularization=1e-6)
 
     # Compute OOS residual to prevent zero-residual pathology
-    oos_residual = _compute_oos_residual(Z, regularization=1e-6)
+    oos_residual, oos_valid = _compute_oos_residual(Z, regularization=1e-6)
     insample_residual = float(norm(X1 - A @ X0, "fro") / (norm(X1, "fro") + eps))
 
     # Use OOS residual as primary residual (with floor to prevent collapse)
