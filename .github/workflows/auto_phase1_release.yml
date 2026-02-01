@@ -28,7 +28,6 @@ jobs:
         run: |
           chmod +x ci/verify_submission.sh || true
           chmod +x scripts/produce_final_artifact.sh || true
-          chmod +x make_demo_auto.sh || true
 
       - name: Create venv and install requirements
         run: |
