@@ -33,6 +33,12 @@ Run the test suite:
 pytest -q
 ```
 
+### Archived automation
+Demo automation and Cloud Run deployment workflows have been archived under
+`archive/2026-02-01-cleanup/` to keep CI focused on verification and evaluation
+pipelines. Restore them from that directory if you need the demo video pipeline
+or the Cloud Run deploy workflow.
+
 ### Tuning & evaluation pipeline (augmented classifier)
 For real-trace calibration and nested CV tuning:
 ```bash
