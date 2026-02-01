@@ -15,6 +15,7 @@
 Require Import ZArith.
 Require Import QArith.
 Require Import Bool.
+Require Import QArith.QArith_base.
 
 Open Scope Q_scope.
 
