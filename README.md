@@ -13,6 +13,7 @@ ESM-AgentBench pivots from "LLM-as-a-judge" heuristics toward **Spectral Certifi
 - [Quickstart](QUICKSTART.md)
 - [Theory](THEORY.md)
 - [Benchmarks](BENCHMARKS.md)
+- [Hexagonal Architecture Guide](docs/HEXAGONAL_ARCHITECTURE.md)
 
 ### Quickstart
 Run the offline SWE-bench Lite demo (see `demo_swe/episodes/ep01.json` for the
@@ -27,6 +28,23 @@ Bootstrap a local dev environment with the canonical HF stack:
 scripts/bootstrap-dev.sh
 . .venv/bin/activate
 ```
+
+Run the test suite:
+```bash
+pytest -q
+```
+
+### Architecture
+
+ESM-AgentBench follows **Hexagonal Architecture** (Ports and Adapters) for clean separation of concerns:
+
+- **Ports** (`/ports`) - Interfaces defining contracts for external dependencies
+- **Adapters** (`/adapters`) - Concrete implementations (embedders, kernels, signers, storage)
+- **Core** (`/core`) - Pure domain logic independent of infrastructure
+- **Services** (`/services`) - Application orchestration and dependency injection
+- **Apps** (`/apps`) - Entry points and user-facing applications
+
+See [Hexagonal Architecture Guide](docs/HEXAGONAL_ARCHITECTURE.md) for detailed documentation and examples.
 
 Run the test suite:
 ```bash
