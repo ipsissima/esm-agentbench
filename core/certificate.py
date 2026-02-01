@@ -1,4 +1,20 @@
-"""Core certificate computation with optional kernel verification."""
+"""Core certificate computation with optional kernel verification.
+
+This module provides the main entry point for computing spectral certificates
+from trace data. It handles:
+- Embedding extraction from various trace formats
+- Certificate computation via certificates.make_certificate
+- Optional kernel verification via ports.kernel.KernelPort
+
+Shape conventions:
+- Embedding matrices: (T, D) where T = time steps, D = embedding dimension
+- Time is the first axis (rows), features are the second axis (columns)
+- All computations use float64 (np.float64) for numerical stability
+- Augmented embeddings X_aug: (T, D+1) with affine bias term
+
+The compute_certificate_from_trace function is the canonical interface for
+certificate generation from agent execution traces.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -22,15 +38,27 @@ def extract_embeddings(trace: Mapping[str, Any], psi_mode: str = "embedding") ->
     Parameters
     ----------
     trace : Mapping[str, Any]
-        Trace data.
+        Trace data containing embeddings or steps with embeddings.
     psi_mode : str
-        Mode for extraction. "embedding" uses embeddings, "residual_stream" uses
-        internal state/residual stream if available.
+        Mode for extraction:
+        - "embedding": Uses 'embeddings' field or extracts from 'steps'
+        - "residual_stream": Uses 'internal_state' or 'residual_stream' if available
 
     Returns
     -------
     np.ndarray
-        Embedding matrix of shape (T, D).
+        Embedding matrix of shape (T, D) where T is number of time steps
+        and D is embedding dimension. Dtype is float64.
+
+    Raises
+    ------
+    TraceEmbeddingError
+        If no embeddings can be extracted from the trace.
+
+    Notes
+    -----
+    Shape convention: Time is the first axis (rows), features second (columns).
+    This follows the (T, D) convention used throughout the certificate pipeline.
     """
     if psi_mode == "residual_stream":
         if "internal_state" in trace:
@@ -75,29 +103,49 @@ def compute_certificate_from_trace(
 ) -> Dict[str, Any]:
     """Compute a certificate from a trace with optional kernel verification.
 
+    This is the canonical interface for generating spectral certificates from
+    agent execution traces. It extracts embeddings, computes the certificate
+    via SVD-based analysis, and optionally verifies results with a kernel.
+
     Parameters
     ----------
     trace : Mapping[str, Any]
-        Trace payload containing embeddings or steps.
-    psi_mode : str
-        Embedding selection mode.
-    rank : int
-        Rank for SVD truncation.
-    task_embedding : Optional[np.ndarray]
-        Task embedding used for semantic divergence.
-    embedder_id : Optional[str]
+        Trace payload containing embeddings or steps with embeddings.
+    psi_mode : str, optional
+        Embedding extraction mode (default: "embedding").
+    rank : int, optional
+        Rank for SVD truncation (default: 10).
+    task_embedding : Optional[np.ndarray], optional
+        Task embedding for semantic divergence computation. Should be shape (D,)
+        matching the embedding dimension.
+    embedder_id : Optional[str], optional
         Embedder identifier for audit trails.
-    kernel : Optional[KernelPort]
-        Kernel adapter to verify results.
-    kernel_mode : str
-        Kernel mode (prototype/arb/mpfi).
-    precision_bits : int
-        Interval arithmetic precision.
+    kernel : Optional[KernelPort], optional
+        Kernel adapter for verification. If provided, runs kernel verification
+        and includes kernel output in the certificate.
+    kernel_mode : str, optional
+        Kernel execution mode: "prototype", "arb", or "mpfi" (default: "prototype").
+    precision_bits : int, optional
+        Interval arithmetic precision for kernel verification (default: 128).
 
     Returns
     -------
     Dict[str, Any]
-        Certificate payload with optional kernel output.
+        Certificate payload containing:
+        - 'theoretical_bound': float, the certified theoretical bound
+        - 'residual': float, the prediction residual
+        - 'tail_energy': float, energy not captured by rank-r truncation
+        - 'semantic_divergence': float, deviation from task embedding
+        - 'lipschitz_margin': float, embedding Lipschitz stability
+        - 'kernel_output': Dict (if kernel provided), verification results
+        - 'kernel_trace_id': str (if kernel provided), trace identifier
+
+    Notes
+    -----
+    Shape conventions:
+    - Input embeddings: (T, D) with T time steps, D dimensions
+    - Task embedding: (D,) vector
+    - All arrays converted to float64 for numerical stability
     """
     embeddings = extract_embeddings(trace, psi_mode=psi_mode)
     certificate = compute_certificate(
