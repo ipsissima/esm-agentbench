@@ -184,7 +184,7 @@ def compute_enhanced_certificate(
 
     # Compute SVD for diagnostics
     U, S, Vt = np.linalg.svd(X_aug, full_matrices=False)
-    r_eff, r_eff_diagnostics = _select_effective_rank(S, T, rank, X_aug.shape[1])
+    r_eff, _ = _select_effective_rank(S, T, rank, X_aug.shape[1])
     r_eff = int(r_eff)  # Ensure r_eff is a plain Python int for slicing
     V_r = Vt[:r_eff, :].T  # (D+1, r_eff)
 
