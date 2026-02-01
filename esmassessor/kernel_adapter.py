@@ -54,7 +54,6 @@ class KernelAdapterBase(KernelComputePort, ABC):
     KernelAdapterBase focuses on computation operations within the certificate
     generation pipeline.
     """
-    """
 
     @abstractmethod
     def compute_residual(self, X0: np.ndarray, X1: np.ndarray, A: np.ndarray) -> float:
