@@ -4,7 +4,7 @@
 
 **Authors:** ESM-AgentBench Team
 **Date:** December 2025
-**Status:** Phase-1 Formal Note
+**Status:** Formal Note
 
 ---
 

@@ -1,4 +1,4 @@
-# AgentBeats Phase-1 Submission: EigenSpace Spectral Bench
+# AgentBeats Submission: EigenSpace Spectral Bench
 
 ## Trace provenance & judge quickstart
 
@@ -64,7 +64,7 @@ jq '.data_source' reports/spectral_validation_real_hf/*/validation_report.json
 
 ## Overview
 
-This repository contains 6 Phase-1 scenarios for the AgentBeats benchmark, demonstrating spectral certificate-based detection of AI agent misbehavior using **real tool-using agent traces only**.
+This repository contains 6 AgentBeats scenarios, demonstrating spectral certificate-based detection of AI agent misbehavior using **real tool-using agent traces only**.
 
 **Key Innovation**: All benchmark evidence and metrics are derived from real, tool-using agent execution traces. Synthetic data is used only for isolated numerical regression tests and cannot enter the evaluation pipeline.
 

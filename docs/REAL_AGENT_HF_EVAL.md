@@ -18,7 +18,7 @@ This guarantees that all submitted results reflect genuine agent behavior, not s
 
 This evaluation framework:
 
-1. **Runs multiple local models** as coding agents through Phase-1 security scenarios
+1. **Runs multiple local models** as coding agents through security scenarios
 2. **Captures real execution traces** with step-by-step tool usage and embeddings
 3. **Performs spectral validation** using Koopman operator theory with calibrated thresholds
 4. **Tests cross-model generalization** to demonstrate robust drift detection
@@ -203,7 +203,7 @@ python tools/real_agents_hf/run_real_agents.py \
 ```
 
 **Parameters:**
-- `--scenario`: One of the 6 Phase-1 scenarios (or `--all-scenarios`)
+- `--scenario`: One of the 6 scenarios (or `--all-scenarios`)
 - `--models`: Comma-separated model names from `models.yaml`
 - `--labels`: Which labels to run (default: all three)
 - `--n`: Runs per model/label (min 20, target 50 for publication)
@@ -738,15 +738,15 @@ If you use this framework, cite the ESM AgentBench submission:
 
 - GitHub Issues: https://github.com/ipsissima/esm-agentbench/issues
 - Documentation: docs/REAL_AGENT_HF_EVAL.md
-- Phase-1 Specs: submissions/README.md
+- Submission Specs: submissions/README.md
 
 ---
 
-## Phase-1 Attestation and Verified Kernel
+## Submission Attestation and Verified Kernel
 
 ### Overview
 
-All Phase-1 judge runs are now fully auditable and reproducible through:
+All judge runs are now fully auditable and reproducible through:
 
 1. **Trace Attestation**: Each `index.json` includes cryptographic witness hash and embedder provenance
 2. **Ed25519 Signatures**: Detached signatures ensure trace integrity
@@ -859,19 +859,19 @@ cert = compute_certificate(
 - `kernel_strict=True` (default): Requires verified kernel; raises error if unavailable
 - `kernel_strict=False`: Falls back to Python computation if kernel missing
 
-In CI, the verified kernel is built from Coq proofs and enforced for Phase-1 validation.
+In CI, the verified kernel is built from Coq proofs and enforced for validation runs.
 
 ### CI: Verified Kernel Build
 
-The `.github/workflows/agentbeats_phase1.yml` workflow now:
+The `.github/workflows/ci.yml` workflow now:
 
 1. **Builds the kernel** from Coq/OCaml sources in a `build_verified_kernel` job
 2. **Uploads** `kernel_verified.so` as an artifact
-3. **Downloads** the kernel in the `validate-phase1` job
+3. **Downloads** the kernel in the integration test job
 4. **Sets** `VERIFIED_KERNEL_PATH` environment variable
 5. **Enforces** kernel usage (no longer skips by default)
 
-If the kernel fails to build, the entire workflow fails — ensuring official Phase-1 validation always uses formally verified computation.
+If the kernel fails to build, the entire workflow fails — ensuring official validation always uses formally verified computation.
 
 #### Recommended Docker Builder (Coq 8.18.0)
 
@@ -944,15 +944,15 @@ python tools/calibrate_thresholds.py \
 
 This ensures calibration reflects actual agent behavior, not synthetic data.
 
-### Reproducing Phase-1 Results
+### Reproducing Results
 
-To verify Phase-1 submissions:
+To verify submissions:
 
 1. **Clone the repository**:
    ```bash
    git clone https://github.com/ipsissima/esm-agentbench
    cd esm-agentbench
-   git checkout agentbeats/phase1-submission-{team}
+   git checkout agentbeats/submission-{team}
    ```
 
 2. **Build the verified kernel**:
@@ -976,7 +976,7 @@ To verify Phase-1 submissions:
 
 5. **Re-run validation**:
    ```bash
-   pytest tests/test_phase1_submission.py -v
+   pytest tests/test_app_end_to_end.py -v
    ```
 
 All computations should produce identical results due to:

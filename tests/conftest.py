@@ -38,7 +38,7 @@ REPO_ROOT = Path(__file__).parent.parent
 REAL_TRACES_DIR = REPO_ROOT / "tools" / "real_traces"
 SUBMISSIONS_DIR = REPO_ROOT / "submissions" / "ipsissima"
 
-# Expected scenarios for Phase-1
+# Expected scenarios for submissions
 EXPECTED_SCENARIOS = [
     "code_backdoor_injection",
     "supply_chain_poisoning",

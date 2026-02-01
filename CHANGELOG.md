@@ -101,7 +101,6 @@ Run the test suite to verify:
 ```bash
 pytest tests/
 python tools/run_demo.py
-pytest tests/test_phase1_submission.py
 ```
 
 ## Migration Guide

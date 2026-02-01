@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run spectral validation experiments on Phase-1 scenarios.
+"""Run spectral validation experiments on scenarios.
 
 This script:
 1. Loads labelled traces (gold/creative/drift) from experiment_traces/
@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import sys
 import warnings
 import importlib.util
@@ -439,7 +438,6 @@ def run_experiment(
     output_dir: Path,
     k: int = 10,
     scenario_name: str = 'default',
-    strict_phase1: bool = False,
     use_augmented_classifier: bool = False,
     augmented_model_path: Optional[Path] = None,
     fpr_target: float = 0.05,
@@ -456,9 +454,6 @@ def run_experiment(
         Rank for spectral analysis.
     scenario_name : str
         Name of scenario for reporting.
-    strict_phase1 : bool
-        Enforce data_source presence for Phase-1 validation.
-
     Returns
     -------
     dict
@@ -567,15 +562,6 @@ def run_experiment(
         # All are 'unknown' (legacy traces without data_source field)
         logger.warning("Traces missing data_source field, defaulting to 'unknown'")
         data_source = 'unknown'
-        if strict_phase1:
-            logger.error(
-                "Phase-1 strict validation requires data_source to be set "
-                "(real_traces_only or synthetic)."
-            )
-            raise ValueError(
-                "Strict Phase-1 validation rejected traces with missing data_source. "
-                "Populate data_source or disable strict mode."
-            )
 
     # Build report
     report = {
@@ -654,7 +640,6 @@ def run_all_scenarios(
     reports_dir: Path,
     traces_base: Path,
     k: int = 10,
-    strict_phase1: bool = False,
     use_augmented_classifier: bool = False,
     augmented_model_path: Optional[Path] = None,
     fpr_target: float = 0.05,
@@ -671,9 +656,6 @@ def run_all_scenarios(
         Base directory for experiment traces.
     k : int
         Rank for spectral analysis.
-    strict_phase1 : bool
-        Enforce data_source presence for Phase-1 validation.
-
     Returns
     -------
     dict
@@ -706,7 +688,6 @@ def run_all_scenarios(
             output_dir=output_dir,
             k=k,
             scenario_name=scenario_name,
-            strict_phase1=strict_phase1,
             use_augmented_classifier=use_augmented_classifier,
             augmented_model_path=augmented_model_path,
             fpr_target=fpr_target,
@@ -721,7 +702,6 @@ def run_all_scenarios(
             output_dir=reports_dir / 'global',
             k=k,
             scenario_name='global',
-            strict_phase1=strict_phase1,
             use_augmented_classifier=use_augmented_classifier,
             augmented_model_path=augmented_model_path,
             fpr_target=fpr_target,
@@ -779,11 +759,6 @@ def summarize_reports(
     return scenario_results, num_tested, num_passed
 
 
-def _env_truthy(name: str) -> bool:
-    value = os.getenv(name, "").strip().lower()
-    return value in {"1", "true", "yes", "y", "on"}
-
-
 def main():
     # Configure logging
     logging.basicConfig(
@@ -830,14 +805,6 @@ def main():
         help="Enable verbose output",
     )
     parser.add_argument(
-        "--strict-phase1",
-        action="store_true",
-        help=(
-            "Fail if traces omit data_source (opt-in; "
-            "also enabled by PHASE1_EVIDENCE=1)."
-        ),
-    )
-    parser.add_argument(
         "--use-augmented-classifier",
         action="store_true",
         help="Use tuned augmented classifier from reports/best_model.pkl",
@@ -859,8 +826,6 @@ def main():
 
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-    strict_phase1 = args.strict_phase1 or _env_truthy("PHASE1_EVIDENCE")
-
     logger.info("=" * 60)
     logger.info("Spectral Validation Experiment Runner")
     logger.info("Using real agent traces for evaluation")
@@ -874,7 +839,6 @@ def main():
             reports_dir=args.output_dir,
             traces_base=args.traces_dir,
             k=args.k,
-            strict_phase1=strict_phase1,
             use_augmented_classifier=args.use_augmented_classifier,
             augmented_model_path=args.augmented_model,
             fpr_target=args.fpr_target,
@@ -930,7 +894,6 @@ def main():
             output_dir=args.output_dir / args.scenario,
             k=args.k,
             scenario_name=args.scenario,
-            strict_phase1=strict_phase1,
             use_augmented_classifier=args.use_augmented_classifier,
             augmented_model_path=args.augmented_model,
             fpr_target=args.fpr_target,
@@ -949,7 +912,6 @@ def main():
             output_dir=args.output_dir / 'global',
             k=args.k,
             scenario_name='global',
-            strict_phase1=strict_phase1,
             use_augmented_classifier=args.use_augmented_classifier,
             augmented_model_path=args.augmented_model,
             fpr_target=args.fpr_target,

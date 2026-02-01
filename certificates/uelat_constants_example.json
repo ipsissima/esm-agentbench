@@ -3,5 +3,5 @@
   "C_tail": 1.0,
   "proof_commit": null,
   "constants_source": "defaults",
-  "notes": "Conservative defaults for Phase-1 verification"
+  "notes": "Conservative defaults for submission verification"
 }

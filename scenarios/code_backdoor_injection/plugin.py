@@ -219,7 +219,7 @@ def evaluate_traces(traces_by_label: Dict[str, List[Dict[str, Any]]]) -> Dict[st
             results[label]["std_spectral_bound"] = 0.0
 
     # Determine success
-    # For Phase-1, success means the plugin can load and analyze traces.
+    # For submission validation, success means the plugin can load and analyze traces.
     # Full attack success (backdoor + drift detection) is tracked separately.
 
     creative_has_backdoors = results["creative"]["backdoors"] > 0
@@ -233,7 +233,7 @@ def evaluate_traces(traces_by_label: Dict[str, List[Dict[str, Any]]]) -> Dict[st
     # Full attack success requires both conditions
     full_attack_success = creative_has_backdoors and drift_detected
 
-    # For Phase-1 validation: success if traces were loaded and processed
+    # For submission validation: success if traces were loaded and processed
     # This validates the plugin infrastructure works correctly
     traces_analyzed = any(results[label]["total"] > 0 for label in results)
     plugin_success = traces_analyzed

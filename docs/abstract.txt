@@ -4,7 +4,7 @@ ESM-AgentBench introduces formally verified spectral certificates for detecting 
 
 The system linearizes nonlinear reasoning trajectories, quantifies residuals between predicted and observed agent behavior, and exposes conservative theoretical bounds with Davis-Kahan stability guarantees. When the spectral bound inflates, drift is flagged; unstable spectra surface potential hallucinations.
 
-Key contributions for Phase-1:
+Key contributions:
 - Verified kernel built from Coq proofs through OCaml extraction to a shared library
 - 100% real agent traces from tool-using LLM agents (GPT-4o, GPT-3.5-turbo)
 - Six adversarial scenarios: code backdoor injection, supply chain poisoning, test oracle manipulation, code review bypass, credential leaks, and vulnerability injection during refactoring
