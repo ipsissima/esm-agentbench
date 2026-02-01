@@ -9,6 +9,11 @@
     - Extract 'list' to OCaml 'list'
     - Extract core functions to OCaml with minimal overhead
     - Preserve function signatures for C interoperability
+
+    **Verified Checker (Option B):**
+    - Extract rational-based checker from Checker.v
+    - Checker operates on exact rationals (no FP error)
+    - If checker accepts witness, certificate is verified
 *)
 
 From Coq Require Import Floats.PrimFloat.
@@ -27,6 +32,7 @@ Require Import ExtrOcamlIntConv.    (* standard: map Coq int/nat conversions to 
 Require Import spectral_bounds.
 Require Import CertificateCore.
 Require Import CertificateProofs.
+Require Import Checker.
 
 (** ** CRITICAL: Prevent extraction from bypassing opacity
     This stops extraction from peeking into opaque constants like
@@ -240,6 +246,27 @@ Extract Constant kernel_api_frobenius_norm => "Kernel_runtime.kernel_api_frobeni
 Extract Constant kernel_api_residual => "Kernel_runtime.kernel_api_residual".
 Extract Constant kernel_api_bound => "Kernel_runtime.kernel_api_bound".
 Extract Constant kernel_api_certificate => "Kernel_runtime.kernel_api_certificate".
+
+(** ** Verified Checker Extraction
+
+    The checker operates on rational intervals and is fully verified in Coq.
+    It provides machine-checked guarantees: if check_witness returns true,
+    the certificate satisfies the formal properties.
+*)
+
+(* Extract checker to separate file for modularity *)
+Extraction "checker_verified.ml"
+  verified_check
+  verified_check_result
+  verified_make_witness
+  verified_make_interval
+  verified_interval_lo
+  verified_interval_hi
+  verified_result_ok
+  verified_result_fail
+  CheckResult
+  RuntimeWitness
+  QInterval.
 
 (** Extract to file 'kernel_verified.ml' *)
 Extraction "kernel_verified.ml"

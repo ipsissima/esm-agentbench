@@ -175,7 +175,8 @@ echo "[kernel] Step 1: Verifying Coq proofs..."
 
 # Recommended: compile in a deterministic order. Ensure spectral_bounds is compiled first.
 # If your project has other dependencies, expand this list or use coq_makefile / _CoqProject.
-VFILES=(spectral_bounds.v CertificateCore.v CertificateProofs.v KernelExtract.v)
+# NOTE: Checker.v is compiled BEFORE KernelExtract.v since KernelExtract imports Checker.
+VFILES=(spectral_bounds.v CertificateCore.v CertificateProofs.v Checker.v KernelExtract.v)
 
 # Ensure logs directory
 mkdir -p "$BUILD_DIR"
@@ -196,7 +197,7 @@ for vf in "${VFILES[@]}"; do
 done
 
 # After compilation, verify .vo files exist for the modules we need
-for mod in spectral_bounds CertificateCore CertificateProofs KernelExtract; do
+for mod in spectral_bounds CertificateCore CertificateProofs Checker KernelExtract; do
   if [ -f "${mod}.vo" ]; then
     echo "[kernel] Found ${mod}.vo"
   else
@@ -204,21 +205,28 @@ for mod in spectral_bounds CertificateCore CertificateProofs KernelExtract; do
   fi
 done
 
-# Extraction step: KernelExtract.v should produce kernel_verified.ml (via Coq extraction).
+# Extraction step: KernelExtract.v should produce kernel_verified.ml AND checker_verified.ml.
 # NOTE: File renamed from Extraction.v to avoid Coq namespace collision with built-in Extraction module.
 # CRITICAL: Always re-extract to ensure KernelExtract.v fixes take effect.
 # We must remove KernelExtract.vo to force Coq to actually re-run the extraction commands,
 # not just skip compilation because the .vo is up-to-date.
 if [ -f "KernelExtract.v" ]; then
-  echo "[kernel] Forcing re-extraction (removing stale kernel_verified.ml/mli and KernelExtract.vo)..."
+  echo "[kernel] Forcing re-extraction (removing stale *.ml/mli and KernelExtract.vo)..."
   # Remove extracted files AND the compiled .vo to force actual re-extraction
-  rm -f kernel_verified.ml kernel_verified.mli KernelExtract.vo KernelExtract.glob
+  rm -f kernel_verified.ml kernel_verified.mli checker_verified.ml checker_verified.mli KernelExtract.vo KernelExtract.glob
 
   echo "[kernel] Running extraction (KernelExtract.v)..."
   if ! ${COQC} -Q . "" KernelExtract.v 2>&1 | tee "${BUILD_DIR}/coq_KernelExtract.v.log"; then
       echo "[kernel] ERROR: Extraction failed. See ${BUILD_DIR}/coq_KernelExtract.v.log"
       popd > /dev/null
       exit 1
+  fi
+
+  # Check for checker extraction
+  if [ -f "checker_verified.ml" ]; then
+    echo "[kernel] Checker extracted to checker_verified.ml"
+  else
+    echo "[kernel] Note: checker_verified.ml not found (optional)"
   fi
 
 else
@@ -281,6 +289,22 @@ if ! ${OCAMLOPT} -c -I +unix -I "${BUILD_DIR}" kernel_verified.ml -o "${BUILD_DI
   echo "[kernel] ERROR: ocamlopt failed to compile kernel_verified.ml"
   popd > /dev/null
   exit 1
+fi
+
+# Compile checker_verified.ml (verified witness checker from Checker.v)
+if [ -f "checker_verified.ml" ]; then
+  echo "[kernel] Compiling checker_verified.ml (verified witness checker)..."
+  if ! ${OCAMLOPT} -c -I +unix -I "${BUILD_DIR}" checker_verified.ml -o "${BUILD_DIR}/checker_verified.cmx"; then
+    echo "[kernel] ERROR: ocamlopt failed to compile checker_verified.ml"
+    popd > /dev/null
+    exit 1
+  fi
+  if [ -f "checker_verified.cmi" ]; then
+    mv -f checker_verified.cmi "${BUILD_DIR}/"
+  fi
+  echo "[kernel] Verified checker compiled to ${BUILD_DIR}/checker_verified.cmx"
+else
+  echo "[kernel] Note: checker_verified.ml not found; verified checker not compiled"
 fi
 
 # Compile kernel_main.ml which registers callbacks for caml_named_value
