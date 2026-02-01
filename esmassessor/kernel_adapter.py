@@ -7,10 +7,15 @@ interface that the rest of the codebase can use without worrying about kernel
 availability or repeated fallback warnings.
 
 Architecture:
-- KernelAdapterBase: Abstract interface for kernel operations
+- KernelAdapterBase: Abstract interface for kernel operations (compute_residual,
+  compute_bound, compute_certificate). This is a different abstraction from
+  ports.KernelPort, which defines the interface for kernel execution (run_kernel).
 - VerifiedKernelAdapter: Uses the formally verified Coq/OCaml kernel
 - PythonKernelAdapter: Pure Python fallback (not verified)
 - make_kernel_adapter(): Factory that returns the best available adapter
+
+Note: This module defines computation operations, not kernel execution.
+For kernel execution interfaces, see ports.kernel.KernelPort and adapters.kernel_client.
 """
 from __future__ import annotations
 
@@ -34,10 +39,15 @@ class KernelAdapterError(RuntimeError):
 
 
 class KernelAdapterBase(ABC):
-    """Abstract interface for kernel operations.
+    """Abstract interface for kernel computation operations.
 
-    This port defines the contract for computing spectral certificate metrics.
-    Implementations may use the verified Coq/OCaml kernel or pure Python.
+    This defines the contract for computing spectral certificate metrics
+    (residual, bound, certificate). Implementations may use the verified
+    Coq/OCaml kernel or pure Python fallback.
+
+    Note: This is distinct from ports.kernel.KernelPort, which defines the
+    interface for kernel execution (run_kernel methods). KernelAdapterBase
+    focuses on computation operations within the certificate generation pipeline.
     """
 
     @abstractmethod
@@ -383,9 +393,11 @@ class PythonKernelAdapter(KernelAdapterBase):
         return True
 
 
-# Note: The canonical KernelPort Protocol is defined in ports/kernel.py.
-# This module's KernelAdapterBase implements that protocol.
-# Do not use "KernelPort" as an alias to avoid name collision.
+# Note: This module defines computation abstractions, distinct from the kernel
+# execution protocol defined in ports.kernel.KernelPort. KernelAdapterBase focuses
+# on certificate computation operations (compute_residual, compute_bound, compute_certificate),
+# while ports.KernelPort defines the interface for kernel execution (run_kernel methods).
+# See adapters.kernel_client.KernelClientAdapter for an implementation of ports.KernelPort.
 
 
 # Global adapter instance (lazy initialized)
