@@ -88,9 +88,9 @@ def extract_embeddings(trace: Mapping[str, Any], psi_mode: str = "embedding") ->
 
 
 def _hash_matrix_bytes(matrix: np.ndarray) -> str:
-    """Hash a matrix using SHA256."""
-    data = matrix.astype(np.float64).tobytes()
-    return hashlib.sha256(data).hexdigest()
+    """Hash a matrix using SHA256 with canonical big-endian float64 encoding."""
+    canonical = np.asarray(matrix, dtype=">f8", order="C")
+    return hashlib.sha256(canonical.tobytes(order="C")).hexdigest()
 
 
 def compute_certificate_from_trace(

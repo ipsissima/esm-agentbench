@@ -753,8 +753,8 @@ def _encode_matrix_base64(M: np.ndarray) -> str:
 
 def _hash_matrix_bytes(M: np.ndarray) -> str:
     """Hash matrix bytes using big-endian float64 encoding."""
-    M = np.asarray(M, dtype='>f8')
-    return hashlib.sha256(M.tobytes()).hexdigest()
+    M = np.asarray(M, dtype=">f8", order="C")
+    return hashlib.sha256(M.tobytes(order="C")).hexdigest()
 
 
 def _decode_matrix_base64(encoded: str, rows: int, cols: int) -> np.ndarray:
@@ -1067,7 +1067,7 @@ def _compute_certificate_core(
     X = np.asarray(X, dtype=float)
     if X.ndim == 1:
         X = X.reshape(-1, 1)
-    raw_hash = hashlib.sha256(X.tobytes()).hexdigest()
+    raw_hash = _hash_matrix_bytes(X)
     try:
         X = normalize_and_check_embeddings(X, var_threshold=1e-8)
     except DegenerateEmbeddingError as exc:
