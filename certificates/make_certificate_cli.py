@@ -53,6 +53,7 @@ from .make_certificate import (
     load_kernel_input,
     _fit_temporal_operator_ridge,
     _select_effective_rank,
+    _hash_matrix_bytes,
 )
 from .kernel_client import (
     run_kernel,
@@ -229,8 +230,11 @@ def compute_enhanced_certificate(
 
         # Compute E_over_gamma (Wedin condition)
         # gamma = singular gap
-        gamma = float(S[r_eff - 1] - S[r_eff]) if len(S) > r_eff else float(S[-1])
-        gamma = max(gamma, 1e-10)  # Avoid division by zero
+        if r_eff <= 0 or r_eff >= len(S):
+            gamma = None
+        else:
+            gap = float(S[r_eff - 1] - S[r_eff])
+            gamma = gap if gap > 0.0 else None
 
         # E_norm = operator perturbation (residual-based estimate)
         if A is not None:
@@ -238,7 +242,7 @@ def compute_enhanced_certificate(
         else:
             E_norm_estimate = 0.0
 
-        E_over_gamma = E_norm_estimate / gamma
+        E_over_gamma = (E_norm_estimate / gamma) if gamma is not None else None
 
         cert["sinTheta"] = {
             "sin_max": sin_max,
@@ -251,8 +255,12 @@ def compute_enhanced_certificate(
             "E_over_gamma": E_over_gamma,
             "gamma": gamma,
             "sin_theta_max": sin_max,
-            "bound_holds": E_over_gamma < 1.0,  # Wedin requires E/gamma < 1
-            "description": "Wedin's theorem: sin(theta) <= E/gamma when E/gamma < 1",
+            "bound_holds": (E_over_gamma < 1.0) if E_over_gamma is not None else None,
+            "description": (
+                "Wedin's theorem: sin(theta) <= E/gamma when E/gamma < 1"
+                if E_over_gamma is not None
+                else "Wedin's theorem: inconclusive (insufficient singular gap)."
+            ),
         }
 
     return cert
@@ -288,7 +296,6 @@ def run_with_kernel_verification(
     Dict[str, Any]
         Certificate with kernel verification results.
     """
-    import hashlib
     import tempfile
 
     T, D = embeddings.shape
@@ -297,7 +304,7 @@ def run_with_kernel_verification(
     X_aug = np.concatenate([embeddings, np.ones((T, 1))], axis=1)
 
     # Generate trace ID
-    trace_id = hashlib.sha256(X_aug.tobytes()).hexdigest()[:16]
+    trace_id = _hash_matrix_bytes(X_aug)[:16]
 
     # Export kernel input
     if kernel_input_path is None:
@@ -519,10 +526,9 @@ def main():
 
     # Export kernel input (without running kernel)
     elif args.export_kernel_input:
-        import hashlib
         T, D = embeddings.shape
         X_aug = np.concatenate([embeddings, np.ones((T, 1))], axis=1)
-        trace_id = hashlib.sha256(X_aug.tobytes()).hexdigest()[:16]
+        trace_id = _hash_matrix_bytes(X_aug)[:16]
 
         export_kernel_input(
             X_aug=X_aug,
